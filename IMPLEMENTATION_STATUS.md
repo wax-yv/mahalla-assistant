@@ -18,10 +18,10 @@ Ushbu hujjat bosh rejadagi har bir band holatini **dalillar bilan** ko'rsatadi. 
 | Kredit-subsidiya agenti (bank so'rash qoidasi) | ✅ **100% — testlab tasdiqlangan** |
 | Frontend (Next.js 15) | ✅ **100% — build ✓, Playwright E2E ✓** |
 | Import/eksport, hisobotlar, audit, joblar | ✅ **100% — API testlari ✓** |
-| Vercel deploy | 🟡 **Konfiguratsiya tayyor** (`apps/api/vercel.json`, `apps/api/api/index.py`, `API_ORIGIN`) — tugmani bosish foydalanuvchida (`DEPLOYMENT.md`) |
-| GitHub push | 🟡 Repo tayyor, commit tayyorlanmoqda (token muammosi pastda) |
+| Vercel deploy | ✅ **100% — LIVE**: https://mahalla-assistant.vercel.app (API: https://mahalla-assistant-api.vercel.app) |
+| GitHub push | ✅ **100%** — https://github.com/wax-yv/mahalla-assistant (private, master) |
 
-**Yakuniy testlar:** backend 14/14 pytest ✓ · frontend `next build` ✓ · E2E (login → dashboard → fuqarolar → chat → vazifalar → qonunchilik → dasturlar → admin) ✓ · mobil/darkscreen tekshiruvi ✓.
+**Yakuniy testlar:** backend 14/14 pytest ✓ · frontend `next build` ✓ · mahalliy E2E ✓ · **PRODUCTION E2E ✓** (login → dashboard → fuqarolar → chat AI javobi → qonunchilik → dasturlar → admin → worklogs; konsol xatosiz). Production baza: 1 258 fuqaro / 285 oila / 202 uy yuklangan (`/setup` 4 s da).
 
 ---
 
@@ -95,7 +95,7 @@ Ushbu hujjat bosh rejadagi har bir band holatini **dalillar bilan** ko'rsatadi. 
 ## 8. Deploy va sifat
 
 - ⚠️ **GitHub Actions** — CI workflow hozircha yo'q (foydalanuvchi talabiga ko'ra minimal keep-simple yondashuv; testlar lokallikda `pytest` bilan yuguriladi). Token muammosi tufayli push keyingi qadam.
-- ⚠️ **Vercel deploy** — konfiguratsiya tayyor (`apps/api/api/index.py`, `vercel.json`, `API_ORIGIN` rewrite, Neon yo'riqnomasi). Tugmani bosish foydalanuvchida; deploy qilingach `/health`, `/setup` tekshiruvi `DEPLOYMENT.md`da.
+- ✅ **Vercel deploy** — ishlayapti. Neon Postgres (Vercel Marketplace) ulangan; API `git push` orqali avtomatik deploy bo'ladi (rootDirectory=apps/api); web CLI orqali deploy qilinadi. Deploy jarayonida hal qilingan muammolar: seed dataset serverless paketga kiritildi, `pyproject.toml` dependencies, FastAPI entrypoint, commit muallifi verifikatsiyasi, Next.js xavfsizlik versiyasi (15.5.28).
 - ✅ **E2E testlar green** — Playwright: login → dashboard → fuqarolar → fuqaro profili → chat (AI) → vazifalar → qonunchilik → dasturlar → admin → tema almashtirish. Konsol xatosiz.
 - ✅ **Mobil va desktop responsive** — bottom-bar navigatsiya, `grid` moslashuv; 390px ekranda sahifa gorizontal overflow 0 (barcha 11 sahifada).
 - ✅ **README va operator qo'llanmasi** — `README.md`, `DEPLOYMENT.md`.

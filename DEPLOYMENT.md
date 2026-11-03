@@ -1,4 +1,23 @@
-# Vercel ga deploy qilish yo'riqnomasi
+# Vercel deploy — HOLAT: ✅ DEPLOY QILINGAN
+
+**LIVE:** https://mahalla-assistant.vercel.app (login `wax` / `waxs`)
+**API:** https://mahalla-assistant-api.vercel.app · Baza: Neon Postgres (Vercel Marketplace, `mahalla-db`)
+**Repo:** https://github.com/wax-yv/mahalla-assistant
+
+---
+
+## Joriy arxitektura (deploy qilingan holat)
+
+| Qism | Usul |
+|---|---|
+| API (`mahalla-assistant-api`) | GitHub `master` push → **avtomatik** deploy (Root Directory: `apps/api`) |
+| Web (`mahalla-assistant`) | `vercel deploy` CLI (`apps/web` ichidan) — Git-avto-deploy o'chirilgan |
+| Baza | Neon Postgres, `DATABASE_URL` env (integration tomonidan boshqariladi) |
+| Seed | `POST /api/v1/setup` + `X-Setup-Token` (faqat `citizens==0` bo'lsa yuklaydi) |
+
+---
+
+# Quyidagi yo'riqnoma — boshqacha hisobda qayta deploy qilish uchun
 
 Bitta GitHub repo → **ikki Vercel loyihasi**. Jarayon ~10 daqiqa.
 
