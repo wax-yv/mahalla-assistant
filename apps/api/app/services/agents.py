@@ -591,30 +591,135 @@ def _credit_subsidy(db: Session, message: str, context: dict[str, Any]) -> dict[
     }
 
 
+IMPORT_ERROR_LABELS = {
+    "FULL_NAME_REQUIRED": "F.I.Sh. bo'sh",
+    "INVALID_BIRTH_DATE": "Tug'ilgan sana noto'g'ri formatda",
+    "FUTURE_BIRTH_DATE": "Tug'ilgan sana kelajakda",
+    "INVALID_PHONE": "Telefon raqami noto'g'ri",
+    "DUPLICATE_IN_FILE": "Fayl ichida dublikat qator",
+    "EXISTING_CITIZEN": "Bazada mavjud fuqaro (yangilanadi)",
+    "MISSING_COLUMN": "Majburiy ustun topilmadi",
+    "PARSE_NOTE": "Fayl o'qish izohi",
+}
+
+
+def _import_report(db: Session) -> dict[str, Any] | None:
+    batch = db.execute(
+        select(ImportBatch)
+        .options(joinedload(ImportBatch.document))
+        .order_by(ImportBatch.updated_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if batch is None:
+        return None
+    rows = db.execute(
+        select(ImportError).where(ImportError.batch_id == batch.id).order_by(ImportError.row_number)
+    ).scalars().all()
+    by_code: dict[str, int] = {}
+    samples: list[dict[str, Any]] = []
+    for row in rows:
+        by_code[row.code] = by_code.get(row.code, 0) + 1
+        if len(samples) < 8:
+            samples.append(
+                {
+                    "row": row.row_number,
+                    "code": row.code,
+                    "message": row.message[:160],
+                    "severity": row.severity,
+                }
+            )
+    summary = batch.summary or {}
+    return {
+        "batch_id": batch.id,
+        "file": batch.document.original_name if batch.document else batch.document_id,
+        "status": batch.status,
+        "total_rows": int(summary.get("total_rows", 0)),
+        "valid_rows": int(summary.get("valid_rows", 0)),
+        "error_count": batch.error_count or 0,
+        "warning_count": batch.warning_count or 0,
+        "by_code": dict(sorted(by_code.items(), key=lambda kv: kv[1], reverse=True)),
+        "samples": samples,
+        "committed_at": batch.committed_at.isoformat() if batch.committed_at else None,
+    }
+
+
+def _format_import_report(report: dict[str, Any]) -> str:
+    status_labels = {
+        "validated": "tekshiruvdan o'tdi — tasdiqlash mumkin",
+        "failed": "xatolar bor — tuzatish kerak",
+        "committed": "bazaga yozilgan",
+        "rolled_back": "bekor qilingan",
+        "mapping": "ustunlar aniqlanmoqda",
+    }
+    lines = [
+        f"Import hisoboti: {report['file']}",
+        f"Holati: {status_labels.get(report['status'], report['status'])}",
+        f"Jami qatorlar: {report['total_rows']} · yaroqli: {report['valid_rows']} · xatolar: {report['error_count']} · ogohlantirishlar: {report['warning_count']}",
+    ]
+    if report["by_code"]:
+        lines.append("")
+        lines.append("Xatoliklar toifalari bo'yicha:")
+        for code, count in report["by_code"].items():
+            label = IMPORT_ERROR_LABELS.get(code, code)
+            lines.append(f"• {label} — {count} ta")
+        lines.append("")
+        lines.append("Namuna qatorlar:")
+        for sample in report["samples"]:
+            lines.append(f"  {sample['row']}-qator: {sample['message']}")
+    if report["status"] == "validated" and report["error_count"] == 0:
+        lines.append("")
+        lines.append("Xatolar yo'q — importni tasdiqlash uchun quyidagi amalni ma'qullang yoki «Hujjatlar» bo'limida «Bazaga yozish» tugmasini bosing.")
+    elif report["error_count"]:
+        lines.append("")
+        lines.append("Tavsiya: ko'rsatilgan qatorlarni faylda tuzatib qayta yuklang. Tizim mavjud fuqarolarni yangilaydi, yangilarini qo'shadi; noqulay natija bo'lsa importni bekor qilish mumkin.")
+    return "\n".join(lines)
+
+
 def _document_agent(db: Session, message: str, context: dict[str, Any]) -> dict[str, Any]:
     text = message.lower()
     document_count = int(db.execute(select(func.count()).select_from(Document)).scalar_one())
-    batches = db.execute(
-        select(ImportBatch).order_by(ImportBatch.created_at.desc()).limit(5)
-    ).scalars().all()
+    report = _import_report(db)
+    wants_report = any(
+        word in text
+        for word in ("xatolik", "xato", "tahlil", "hisobot", "tekshir", "muammo", "dublikat", "sifat", "qayta qur")
+    )
+    has_recent_batch = report is not None and report["status"] in {"validated", "failed", "mapping"}
+    if report is not None and (wants_report or ("import" in text or "excel" in text or "xlsx" in text or "fayl" in text)):
+        drafts: list[dict[str, Any]] = []
+        if report["status"] == "validated" and report["error_count"] == 0:
+            drafts.append(
+                {
+                    "action_type": "commit_import",
+                    "payload": {"batch_id": report["batch_id"]},
+                    "label": f"Importni bazaga yozish: {report['file']}",
+                }
+            )
+        return {
+            "text": _format_import_report(report),
+            "sources": [
+                {
+                    "type": "import_batch",
+                    "label": report["file"],
+                    "batch_id": report["batch_id"],
+                    "as_of": _now().isoformat(),
+                }
+            ],
+            "drafts": drafts,
+            "data": {"report": report},
+            "confidence": "high",
+            "warnings": [],
+        }
     if "import" in text or "yukla" in text or "excel" in text or "xlsx" in text:
         lines = [
             "Hujjat import qilish tartibi:",
             "1. «Hujjatlar» bo'limiga o'ting.",
             "2. Excel (.xlsx), CSV yoki Word (.docx) faylini yuklang.",
             "3. Tizim ustunlarni avtomatik aniqlaydi va xatoliklarni ko'rsatadi.",
-            "4. Tasdiqlashdan oldin preview va xatolar ro'yxatini tekshiring.",
+            "4. Xatoliklar hisobotini ko'rib, faylni tuzatib qayta yuklashingiz yoki yaroqli qatorlarni tasdiqlashingiz mumkin.",
             "5. Tasdiqlangandan keyin importni bekor qilish (rollback) imkoniyati mavjud.",
             "",
-            f"Bazada jami {document_count} ta hujjat va {len(batches)} ta so'nggi import partiyasi mavjud.",
+            f"Bazada jami {document_count} ta hujjat mavjud.",
         ]
-        if batches:
-            lines.append("So'nggi importlar:")
-            for batch in batches:
-                lines.append(
-                    f"• {batch.document.original_name if batch.document else batch.id} — {batch.status}, "
-                    f"xatolar: {batch.error_count}, ogohlantirishlar: {batch.warning_count}"
-                )
         return {
             "text": "\n".join(lines),
             "sources": [{"type": "database", "label": "Hujjatlar bazasi"}],
@@ -636,11 +741,20 @@ def _document_agent(db: Session, message: str, context: dict[str, Any]) -> dict[
             "confidence": "high",
             "warnings": [],
         }
+    if has_recent_batch:
+        return {
+            "text": _format_import_report(report),
+            "sources": [{"type": "import_batch", "label": report["file"], "batch_id": report["batch_id"]}],
+            "drafts": [],
+            "data": {"report": report},
+            "confidence": "high",
+            "warnings": [],
+        }
     return {
         "text": (
             f"Hujjatlar bazasida {document_count} ta fayl mavjud. "
-            "Import, eksport yoki hujjat tekshiruvi bo'yicha aniq savol bering — masalan, "
-            "«Excel faylni qanday import qilaman?» yoki «Fuqarolar ro'yxatini eksport qil»."
+            "Excel faylingizni «Hujjatlar» bo'limida yuklang — men ustunlarni aniqlab, xatoliklar "
+            "hisobotini shakllantiraman. Yoki aniq savol bering: «Excel faylni qanday import qilaman?»"
         ),
         "sources": [{"type": "database", "label": "Hujjatlar bazasi"}],
         "drafts": [],
@@ -1042,6 +1156,21 @@ def _execute_draft(
             program_name=payload.get("program_name"),
         )
         return {"entity_type": "memory_item", "label": payload.get("organization", "")}
+    if draft.action_type == "commit_import":
+        result = documents.commit_batch(
+            db,
+            payload["batch_id"],
+            actor=actor,
+            idempotency_key=payload.get("idempotency_key"),
+            request_id=request_id,
+        )
+        return {
+            "entity_type": "import_batch",
+            "entity_id": payload["batch_id"],
+            "label": f"Import: {result.get('created', 0)} yangi, {result.get('updated', 0)} yangilandi",
+            "created": result.get("created", 0),
+            "updated": result.get("updated", 0),
+        }
     raise bad_request(f"«{draft.action_type}» amali qo'llab-quvvatlanmaydi.")
 
 

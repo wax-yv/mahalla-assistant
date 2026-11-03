@@ -41,6 +41,7 @@ const DRAFT_LABELS: Record<string, string> = {
   generate_report: "Hisobot yaratish",
   sync_legislation: "Qonunchilikni sinxronlash",
   save_preference: "Tanlovni saqlash",
+  commit_import: "Importni bazaga yozish",
 };
 
 const SUGGESTIONS = [

@@ -154,11 +154,29 @@ export default function DocumentsPage() {
             <dl className="kv mb">
               <dt>Aniqlangan ustunlar</dt>
               <dd>{Object.entries(analysis.batch.mapping).map(([field, header]) => `${field} ← ${header}`).join(", ")}</dd>
+              <dt>Qatorlar</dt>
+              <dd>Jami: {(analysis.batch.summary as any)?.total_rows ?? "—"} · yaroqli: {(analysis.batch.summary as any)?.valid_rows ?? "—"}</dd>
               <dt>Xatolar</dt>
               <dd>{analysis.batch.error_count}</dd>
               <dt>Ogohlantirishlar</dt>
               <dd>{analysis.batch.warning_count}</dd>
             </dl>
+            {analysis.errors.length > 0 && (
+              <div className="chips mb">
+                {Array.from(
+                  analysis.errors.reduce((map, err) => {
+                    map.set(err.code, (map.get(err.code) ?? 0) + 1);
+                    return map;
+                  }, new Map<string, number>())
+                )
+                  .sort((a, b) => (b[1] as number) - (a[1] as number))
+                  .map(([code, count]) => (
+                    <span key={code as string} className="badge danger">
+                      {code} — {count as number}
+                    </span>
+                  ))}
+              </div>
+            )}
             {analysis.errors.length > 0 && (
               <div className="table-wrap mb">
                 <table className="data">
