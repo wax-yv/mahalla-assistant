@@ -25,6 +25,7 @@ from app.models import (
     Family,
     House,
     ImportBatch,
+    ImportError as ImportErrorModel,
     MemoryItem,
     Program,
     Street,
@@ -616,7 +617,7 @@ def _import_report(db: Session) -> dict[str, Any] | None:
     if batch is None:
         return None
     rows = db.execute(
-        select(ImportError).where(ImportError.batch_id == batch.id).order_by(ImportError.row_number)
+        select(ImportErrorModel).where(ImportErrorModel.batch_id == batch.id).order_by(ImportErrorModel.row_number)
     ).scalars().all()
     by_code: dict[str, int] = {}
     samples: list[dict[str, Any]] = []
