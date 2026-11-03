@@ -81,10 +81,96 @@ def detect_mapping(headers: list[str]) -> dict[str, str]:
     return mapping
 
 
+def _detect_kind(name: str, data: bytes) -> str:
+    """Formatni kengaytma emas, tarkib bo'yicha aniqlash (MD 9.1)."""
+    if data[:4] == b"PK\x03\x04":
+        return "xlsx"
+    if data[:5] == b"%PDF-":
+        return "pdf"
+    if data[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+        raise validation_error(
+            "Eski .xls (binary) format qo'llab-quvvatlanmaydi. Faylni Excel'da «.xlsx» sifatida saqlab yuklang."
+        )
+    sample = data[:4096].lstrip()
+    if sample.startswith((b"{", b"[")):
+        raise validation_error("JSON fayl qo'llab-quvvatlanmaydi. Ma'lumotni CSV/XLSX ko'rinishida yuklang.")
+    try:
+        text = data[:2048].decode("utf-8")
+        if text.count("\n") >= 1 and ("," in text or ";" in text or "\t" in text):
+            return "csv"
+    except UnicodeDecodeError:
+        pass
+    suffix = Path(name).suffix.lower().lstrip(".")
+    if suffix in {"xlsx", "csv", "docx", "pdf"}:
+        return suffix
+    raise validation_error("Fayl formatini aniqlab bo'lmadi. XLSX, CSV, DOCX yoki PDF yuklang.")
+
+
+def _docx_records(data: bytes, warnings: list[str]) -> tuple[list[str], list[dict[str, Any]], list[str]]:
+    from docx import Document as DocxDocument
+
+    doc = DocxDocument(io.BytesIO(data))
+    best: tuple[list[str], list[dict[str, Any]]] | None = None
+    for table in doc.tables:
+        rows = [[cell.text.strip() for cell in row.cells] for row in table.rows]
+        rows = [row for row in rows if any(cell for cell in row)]
+        if len(rows) < 2:
+            continue
+        if not best or len(rows) > len(best[1]) + 1:
+            headers = [str(cell).strip() or f"ustun_{i+1}" for i, cell in enumerate(rows[0])]
+            records = [
+                {headers[i]: (row[i] if i < len(row) else "") for i in range(len(headers))}
+                for row in rows[1:]
+            ]
+            best = (headers, records)
+    if best and best[1]:
+        warnings.append("DOCX jadvali tahlil qilindi.")
+        return best[0], best[1], warnings
+    text = "\n".join(paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip())
+    return ["matn"], [{"matn": text}], [*warnings, "DOCX faylda jadval topilmadi — matn sifatida saqlanadi."]
+
+
+def _pdf_records(data: bytes, warnings: list[str]) -> tuple[list[str], list[dict[str, Any]], list[str]]:
+    from pypdf import PdfReader
+
+    reader = PdfReader(io.BytesIO(data))
+    text = "\n".join((page.extract_text() or "") for page in reader.pages)
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        raise validation_error("PDF fayldan matn ajratib bo'lmadi (skanerlangan rasm bo'lishi mumkin).")
+    header_aliases = ("f.i.sh", "fish", "familiya", "ism", "tug'ilgan", "telefon", "jins", "manzil", "uy")
+    header_index = -1
+    for index, line in enumerate(lines[:30]):
+        lowered = line.lower()
+        if sum(alias in lowered for alias in header_aliases) >= 2:
+            header_index = index
+            break
+    if header_index >= 0:
+        def split_columns(line: str) -> list[str]:
+            parts = re.split(r"\s{2,}|\t|\s*\|\s*", line.strip())
+            return [part.strip() for part in parts if part.strip()]
+
+        headers = split_columns(lines[header_index])
+        records = []
+        for line in lines[header_index + 1 :]:
+            cells = split_columns(line)
+            if not cells or len(cells) < len(headers) - 1:
+                continue
+            records.append(
+                {headers[i]: (cells[i] if i < len(cells) else "") for i in range(len(headers))}
+            )
+        if records:
+            warnings.append(
+                f"PDF matnidan {len(records)} ta qator ajratildi. Ustunlar to'g'ri moslashganini tekshiring."
+            )
+            return headers, records, warnings
+    return ["matn"], [{"matn": text}], [*warnings, "PDF faylda jadval strukturasi topilmadi — matn sifatida tahlil qilinadi."]
+
+
 def parse_table(document: Document, data: bytes) -> tuple[list[str], list[dict[str, Any]], list[str]]:
-    suffix = Path(document.original_name).suffix.lower()
+    kind = _detect_kind(document.original_name, data)
     warnings: list[str] = []
-    if suffix == ".xlsx":
+    if kind == "xlsx":
         workbook = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
         sheet = workbook.active
         rows = list(sheet.iter_rows(values_only=True))
@@ -103,7 +189,7 @@ def parse_table(document: Document, data: bytes) -> tuple[list[str], list[dict[s
                 {headers[i]: row[i] if i < len(row) else None for i in range(len(headers))}
             )
         return headers, records, warnings
-    if suffix == ".csv":
+    if kind == "csv":
         for encoding in ("utf-8-sig", "utf-8", "cp1251"):
             try:
                 text = data.decode(encoding)
@@ -121,21 +207,10 @@ def parse_table(document: Document, data: bytes) -> tuple[list[str], list[dict[s
         headers = [str(header).strip() for header in (reader.fieldnames or [])]
         records = [dict(row) for row in reader if any(v for v in row.values())]
         return headers, records, warnings
-    if suffix == ".docx":
-        from docx import Document as DocxDocument
-
-        doc = DocxDocument(io.BytesIO(data))
-        text = "\n".join(paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip())
-        for table in doc.tables:
-            for row in table.rows:
-                text += "\n" + " | ".join(cell.text.strip() for cell in row.cells)
-        return ["matn"], [{"matn": text}], ["DOCX fayl matn sifatida tahlil qilindi."]
-    if suffix == ".pdf":
-        from pypdf import PdfReader
-
-        reader = PdfReader(io.BytesIO(data))
-        text = "\n".join((page.extract_text() or "") for page in reader.pages)
-        return ["matn"], [{"matn": text}], ["PDF fayl matn sifatida tahlil qilindi."]
+    if kind == "docx":
+        return _docx_records(data, warnings)
+    if kind == "pdf":
+        return _pdf_records(data, warnings)
     raise validation_error("Faqat XLSX, CSV, DOCX va PDF fayllar qo'llab-quvvatlanadi.")
 
 

@@ -58,6 +58,7 @@ INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("document", ("hujjat", "fayl", "import", "eksport", "excel", "xlsx", "csv", "docx", "pdf", "yukla", "xatolik")),
     ("plan_control", ("vazifa", "reja", "bugun", "ertaga", "muddat", "kechik", "nazorat", "bajarildi", "bajarilmadi")),
     ("citizen_lookup", ("fuqaro", "kim", "manzil", "telefon", "oilasi", "yoshi", "haqida ma'lumot", "topib ber")),
+    ("agent_status", ("agentlar holati", "agentlar qanday", "agentlar", "qanday agentlar")),
 ]
 
 STOPWORDS = {
@@ -774,6 +775,64 @@ def _document_agent(db: Session, message: str, context: dict[str, Any]) -> dict[
     }
 
 
+def _agents_status(db: Session, message: str, context: dict[str, Any]) -> dict[str, Any]:
+    status = agent_status(db)
+    lines = ["Agentlar holati (bugungi kun):", ""]
+    for agent in status["agents"]:
+        last = "—"
+        if agent["last_run_at"]:
+            last = agent["last_run_at"].strftime("%d.%m %H:%M")
+        lines.append(
+            f"• {agent['label']}: {agent['last_status']} · muvaffaqiyat {agent['success_rate']}% · "
+            f"bugungi token {agent['tokens_today']} · oxirgi: {last}"
+        )
+    budget = status["budget"]
+    lines.append("")
+    lines.append(
+        f"AI budjeti: {budget.get('total_tokens', 0):,} / {budget.get('budget', 0):,} token · "
+        f"{budget.get('requests', 0)} so'rov".replace(",", " ")
+    )
+    providers = status.get("providers") or []
+    ok = [p["name"] for p in providers if p.get("ok")]
+    if ok:
+        lines.append(f"Ulangan provayderlar: {', '.join(ok)}")
+    lines.append("")
+    lines.append("Har bir agent o'z sohasiga ixtisoslashgan: savolni to'g'ridan-to'g'ri yozsangiz, kerakli agentni o'zim tanlayman.")
+    return {
+        "text": "\n".join(lines),
+        "sources": [{"type": "database", "label": "Agent monitoringi", "as_of": _now().isoformat()}],
+        "drafts": [],
+        "data": {"agents": status["agents"], "budget": status["budget"]},
+        "confidence": "high",
+        "warnings": [],
+    }
+
+
+HANDLERS = {
+    "plan_control": _plan_control,
+    "citizen_lookup": _citizen_lookup,
+    "reporting": _reporting,
+    "legislation": _legislation_agent,
+    "credit_subsidy": _credit_subsidy,
+    "document": _document_agent,
+    "agent_status": _agents_status,
+}
+
+INTENT_AGENT = {
+    "plan_control": "plan_control",
+    "citizen_lookup": "plan_control",
+    "reporting": "reporting",
+    "legislation": "legislation",
+    "credit_subsidy": "credit_subsidy",
+    "document": "document",
+    "agent_status": "orchestrator",
+    "smalltalk": "orchestrator",
+    "multi": "orchestrator",
+}
+
+
+# agent_status agent_status() funksiyasidan keyin aniqlanadi — forward reference muammosi yo'q (chaqiruv vaqtida bog'lanadi)
+
 SMALLTALK_SYSTEM = """Siz «Mahalla Assistant» — O'zbekiston mahallasi uchun rasmiy ish assistentisiz.
 Faqat o'zbek lotin tilida, qisqa va xushmuomala javob bering (2-4 gap).
 Siz quyidagi ishlarni bajara olasiz: fuqarolar va oilalar bo'yicha ma'lumot qidirish,
@@ -809,27 +868,6 @@ def _smalltalk(db: Session, message: str, context: dict[str, Any]) -> dict[str, 
         "token_output": result.completion_tokens,
         "fallback_used": result.fallback_used,
     }
-
-
-HANDLERS = {
-    "plan_control": _plan_control,
-    "citizen_lookup": _citizen_lookup,
-    "reporting": _reporting,
-    "legislation": _legislation_agent,
-    "credit_subsidy": _credit_subsidy,
-    "document": _document_agent,
-}
-
-INTENT_AGENT = {
-    "plan_control": "plan_control",
-    "citizen_lookup": "plan_control",
-    "reporting": "reporting",
-    "legislation": "legislation",
-    "credit_subsidy": "credit_subsidy",
-    "document": "document",
-    "smalltalk": "orchestrator",
-    "multi": "orchestrator",
-}
 
 
 def _conversation_title(message: str) -> str:
@@ -897,68 +935,107 @@ def chat(
     )
     db.add(workflow)
     db.flush()
+    # MD 4.3/4.5: multi-intent bo'lsa bir nechta agent ketma-ket ishlaydi (maks. 3).
     primary_intent = intents[0] if intents else intent
-    agent_name = INTENT_AGENT.get(primary_intent, "orchestrator")
-    run = AgentRun(
-        workflow_id=workflow.id,
-        agent=agent_name,
-        task="chat",
-        status="running",
-        input={"message": message, "intent": primary_intent},
-    )
-    db.add(run)
-    db.flush()
-    started = time.perf_counter()
-    result: dict[str, Any]
-    handler = HANDLERS.get(primary_intent)
+    agents_to_run: list[str] = intents[:3] if intent == "multi" else [primary_intent]
     warning_messages: list[str] = []
-    try:
-        if handler is None:
-            result = _smalltalk(
-                db,
-                message,
-                {"conversation_id": conversation.id, "actor": actor},
-            )
-        else:
-            result = handler(
-                db,
-                message,
-                {"conversation_id": conversation.id, "actor": actor},
-            )
-    except Exception as error:
-        warning_messages.append(f"Agent javobini shakllantirishda xatolik: {_agent_error_message(error)}")
-        result = {
-            "text": (
-                "So'rovingiz bo'yicha ma'lumot tayyorlab bo'lmadi. Iltimos, savolni aniqroq "
-                "qayta yuboring yoki bo'limlar orqali qo'lda tekshiring."
-            ),
-            "sources": [],
-            "drafts": [],
-            "data": {},
-            "confidence": "low",
-            "warnings": warning_messages,
-        }
-    elapsed = int((time.perf_counter() - started) * 1000)
-    run.status = "completed"
-    run.output = {"text": result["text"], "data": result.get("data", {})}
-    run.sources = result.get("sources", [])
-    run.warnings = list(dict.fromkeys([*result.get("warnings", []), *warning_messages]))
-    run.confidence = result.get("confidence", "medium")
-    run.model = result.get("model", "Deterministik qoidalar + SQL")
-    run.provider = result.get("provider", "local")
-    run.latency_ms = result.get("latency_ms", elapsed)
-    run.token_input = result.get("token_input", 0)
-    run.token_output = result.get("token_output", 0)
-    run.finished_at = _now()
+    combined_text: list[str] = []
+    combined_sources: list[Any] = []
+    combined_drafts: list[dict[str, Any]] = []
+    combined_data: dict[str, Any] = {}
+    agents_used: list[str] = []
+    total_tokens_in = 0
+    total_tokens_out = 0
+    total_latency = 0
+    last_model = ""
+    last_provider = ""
+    lowest_confidence = "high"
+    confidence_rank = {"high": 3, "medium": 2, "low": 1, "needs_review": 1}
+
+    for position, step_intent in enumerate(agents_to_run):
+        agent_name = INTENT_AGENT.get(step_intent, "orchestrator")
+        handler = HANDLERS.get(step_intent)
+        agents_used.append(agent_name)
+        run = AgentRun(
+            workflow_id=workflow.id,
+            agent=agent_name,
+            task="chat",
+            status="running",
+            input={"message": message, "intent": step_intent, "step": position + 1},
+        )
+        db.add(run)
+        db.flush()
+        started = time.perf_counter()
+        try:
+            if handler is None:
+                result = _smalltalk(
+                    db,
+                    message,
+                    {"conversation_id": conversation.id, "actor": actor},
+                )
+            else:
+                result = handler(
+                    db,
+                    message,
+                    {"conversation_id": conversation.id, "actor": actor},
+                )
+        except Exception as error:
+            warning_messages.append(f"{AGENT_LABELS.get(agent_name, agent_name)}: {_agent_error_message(error)}")
+            result = {
+                "text": "Bu bo'yicha ma'lumot tayyorlab bo'lmadi — boshqa agentlar javobini ko'ring yoki savolni aniqroq yozing.",
+                "sources": [],
+                "drafts": [],
+                "data": {},
+                "confidence": "low",
+                "warnings": [],
+            }
+        elapsed = int((time.perf_counter() - started) * 1000)
+        run.status = "completed"
+        run.output = {"text": result["text"], "data": result.get("data", {})}
+        run.sources = result.get("sources", [])
+        run.warnings = list(dict.fromkeys([*result.get("warnings", [])]))
+        run.confidence = result.get("confidence", "medium")
+        run.model = result.get("model", "Deterministik qoidalar + SQL")
+        run.provider = result.get("provider", "local")
+        run.latency_ms = result.get("latency_ms", elapsed)
+        run.token_input = result.get("token_input", 0)
+        run.token_output = result.get("token_output", 0)
+        run.finished_at = _now()
+        for draft in result.get("drafts", []):
+            combined_drafts.append({**draft, "_run": run})
+            run.proposed_actions.append(draft)
+        combined_sources.extend(result.get("sources", []))
+        combined_data.update(result.get("data", {}) or {})
+        total_tokens_in += result.get("token_input", 0)
+        total_tokens_out += result.get("token_output", 0)
+        total_latency += result.get("latency_ms", elapsed)
+        last_model = result.get("model", last_model)
+        last_provider = result.get("provider", last_provider)
+        if confidence_rank.get(result.get("confidence", "medium"), 2) < confidence_rank.get(lowest_confidence, 3):
+            lowest_confidence = result.get("confidence", "medium")
+        if len(agents_to_run) > 1:
+            combined_text.append(f"— {AGENT_LABELS.get(agent_name, agent_name)} —")
+        combined_text.append(result["text"])
+
+    result = {
+        "text": "\n\n".join(combined_text),
+        "sources": combined_sources,
+        "drafts": combined_drafts,
+        "data": combined_data,
+        "confidence": lowest_confidence,
+        "warnings": [],
+    }
+    run = None  # run endi har agent uchun alohida; quyida faqat workflow yangilanadi
     draft_rows = []
     for draft in result.get("drafts", []):
-        draft_rows.append(_draft_row(db, workflow, run, draft))
-        run.proposed_actions.append(draft)
+        step_run = draft.pop("_run", None)
+        draft_rows.append(_draft_row(db, workflow, step_run, draft))
+    all_warnings = list(dict.fromkeys(warning_messages))
     workflow.status = "completed"
     workflow.result = {
         "text": result["text"],
-        "agents_used": [agent_name],
-        "warnings": run.warnings,
+        "agents_used": agents_used,
+        "warnings": all_warnings,
         "data": result.get("data", {}),
     }
     workflow.requires_approval = bool(draft_rows)
@@ -966,7 +1043,7 @@ def chat(
         conversation_id=conversation.id,
         role="assistant",
         content=result["text"],
-        agent=agent_name,
+        agent=agents_used[0] if len(agents_used) == 1 else "orchestrator",
         workflow_id=workflow.id,
         sources=result.get("sources", []),
         draft_actions=[draft.id for draft in draft_rows],
@@ -981,9 +1058,9 @@ def chat(
         actor_id=actor,
         new_value={
             "intent": intent,
-            "agent": agent_name,
-            "provider": run.provider,
-            "model": run.model,
+            "agents": agents_used,
+            "provider": last_provider,
+            "model": last_model,
             "requires_approval": workflow.requires_approval,
         },
     )
@@ -994,10 +1071,10 @@ def chat(
         "message": assistant_message,
         "workflow_id": workflow.id,
         "intent": intent,
-        "agents_used": [agent_name],
+        "agents_used": agents_used,
         "sources": result.get("sources", []),
         "draft_actions": draft_rows,
-        "warnings": run.warnings,
+        "warnings": all_warnings,
         "requires_approval": workflow.requires_approval,
     }
 
@@ -1090,6 +1167,39 @@ def create_conversation(db: Session, title: str = "Yangi suhbat") -> Conversatio
     db.commit()
     db.refresh(conversation)
     return conversation
+
+
+def delete_conversation(db: Session, conversation_id: str) -> dict[str, Any]:
+    """Suhbatni xabarlari va draftlari bilan butunlay o'chirish."""
+    conversation = db.get(Conversation, conversation_id)
+    if conversation is None:
+        raise not_found("Suhbat topilmadi.")
+    workflows = db.execute(
+        select(AgentWorkflow).where(AgentWorkflow.conversation_id == conversation_id)
+    ).scalars().all()
+    for workflow in workflows:
+        db.execute(
+            AgentRun.__table__.delete().where(AgentRun.workflow_id == workflow.id)
+        )
+        db.execute(
+            DraftAction.__table__.delete().where(DraftAction.workflow_id == workflow.id)
+        )
+        db.delete(workflow)
+    db.execute(
+        ConversationMessage.__table__.delete()
+        .where(ConversationMessage.conversation_id == conversation_id)
+    )
+    db.delete(conversation)
+    write_audit(
+        db,
+        action="conversation.deleted",
+        entity_type="conversation",
+        entity_id=conversation_id,
+        actor_id=None,
+        new_value={"purged": True},
+    )
+    db.commit()
+    return {"ok": True, "deleted": conversation_id}
 
 
 def archive_conversation(db: Session, conversation_id: str) -> Conversation:

@@ -16,6 +16,25 @@ type Analysis = {
   can_commit: boolean;
 };
 
+const FIELD_LABELS: Record<string, string> = {
+  external_id: "Tashqi ID",
+  full_name: "F.I.Sh. (majburiy)",
+  gender: "Jinsi",
+  birth_date: "Tug'ilgan sana",
+  phone: "Telefon",
+  mahalla: "Mahalla",
+  street: "Ko'cha",
+  house_number: "Uy raqami",
+  family_external_id: "Oila ID",
+  family_role: "Oiladagi o'rni",
+  education: "Ma'lumoti",
+  employment_status: "Bandligi",
+  profession: "Kasbi",
+  social_status: "Ijtimoiy holati",
+  needs: "Ehtiyoji",
+  notes: "Izoh",
+};
+
 const MODULES = ["citizens", "families", "houses", "tasks", "cases"];
 
 export default function DocumentsPage() {
@@ -23,6 +42,7 @@ export default function DocumentsPage() {
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [editableMapping, setEditableMapping] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(1);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -55,10 +75,29 @@ export default function DocumentsPage() {
       form.append("analyze", "true");
       const result = await api.upload<{ document: DocRow; analysis?: Analysis }>("/documents", form);
       setAnalysis(result.analysis ?? null);
+      setEditableMapping({ ...(result.analysis?.batch.mapping ?? {}) });
       setNote(`Fayl yuklandi: ${result.document.original_name}`);
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Yuklash amalga oshmadi.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reanalyze() {
+    if (!analysis) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.post<Analysis>(`/documents/imports/${analysis.batch.id}/analyze`, {
+        mapping: editableMapping,
+      });
+      setAnalysis(result);
+      setEditableMapping({ ...result.batch.mapping });
+      setNote("Mapping yangilandi va qayta tahlil qilindi.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Qayta tahlil amalga oshmadi.");
     } finally {
       setBusy(false);
     }
@@ -151,9 +190,46 @@ export default function DocumentsPage() {
             </Badge>
           </div>
           <div className="card-pad">
+            <div className="field mb">
+              <label>Ustun mapping'i — tahrirlab qayta tahlil qilishingiz mumkin</label>
+              <div className="grid grid-2">
+                {Object.keys(FIELD_LABELS).map((field) => (
+                  <div key={field} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <span style={{ minWidth: 150, fontSize: 13 }} className="text-soft">
+                      {FIELD_LABELS[field]}
+                    </span>
+                    <select
+                      className="select"
+                      style={{ flex: 1 }}
+                      value={editableMapping[field] ?? ""}
+                      onChange={(event) =>
+                        setEditableMapping((prev) => {
+                          const next = { ...prev };
+                          if (event.target.value) next[field] = event.target.value;
+                          else delete next[field];
+                          return next;
+                        })
+                      }
+                    >
+                      <option value="">— moslanmagan —</option>
+                      {analysis.headers.map((header) => (
+                        <option key={header} value={header}>
+                          {header}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <button className="btn sm" disabled={busy} onClick={() => void reanalyze()}>
+                  Qayta tahlil qilish
+                </button>
+              </div>
+            </div>
             <dl className="kv mb">
-              <dt>Aniqlangan ustunlar</dt>
-              <dd>{Object.entries(analysis.batch.mapping).map(([field, header]) => `${field} ← ${header}`).join(", ")}</dd>
+              <dt>Fayl sarlavhalari</dt>
+              <dd>{analysis.headers.join(" · ")}</dd>
               <dt>Qatorlar</dt>
               <dd>Jami: {(analysis.batch.summary as any)?.total_rows ?? "—"} · yaroqli: {(analysis.batch.summary as any)?.valid_rows ?? "—"}</dd>
               <dt>Xatolar</dt>

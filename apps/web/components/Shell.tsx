@@ -13,6 +13,7 @@ const NAV: Array<{ group: string; items: Array<{ href: string; label: string; ic
     items: [
       { href: "/dashboard", label: "Boshqaruv paneli", icon: "◎" },
       { href: "/chat", label: "AI assistent", icon: "✦" },
+      { href: "/agents", label: "Agentlar", icon: "✦" },
     ],
   },
   {

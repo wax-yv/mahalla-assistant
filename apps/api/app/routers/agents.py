@@ -91,11 +91,14 @@ def conversation(
 
 
 @router.delete("/conversations/{conversation_id}")
-def archive_conversation(
+def delete_conversation(
     conversation_id: str,
+    purge: bool = False,
     db: Session = Depends(get_db),
     _=Depends(require_csrf_and_permission("agents.use")),
 ):
+    if purge:
+        return service.delete_conversation(db, conversation_id)
     row = service.archive_conversation(db, conversation_id)
     return {"ok": True, "id": row.id}
 

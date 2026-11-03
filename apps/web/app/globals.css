@@ -244,3 +244,20 @@ code.mono, .mono { font-family: var(--mono); font-size: 12.5px; }
 .mb { margin-bottom: 14px; }
 .link { color: var(--brand-strong); font-weight: 600; }
 .link:hover { text-decoration: underline; }
+
+/* Slash-buyruqlar paneli (ixcham) */
+.slash-panel { display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--card); max-height: 190px; overflow-y: auto; margin-bottom: 6px; box-shadow: var(--shadow); }
+.slash-item { display: flex; gap: 10px; align-items: baseline; padding: 7px 12px; border: none; background: transparent; cursor: pointer; text-align: left; font-family: var(--font-body); font-size: 13.5px; color: var(--ink); }
+.slash-item:hover { background: var(--brand-soft); }
+.slash-item b { color: var(--brand-strong); min-width: 84px; }
+
+/* Mikrofon tugmasi */
+.btn.mic { padding: 9px 12px; font-size: 15px; }
+.btn.mic.listening { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: .55; } }
+
+/* Fuqarolar bazasi yuklash hero (dashboard) */
+.setup-hero { display: flex; flex-direction: column; gap: 14px; padding: 26px 24px; border: 1.5px dashed var(--brand); border-radius: var(--radius); background: var(--brand-soft); }
+@media (min-width: 800px) { .setup-hero { flex-direction: row; align-items: center; justify-content: space-between; } }
+.setup-hero h2 { font-size: 22px; }
+.setup-hero .steps { display: grid; gap: 6px; color: var(--ink-soft); font-size: 14px; }

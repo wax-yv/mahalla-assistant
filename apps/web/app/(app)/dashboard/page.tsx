@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { Badge, Empty, ErrorNote, Loading, PageHead, Stat } from "@/components/ui";
 import { api } from "@/lib/api";
 import { CASE_STATUS, PRIORITY, TASK_STATUS, fmtDateTime, statusBadge } from "@/lib/format";
@@ -36,6 +37,10 @@ type DashboardData = {
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
+  const router = useRouter();
+  const setupFileRef = useRef<HTMLInputElement>(null);
+  const [setupBusy, setSetupBusy] = useState(false);
+  const [setupNote, setSetupNote] = useState("");
 
   useEffect(() => {
     api
@@ -44,8 +49,68 @@ export default function DashboardPage() {
       .catch((err) => setError(err instanceof Error ? err.message : "Xatolik"));
   }, []);
 
-  if (error) return <ErrorNote message={error} />;
+  async function quickUpload() {
+    const file = setupFileRef.current?.files?.[0];
+    if (!file) return;
+    setSetupBusy(true);
+    setError("");
+    setSetupNote("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("analyze", "true");
+      await api.upload("/documents", form);
+      router.push("/documents");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Yuklash amalga oshmadi.");
+    } finally {
+      setSetupBusy(false);
+    }
+  }
+
+  if (error && !data) return <ErrorNote message={error} />;
   if (!data) return <Loading />;
+
+  const isEmptyBase = (data.metrics.find((item) => item.key === "citizens")?.value ?? 0) === 0;
+
+  if (isEmptyBase) {
+    return (
+      <>
+        <PageHead
+          kicker="Boshqaruv paneli"
+          title="Navbahor mahallasi — boshlash"
+          lede="Baza hozircha bo'sh. Birinchi qadam — fuqarolar bazasini yuklash."
+        />
+        <div className="setup-hero mb">
+          <div>
+            <h2>1-qadam: bazani yuklang</h2>
+            <div className="steps">
+              <span>1. Excel (.xlsx), CSV, Word (.docx) yoki PDF faylni tanlang.</span>
+              <span>2. Tizim ustunlarni avtomatik aniqlaydi va xatoliklar hisobotini beradi.</span>
+              <span>3. Hisobotni ko'rib, tuzatishlarni kiritib, tasdiqlaysiz.</span>
+              <span>4. Shu ondan AI agentlar sizning ma'lumotingiz bilan ishlaydi.</span>
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 260 }}>
+            <input ref={setupFileRef} type="file" accept=".xlsx,.csv,.docx,.pdf" className="input" />
+            <button className="btn primary" disabled={setupBusy} onClick={() => void quickUpload()}>
+              {setupBusy ? "Tahlil qilinmoqda…" : "Faylni yuklash va tahlil qilish"}
+            </button>
+            {setupNote && <p className="text-soft">{setupNote}</p>}
+            <Link className="link" href="/documents">
+              Hujjatlar bo'limiga o'tish →
+            </Link>
+          </div>
+        </div>
+        <div className="grid grid-4">
+          <Stat label="Fuqarolar" value={0} hint="Baza bo'sh" />
+          <Stat label="Oilalar" value={0} hint="Baza bo'sh" />
+          <Stat label="Uylar" value={0} hint="Baza bo'sh" />
+          <Stat label="AI agentlar" value="6" hint="Yuklangach ishlaydi" />
+        </div>
+      </>
+    );
+  }
 
   const metric = (key: string) => data.metrics.find((item) => item.key === key);
 
