@@ -81,6 +81,7 @@ GREETING_RE = re.compile(
 
 def detect_intent(message: str) -> tuple[str, list[str]]:
     text = (message or "").lower()
+    text = re.sub("[ʻʼ‘’']", "'", text)  # apostrof turlarini birlashtirish
     if GREETING_RE.search(text) and len(text.split()) <= 12:
         return "smalltalk", ["smalltalk"]
     # Import/fayl kontekstida "hisobot/xatolik/tahlil" so'zlari hujjat agentiga tegishli.
