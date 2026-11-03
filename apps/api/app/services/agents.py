@@ -1142,13 +1142,13 @@ def _execute_draft(
             document = legislation.ingest_document(db, payload["url"], actor=actor)
             return {"entity_type": "legislation_document", "entity_id": document.id, "label": document.title}
         if payload.get("query"):
-            documents = legislation.sync_query(
+            synced_docs = legislation.sync_query(
                 db, payload["query"], limit=int(payload.get("limit", 3)), actor=actor
             )
             return {
                 "entity_type": "legislation_document",
-                "entity_id": documents[0].id if documents else None,
-                "label": f"{len(documents)} ta hujjat sinxronlandi",
+                "entity_id": synced_docs[0].id if synced_docs else None,
+                "label": f"{len(synced_docs)} ta hujjat sinxronlandi",
             }
         raise bad_request("Sinxronlash uchun query yoki url kerak.")
     if draft.action_type == "save_preference":
