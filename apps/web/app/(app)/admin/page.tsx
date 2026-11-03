@@ -239,7 +239,7 @@ export default function AdminPage() {
                 ))}
               </div>
               <div className="progress mt">
-                <i style={{ width: `${Math.min(100, (settings.usage.total_tokens / Math.max(1, settings.usage.limit)) * 100)}%` }} />
+                <i style={{ width: `${Math.min(100, (settings.usage.total_tokens / Math.max(1, settings.usage.budget)) * 100)}%` }} />
               </div>
               <p className="text-soft mt">
                 Bugungi sarf: {fmtInt(settings.usage.total_tokens)} / {fmtInt(settings.usage.budget)} token ·{" "}
@@ -297,7 +297,7 @@ export default function AdminPage() {
             <div className="card card-pad">
               <h3 className="mb">Bugungi sarf</h3>
               <div className="progress mb">
-                <i style={{ width: `${Math.min(100, (usage.today.total_tokens / Math.max(1, usage.today.limit)) * 100)}%` }} />
+                <i style={{ width: `${Math.min(100, (usage.today.total_tokens / Math.max(1, usage.today.budget)) * 100)}%` }} />
               </div>
               <dl className="kv">
                 <dt>Tokenlar</dt>
