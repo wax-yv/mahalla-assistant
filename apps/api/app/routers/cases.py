@@ -179,7 +179,6 @@ def list_work_logs(
 ):
     rows, meta = service.list_work_logs(
         db,
-        q=q,
         citizen_id=citizen_id,
         family_id=family_id,
         case_id=case_id,
