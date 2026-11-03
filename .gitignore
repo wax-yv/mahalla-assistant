@@ -1,0 +1,47 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+.turbo/
+apps/web/.vercel/
+apps/api/.vercel/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+*.pem
+
+# Local database / runtime
+.pgdata/
+var/
+*.log
+*.sqlite
+*.sqlite3
+
+# Tests
+playwright-report/
+test-results/
+blob-report/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Generated build artefacts
+*.tsbuildinfo
