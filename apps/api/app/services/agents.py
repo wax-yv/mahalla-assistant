@@ -83,6 +83,11 @@ def detect_intent(message: str) -> tuple[str, list[str]]:
     text = (message or "").lower()
     if GREETING_RE.search(text) and len(text.split()) <= 12:
         return "smalltalk", ["smalltalk"]
+    # Import/fayl kontekstida "hisobot/xatolik/tahlil" so'zlari hujjat agentiga tegishli.
+    file_words = ("import", "excel", "xlsx", "csv", "fayl", "yukla", "hujjat yukla")
+    report_words = ("hisobot", "xatolik", "xato", "tahlil", "tekshir", "dublikat", "sifat")
+    if any(word in text for word in file_words) and any(word in text for word in report_words):
+        return "document", ["document"]
     scores: dict[str, int] = {}
     for intent, keywords in INTENT_RULES:
         score = 0
