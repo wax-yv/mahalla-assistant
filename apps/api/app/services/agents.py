@@ -54,7 +54,7 @@ INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("legislation", ("qonun", "modda", "lex.uz", "lexuz", "farmon", "kodeks", "konstitutsiya", "huquqiy norma", "qonunchilik")),
     ("credit_subsidy", ("kredit", "subsidiya", "ipoteka", "grant", "bank", "moliyalashtirish", "foizsiz yordam")),
     ("reporting", ("hisobot", "statistika", "ko'rsatkich", "tahlil", "necha foiz", "dinamika", "hisob-kitob")),
-    ("document", ("hujjat", "fayl", "import", "eksport", "excel", "xlsx", "csv", "docx", "pdf", "yuklash")),
+    ("document", ("hujjat", "fayl", "import", "eksport", "excel", "xlsx", "csv", "docx", "pdf", "yukla", "xatolik")),
     ("plan_control", ("vazifa", "reja", "bugun", "ertaga", "muddat", "kechik", "nazorat", "bajarildi", "bajarilmadi")),
     ("citizen_lookup", ("fuqaro", "kim", "manzil", "telefon", "oilasi", "yoshi", "haqida ma'lumot", "topib ber")),
 ]
