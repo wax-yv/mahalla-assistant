@@ -167,7 +167,6 @@ def cancel_task(
 
 @router.get("/work-logs")
 def list_work_logs(
-    q: str | None = None,
     citizen_id: str | None = None,
     family_id: str | None = None,
     case_id: str | None = None,

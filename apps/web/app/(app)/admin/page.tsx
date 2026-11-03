@@ -5,6 +5,8 @@ import { Badge, Empty, ErrorNote, Loading, Pager, PageHead } from "@/components/
 import { api, type Paged } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
 
+const fmtInt = (value: number | string | undefined | null) => Number(value ?? 0).toLocaleString("uz-UZ");
+
 type Settings = {
   theme: string;
   language: string;
@@ -16,7 +18,7 @@ type Settings = {
   district: string;
   region: string;
   demo_mode: boolean;
-  usage: { total_tokens: number; limit: number; remaining: number; requests: number };
+  usage: { total_tokens: number; budget: number; remaining: number; requests: number };
   providers: { name: string; ok: boolean; detail: string }[];
 };
 type AuditRow = {
@@ -29,7 +31,7 @@ type AuditRow = {
   description?: string;
 };
 type Usage = {
-  today: { total_tokens: number; limit: number; remaining: number; requests: number };
+  today: { total_tokens: number; budget: number; remaining: number; requests: number };
   days: { date: string; total: number; requests: number }[];
   models: { model: string; provider: string; tokens: number; requests: number }[];
 };
@@ -240,7 +242,7 @@ export default function AdminPage() {
                 <i style={{ width: `${Math.min(100, (settings.usage.total_tokens / Math.max(1, settings.usage.limit)) * 100)}%` }} />
               </div>
               <p className="text-soft mt">
-                Bugungi sarf: {settings.usage.total_tokens.toLocaleString()} / {settings.usage.limit.toLocaleString()} token ·{" "}
+                Bugungi sarf: {fmtInt(settings.usage.total_tokens)} / {fmtInt(settings.usage.budget)} token ·{" "}
                 {settings.usage.requests} so‘rov
               </p>
             </div>
@@ -299,9 +301,9 @@ export default function AdminPage() {
               </div>
               <dl className="kv">
                 <dt>Tokenlar</dt>
-                <dd>{usage.today.total_tokens.toLocaleString()} / {usage.today.limit.toLocaleString()}</dd>
+                <dd>{fmtInt(usage.today.total_tokens)} / {fmtInt(usage.today.budget)}</dd>
                 <dt>Qolgan</dt>
-                <dd>{usage.today.remaining.toLocaleString()}</dd>
+                <dd>{fmtInt(usage.today.remaining)}</dd>
                 <dt>So‘rovlar</dt>
                 <dd>{usage.today.requests}</dd>
               </dl>
@@ -325,7 +327,7 @@ export default function AdminPage() {
                       <tr key={model.model}>
                         <td className="mono">{model.model}</td>
                         <td>{model.provider}</td>
-                        <td>{model.tokens.toLocaleString()}</td>
+                        <td>{fmtInt(model.tokens)}</td>
                         <td>{model.requests}</td>
                       </tr>
                     ))}
