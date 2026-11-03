@@ -177,9 +177,14 @@ def _normalize_phone(value: Any) -> str:
         return ""
     if len(digits) == 9:
         digits = "998" + digits
-    if not digits.startswith("998") and len(digits) == 12:
+    elif len(digits) == 12 and digits.startswith("998"):
+        pass
+    elif len(digits) == 12:
         digits = "998" + digits[-9:]
-    return "+" + digits if digits else ""
+    else:
+        # 9 yoki 12 raqamli bo'lmagan har qanday qiymat noto'g'ri hisoblanadi.
+        return ""
+    return "+" + digits
 
 
 def _gender(value: Any) -> str:
@@ -248,6 +253,40 @@ def validate_records(
                     "severity": "error",
                 }
             )
+        elif raw_birth not in (None, "") and birth is not None:
+            # Noaniq format: 05/03/1990 ham kun/oy, ham oy/kun bo'lishi mumkin.
+            text = str(raw_birth).strip()
+            parsed_variants = []
+            for fmt in ("%d/%m/%Y", "%m/%d/%Y"):
+                try:
+                    parsed_variants.append(datetime.strptime(text, fmt).date())
+                except ValueError:
+                    continue
+            if len(parsed_variants) == 2 and parsed_variants[0] != parsed_variants[1]:
+                warnings.append(
+                    {
+                        "row_number": index,
+                        "column": mapping.get("birth_date"),
+                        "code": "AMBIGUOUS_DATE",
+                        "message": (
+                            "Sana noaniq formatda — kun/oy tartibi faraz qilindi: "
+                            f"{birth.strftime('%d.%m.%Y')}. Faylda sanalarni DD.MM.YYYY shaklida yozish tavsiya etiladi."
+                        ),
+                        "raw_value": str(raw_birth),
+                        "severity": "warning",
+                    }
+                )
+        elif raw_birth in (None, ""):
+            warnings.append(
+                {
+                    "row_number": index,
+                    "column": mapping.get("birth_date"),
+                    "code": "MISSING_BIRTH_DATE",
+                    "message": "Tug'ilgan sana ko'rsatilmagan — yosh bo'yicha filtrlar ishlamaydi.",
+                    "raw_value": None,
+                    "severity": "warning",
+                }
+            )
         if birth and birth > today_local():
             errors.append(
                 {
@@ -267,8 +306,19 @@ def validate_records(
                     "row_number": index,
                     "column": mapping.get("phone"),
                     "code": "INVALID_PHONE",
-                    "message": "Telefon raqami normallashtirilmadi.",
+                    "message": "Telefon raqami noto'g'ri (kamida 9 raqam bo'lishi kerak, masalan +998 90 123 45 67).",
                     "raw_value": raw_phone,
+                    "severity": "warning",
+                }
+            )
+        elif not raw_phone:
+            warnings.append(
+                {
+                    "row_number": index,
+                    "column": mapping.get("phone"),
+                    "code": "MISSING_PHONE",
+                    "message": "Telefon raqami ko'rsatilmagan.",
+                    "raw_value": None,
                     "severity": "warning",
                 }
             )

@@ -592,6 +592,9 @@ def _credit_subsidy(db: Session, message: str, context: dict[str, Any]) -> dict[
 
 
 IMPORT_ERROR_LABELS = {
+    "AMBIGUOUS_DATE": "Sana formati noaniq (kun/oy tartibi)",
+    "MISSING_BIRTH_DATE": "Tug'ilgan sana ko'rsatilmagan",
+    "MISSING_PHONE": "Telefon raqami ko'rsatilmagan",
     "FULL_NAME_REQUIRED": "F.I.Sh. bo'sh",
     "INVALID_BIRTH_DATE": "Tug'ilgan sana noto'g'ri formatda",
     "FUTURE_BIRTH_DATE": "Tug'ilgan sana kelajakda",
