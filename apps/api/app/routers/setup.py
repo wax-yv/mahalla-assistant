@@ -22,15 +22,22 @@ def setup(
 ):
     Base.metadata.create_all(bind=engine)  # explicit setup always ensures full schema
     users = int(db.execute(select(func.count()).select_from(User)).scalar_one())
+    citizens = int(db.execute(select(func.count()).select_from(Citizen)).scalar_one())
     is_first_run = users == 0
+    needs_seed = citizens == 0
     expected = (settings.setup_token or "").strip()
-    token_ok = bool(expected and expected != "change-me" and x_setup_token and secrets.compare_digest(x_setup_token, expected))
+    token_ok = bool(
+        expected
+        and expected != "change-me"
+        and x_setup_token
+        and secrets.compare_digest(x_setup_token, expected)
+    )
     if not is_first_run and not token_ok:
-        raise forbidden("Tizim allaqachon sozlangan. Setup uchun token talab qilinadi.")
-    if not is_first_run:
+        raise forbidden("Setup uchun to'g'ri X-Setup-Token kerak.")
+    if not needs_seed:
         ensure_admin(db)
         db.commit()
-        return {"ok": True, "seeded": False, "message": "Admin hisobi tekshirildi."}
+        return {"ok": True, "seeded": False, "message": "Ma'lumotlar allaqachon yuklangan."}
     from app import seed
 
     seed.run()
