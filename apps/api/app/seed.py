@@ -38,7 +38,8 @@ from app.models import (
 )
 
 DATA_FILE = Path("/home/shohjahon/Downloads/Telegram Desktop/demo_fuqarolar_bazasi.xlsx")
-PREFERRED_FILE = Path(__file__).resolve().parents[3] / "data" / "demo_fuqarolar_bazasi.xlsx"
+# Bundled with the API project so the Vercel serverless bundle includes it.
+PREFERRED_FILE = Path(__file__).resolve().parents[1] / "data" / "demo_fuqarolar_bazasi.xlsx"
 RNG = random.Random(20261103)
 NOW = datetime.now(timezone.utc)
 
@@ -54,7 +55,7 @@ def _verified(seed: str) -> datetime:
 def load_source_rows():
     path = DATA_FILE if DATA_FILE.exists() else PREFERRED_FILE
     if not path.exists():
-        raise SystemExit(
+        raise RuntimeError(
             "Demo XLSX topilmadi. Uni data/demo_fuqarolar_bazasi.xlsx ga joylang."
         )
     workbook = load_workbook(path, read_only=True, data_only=True)
@@ -251,7 +252,7 @@ def seed_operational(db: Session) -> None:
         select(Citizen).where(Citizen.archived_at.is_(None)).order_by(Citizen.id)
     ).scalars().all()
     if not citizens:
-        raise SystemExit("Fuqarolar yuklanmagan.")
+        raise RuntimeError("Fuqarolar yuklanmagan.")
     unemployed = [c for c in citizens if c.employment_status == "Ishsiz"]
     social = [c for c in citizens if c.social_status != "Yo'q"]
     youth = [c for c in citizens if c.birth_date and c.birth_date.year >= 1996]

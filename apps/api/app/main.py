@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import settings
-from app.core.db import ensure_schema
+from app.core.db import Base, advisory_lock, engine, schema_ready
 from app.core.errors import APIError
 from app.routers import (
     admin,
@@ -32,7 +32,9 @@ from app.routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
-        ensure_schema()
+        with advisory_lock("mahalla_schema"):
+            if not schema_ready():
+                Base.metadata.create_all(bind=engine)
     except Exception as error:  # the database may not be attached yet
         print(f"[startup] create_all skipped: {error}")
     yield
