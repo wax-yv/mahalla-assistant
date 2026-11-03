@@ -53,11 +53,11 @@ AGENT_LABELS = {
 
 INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
     ("legislation", ("qonun", "modda", "lex.uz", "lexuz", "farmon", "kodeks", "konstitutsiya", "huquqiy norma", "qonunchilik")),
-    ("credit_subsidy", ("kredit", "subsidiya", "ipoteka", "grant", "bank", "moliyalashtirish", "foizsiz yordam")),
+    ("credit_subsidy", ("kredit", "subsidiya", "ipoteka", "grant", "bank", "moliyalashtirish", "foizsiz yordam", "dastur")),
     ("reporting", ("hisobot", "statistika", "ko'rsatkich", "tahlil", "necha foiz", "dinamika", "hisob-kitob")),
     ("document", ("hujjat", "fayl", "import", "eksport", "excel", "xlsx", "csv", "docx", "pdf", "yukla", "xatolik")),
     ("plan_control", ("vazifa", "reja", "bugun", "ertaga", "muddat", "kechik", "nazorat", "bajarildi", "bajarilmadi")),
-    ("citizen_lookup", ("fuqaro", "kim", "manzil", "telefon", "oilasi", "yoshi", "haqida ma'lumot", "topib ber")),
+    ("citizen_lookup", ("fuqaro", "kim", "manzil", "telefon", "oilasi", "yoshi", "haqida ma'lumot", "haqida malumot", "malumot ber", "topib ber")),
     ("agent_status", ("agentlar holati", "agentlar qanday", "agentlar", "qanday agentlar")),
 ]
 
@@ -102,7 +102,7 @@ def detect_intent(message: str) -> tuple[str, list[str]]:
         return "smalltalk", []
     ordered = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     primary, top = ordered[0]
-    secondary = [name for name, score in ordered[1:] if score >= max(2, top - 1)]
+    secondary = [name for name, score in ordered[1:] if score >= max(1, top - 1)]
     if secondary:
         return "multi", [primary, *secondary[:2]]
     return primary, [primary]
