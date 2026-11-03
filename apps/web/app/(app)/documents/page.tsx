@@ -161,22 +161,25 @@ export default function DocumentsPage() {
               <dt>Ogohlantirishlar</dt>
               <dd>{analysis.batch.warning_count}</dd>
             </dl>
-            {analysis.errors.length > 0 && (
-              <div className="chips mb">
-                {Array.from(
-                  analysis.errors.reduce((map, err) => {
-                    map.set(err.code, (map.get(err.code) ?? 0) + 1);
-                    return map;
-                  }, new Map<string, number>())
-                )
-                  .sort((a, b) => (b[1] as number) - (a[1] as number))
-                  .map(([code, count]) => (
-                    <span key={code as string} className="badge danger">
-                      {code} — {count as number}
+            {(() => {
+              const all = [...analysis.errors, ...analysis.warnings];
+              if (all.length === 0) return null;
+              const grouped = Array.from(
+                all.reduce((map, item) => {
+                  map.set(item.code, { count: (map.get(item.code)?.count ?? 0) + 1, severity: item.severity });
+                  return map;
+                }, new Map<string, { count: number; severity: string }>())
+              ).sort((a, b) => (b[1] as { count: number }).count - (a[1] as { count: number }).count);
+              return (
+                <div className="chips mb">
+                  {grouped.map(([code, info]) => (
+                    <span key={code as string} className={`badge ${(info as { severity: string }).severity === "error" ? "danger" : "warn"}`}>
+                      {code} — {(info as { count: number }).count}
                     </span>
                   ))}
-              </div>
-            )}
+                </div>
+              );
+            })()}
             {analysis.errors.length > 0 && (
               <div className="table-wrap mb">
                 <table className="data">
@@ -192,6 +195,28 @@ export default function DocumentsPage() {
                       <tr key={row.id}>
                         <td>{row.row_number}</td>
                         <td className="mono">{row.column ?? "—"}</td>
+                        <td>{row.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {analysis.warnings.length > 0 && (
+              <div className="table-wrap mb">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Qator</th>
+                      <th>Tur</th>
+                      <th>Ogohlantirish</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {analysis.warnings.slice(0, 8).map((row) => (
+                      <tr key={row.id}>
+                        <td>{row.row_number}</td>
+                        <td className="mono">{row.code}</td>
                         <td>{row.message}</td>
                       </tr>
                     ))}
