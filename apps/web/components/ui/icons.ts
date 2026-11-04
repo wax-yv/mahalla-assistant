@@ -7,6 +7,6 @@ export {
   ChevronRight, PanelLeftClose, PanelLeftOpen, Mic, Sun, Moon, Monitor,
   Trash2, Download, Upload, RefreshCw, ExternalLink, Copy, UserRound,
   CalendarClock, CircleAlert, LoaderCircle, SlidersHorizontal, ArrowRight,
-  FileSpreadsheet, Filter, CircleCheck, Play, Menu, Send, MapPin, Phone,
+  FileSpreadsheet, Filter, CheckCircle2, Play, Menu, Send, MapPin, Phone,
   ShieldCheck, Clock, TrendingUp, Database, Sparkles, ArrowUpDown, Eye, EyeOff, Ban, Undo2, FileDown,
 } from "lucide-react";
