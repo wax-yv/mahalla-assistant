@@ -17,10 +17,10 @@ export function Stat({ label, value, hint }: { label: string; value: ReactNode; 
   );
 }
 
-export function Empty({ title, note, icon = "🗂️" }: { title: string; note?: string; icon?: string }) {
+export function Empty({ title, note, icon }: { title: string; note?: string; icon?: ReactNode }) {
   return (
     <div className="empty">
-      <div className="icon" aria-hidden="true">{icon}</div>
+      {icon && <div className="icon" aria-hidden="true">{icon}</div>}
       <h3>{title}</h3>
       {note && <p>{note}</p>}
     </div>
