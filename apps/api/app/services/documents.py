@@ -362,9 +362,10 @@ def validate_records(
                 }
             )
             continue
-        birth = _parse_birth(get("birth_date"))
         raw_birth = get("birth_date")
-        if raw_birth not in (None, "") and birth is None:
+        cleaned_birth = _clean(raw_birth)  # "—", "-", "yo'q" → ataylab bo'sh
+        birth = _parse_birth(raw_birth)
+        if cleaned_birth and birth is None:
             errors.append(
                 {
                     "row_number": index,
@@ -377,7 +378,7 @@ def validate_records(
             )
         elif raw_birth not in (None, "") and birth is not None:
             # Noaniq format: 05/03/1990 ham kun/oy, ham oy/kun bo'lishi mumkin.
-            text = str(raw_birth).strip()
+            text = str(raw_birth).strip() if isinstance(raw_birth, str) else ""
             parsed_variants = []
             for fmt in ("%d/%m/%Y", "%m/%d/%Y"):
                 try:
@@ -398,17 +399,8 @@ def validate_records(
                         "severity": "warning",
                     }
                 )
-        elif raw_birth in (None, ""):
-            warnings.append(
-                {
-                    "row_number": index,
-                    "column": mapping.get("birth_date"),
-                    "code": "MISSING_BIRTH_DATE",
-                    "message": "Tug'ilgan sana ko'rsatilmagan — yosh bo'yicha filtrlar ishlamaydi.",
-                    "raw_value": None,
-                    "severity": "warning",
-                }
-            )
+        elif not cleaned_birth:
+            pass  # "—" kabi placeholder — ataylab ko'rsatilmagan, ogohlantirish kerak emas
         if birth and birth > today_local():
             errors.append(
                 {
@@ -422,7 +414,9 @@ def validate_records(
             )
         phone = _normalize_phone(get("phone"))
         raw_phone = _clean(get("phone"))
-        if raw_phone and not phone:
+        if phone:
+            pass  # normallashtirildi
+        elif raw_phone and not phone:
             warnings.append(
                 {
                     "row_number": index,
@@ -433,17 +427,7 @@ def validate_records(
                     "severity": "warning",
                 }
             )
-        elif not raw_phone:
-            warnings.append(
-                {
-                    "row_number": index,
-                    "column": mapping.get("phone"),
-                    "code": "MISSING_PHONE",
-                    "message": "Telefon raqami ko'rsatilmagan.",
-                    "raw_value": None,
-                    "severity": "warning",
-                }
-            )
+
         duplicate_key = (full_name, birth.isoformat() if birth else "")
         if duplicate_key in seen_keys:
             warnings.append(
