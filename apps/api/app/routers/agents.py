@@ -35,6 +35,7 @@ def chat(
         actor=user.id,
         request_id=getattr(request.state, "request_id", None),
         preferred_provider=payload.provider,
+        preferred_model=payload.model,
     )
     draft_rows = result.pop("draft_actions", [])
     result["draft_actions"] = [service._draft_out(row) for row in draft_rows]

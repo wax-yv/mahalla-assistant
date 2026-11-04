@@ -161,3 +161,78 @@ def test_admin_settings_and_audit(auth):
     audit = client.get("/api/v1/admin/audit", headers=headers)
     assert audit.status_code == 200
     assert audit.json()["meta"]["total"] >= 1
+
+
+# --- Bosqich 4A: AI Routing v2 + Data-Q&A ---
+
+
+def test_intent_data_stats_keywords():
+    from app.services.agents import detect_intent
+
+    cases = [
+        ("guruh nogironliki bor shaxslar nechta?", "data_stats"),
+        ("ishsizlar nechta?", "data_stats"),
+        ("Temir daftardagi fuqarolar soni", "data_stats"),
+        ("Salom!", "smalltalk"),
+        ("Bugun qaysi vazifalar?", "plan_control"),
+    ]
+    for message, expected in cases:
+        intent, intents = detect_intent(message)
+        if expected == "data_stats":
+            # multi bo'lishi mumkin, lekin birlamchi data_stats bo'lishi shart
+            assert intent == "data_stats" or (intent == "multi" and intents[0] == "data_stats"), (
+                f"{message!r} -> {intent} {intents}"
+            )
+        else:
+            assert intent == expected, f"{message!r} -> {intent}, kutilgan {expected}"
+
+
+def test_data_stats_nogiron_counts(auth):
+    client, token = auth
+    response = client.post(
+        "/api/v1/agents/chat",
+        headers={"X-CSRF-Token": token},
+        json={"message": "guruh nogironliki bor shaxslar nechta? aniq sonini ayt"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["intent"] in {"data_stats", "multi"}
+    assert "reporting" in body["agents_used"] or "data_stats" in body["intent"]
+    content = body["message"]["content"]
+    assert "Jami" in content
+    # lokal demo bazada: I=11, II=14, III=10 => jami 35
+    assert "35" in content
+    assert "ISM" not in content and "EMIS" not in content
+
+
+def test_data_stats_with_street_and_gender(auth):
+    client, token = auth
+    response = client.post(
+        "/api/v1/agents/chat",
+        headers={"X-CSRF-Token": token},
+        json={"message": "ishsiz ayollar nechta?"},
+    )
+    assert response.status_code == 200
+    content = response.json()["message"]["content"]
+    assert "Jami" in content
+
+
+def test_model_routing_order():
+    from app.services.ai_gateway import available_models, order_models
+
+    models = available_models()
+    assert models, "Model registratsiyasi bo'sh"
+    primary = models[-1]["id"]
+    ordered = order_models(models, primary)
+    assert ordered[0]["id"] == primary
+    # qolganlari saqlanadi
+    assert {m["id"] for m in ordered} == {m["id"] for m in models}
+
+
+def test_admin_settings_validates_ai_model(auth):
+    client, token = auth
+    headers = {"X-CSRF-Token": token}
+    bad = client.patch("/api/v1/admin/settings", headers=headers, json={"values": {"ai_model": "yolg'on-model"}})
+    assert bad.status_code == 422
+    good = client.patch("/api/v1/admin/settings", headers=headers, json={"values": {"ai_model": ""}})
+    assert good.status_code == 200
