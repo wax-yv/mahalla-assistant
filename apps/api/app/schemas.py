@@ -421,6 +421,7 @@ class ImportPreview(BaseModel):
 class ImportCommitRequest(BaseModel):
     mapping: dict[str, str] | None = None
     idempotency_key: str | None = None
+    sheet: str | None = None
 
 
 class ExportRequest(BaseModel):

@@ -105,7 +105,7 @@ def reanalyze_import(
         raise not_found("Import batch topilmadi.")
     document, data = service.get_document_blob(db, batch.document_id)
     mapping = payload.mapping or batch.mapping
-    return service.analyze_document(db, document, data, mapping, user.id)
+    return service.analyze_document(db, document, data, mapping, user.id, sheet=payload.sheet)
 
 
 @router.post("/documents/imports/{batch_id}/commit")

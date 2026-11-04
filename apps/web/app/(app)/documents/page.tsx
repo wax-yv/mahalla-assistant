@@ -10,6 +10,8 @@ type ImportErrorRow = { id: string; row_number: number; column?: string | null; 
 type Analysis = {
   batch: { id: string; status: string; mapping: Record<string, string>; summary: Record<string, unknown>; error_count: number; warning_count: number };
   headers: string[];
+  sheet?: string | null;
+  available_sheets?: string[] | null;
   preview_rows: Record<string, string>[];
   errors: ImportErrorRow[];
   warnings: ImportErrorRow[];
@@ -43,6 +45,7 @@ export default function DocumentsPage() {
   const [note, setNote] = useState("");
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [editableMapping, setEditableMapping] = useState<Record<string, string>>({});
+  const [selectedSheet, setSelectedSheet] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(1);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -76,6 +79,7 @@ export default function DocumentsPage() {
       const result = await api.upload<{ document: DocRow; analysis?: Analysis }>("/documents", form);
       setAnalysis(result.analysis ?? null);
       setEditableMapping({ ...(result.analysis?.batch.mapping ?? {}) });
+      setSelectedSheet(result.analysis?.sheet ?? "");
       setNote(`Fayl yuklandi: ${result.document.original_name}`);
       load();
     } catch (err) {
@@ -85,16 +89,18 @@ export default function DocumentsPage() {
     }
   }
 
-  async function reanalyze() {
+  async function reanalyze(sheetOverride?: string) {
     if (!analysis) return;
     setBusy(true);
     setError("");
     try {
       const result = await api.post<Analysis>(`/documents/imports/${analysis.batch.id}/analyze`, {
         mapping: editableMapping,
+        sheet: sheetOverride ?? selectedSheet ?? undefined,
       });
       setAnalysis(result);
       setEditableMapping({ ...result.batch.mapping });
+      setSelectedSheet(result.sheet ?? "");
       setNote("Mapping yangilandi va qayta tahlil qilindi.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Qayta tahlil amalga oshmadi.");
@@ -190,6 +196,28 @@ export default function DocumentsPage() {
             </Badge>
           </div>
           <div className="card-pad">
+            {(analysis.available_sheets?.length ?? 0) > 1 && (
+              <div className="field mb">
+                <label>Excel varaq — faylda {analysis.available_sheets!.length} ta varaq bor</label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <select
+                    className="select"
+                    style={{ maxWidth: 280 }}
+                    value={selectedSheet || analysis.sheet || ""}
+                    onChange={(event) => {
+                      setSelectedSheet(event.target.value);
+                      void reanalyze(event.target.value);
+                    }}
+                  >
+                    {analysis.available_sheets!.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
             <div className="field mb">
               <label>Ustun mapping'i — tahrirlab qayta tahlil qilishingiz mumkin</label>
               <div className="grid grid-2">

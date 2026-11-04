@@ -167,13 +167,60 @@ def _pdf_records(data: bytes, warnings: list[str]) -> tuple[list[str], list[dict
     return ["matn"], [{"matn": text}], [*warnings, "PDF faylda jadval strukturasi topilmadi — matn sifatida tahlil qilinadi."]
 
 
-def parse_table(document: Document, data: bytes) -> tuple[list[str], list[dict[str, Any]], list[str]]:
+def _xlsx_sheet_rows(workbook, sheet_name: str) -> list[tuple]:
+    target = workbook[sheet_name]
+    return list(target.iter_rows(values_only=True))
+
+
+def _score_sheet(rows: list[tuple]) -> int:
+    """Varaq sarlavhalari fuqaro ustunlariga qanchalik mos kelishini baholash."""
+    header_row_index = next(
+        (index for index, row in enumerate(rows) if any(cell not in (None, "") for cell in row)),
+        None,
+    )
+    if header_row_index is None:
+        return -1
+    headers = [
+        normalize_header(cell) if cell not in (None, "") else ""
+        for cell in rows[header_row_index]
+    ]
+    alias_pool = {alias for aliases in MODULE_ALIASES.values() for alias in aliases}
+    alias_pool = {normalize_header(alias) for alias in alias_pool}
+    score = 0
+    for norm in headers:
+        if not norm:
+            continue
+        if norm in alias_pool:
+            score += 2
+        elif any(norm in alias or alias in norm for alias in alias_pool):
+            score += 1
+    return score
+
+
+def parse_table(
+    document: Document, data: bytes, sheet: str | None = None
+) -> tuple[list[str], list[dict[str, Any]], list[str]]:
     kind = _detect_kind(document.original_name, data)
     warnings: list[str] = []
     if kind == "xlsx":
         workbook = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-        sheet = workbook.active
-        rows = list(sheet.iter_rows(values_only=True))
+        available = list(workbook.sheetnames)
+        requested = sheet or document.meta.get("sheet")
+        if requested and requested in available:
+            chosen = requested
+            warnings.append(f"Varaq tanlandi: «{chosen}»")
+        elif len(available) > 1:
+            scored = {name: _score_sheet(_xlsx_sheet_rows(workbook, name)) for name in available}
+            chosen = max(scored, key=lambda name: scored[name])
+            if scored[chosen] <= 0:
+                chosen = workbook.sheetnames[0]
+            warnings.append(
+                f"Fayl {len(available)} varaqdan iborat — eng mosi tanlandi: «{chosen}» "
+                f"(mavjud: {', '.join(available)}). Varaqni mapping bo'limidan o'zgartirish mumkin."
+            )
+        else:
+            chosen = available[0]
+        rows = _xlsx_sheet_rows(workbook, chosen)
         if not rows:
             raise validation_error("Fayl bo'sh.")
         header_row = next(
@@ -491,9 +538,14 @@ def create_import_batch(
 
 
 def analyze_document(
-    db: Session, document: Document, data: bytes, mapping: dict[str, str] | None, actor: str
+    db: Session,
+    document: Document,
+    data: bytes,
+    mapping: dict[str, str] | None,
+    actor: str,
+    sheet: str | None = None,
 ) -> dict:
-    headers, records, parse_warnings = parse_table(document, data)
+    headers, records, parse_warnings = parse_table(document, data, sheet)
     detected = detect_mapping(headers)
     provided = {key: value for key, value in (mapping or {}).items() if value in headers}
     effective = {**detected, **provided}
@@ -552,6 +604,19 @@ def analyze_document(
     batch.error_count = len(errors)
     batch.warning_count = len(warnings)
     batch.summary = summary
+    chosen_sheet = None
+    available_sheets = None
+    for warning in parse_warnings:
+        if warning.startswith("Varaq tanlandi:") or "eng mosi tanlandi:" in warning:
+            match = re.search(r"«(.+?)»", warning)
+            if match:
+                chosen_sheet = match.group(1)
+        if "mavjud:" in warning:
+            available_sheets = [item.strip().rstrip(".") for item in warning.split("mavjud:")[1].split(",")]
+    if chosen_sheet is None:
+        chosen_sheet = document.meta.get("sheet")
+    if available_sheets is None and chosen_sheet:
+        available_sheets = [chosen_sheet]
     document.status = "parsed"
     document.meta = {
         **(document.meta or {}),
@@ -559,6 +624,8 @@ def analyze_document(
         "detected_module": "citizens",
         "preview": parsed[:5],
         "row_count": len(records),
+        "sheet": chosen_sheet,
+        "available_sheets": available_sheets,
     }
     db.flush()
     write_audit(
@@ -581,9 +648,12 @@ def build_preview(
     errors: list[dict],
     warnings: list[dict],
 ) -> dict:
+    meta = document.meta or {}
     return {
         "batch": import_batch_out(db, batch),
         "headers": headers,
+        "sheet": meta.get("sheet"),
+        "available_sheets": meta.get("available_sheets") or ([meta.get("sheet")] if meta.get("sheet") else []),
         "mapping": batch.mapping,
         "detected_module": "citizens",
         "preview_rows": parsed[:20],
@@ -643,7 +713,7 @@ def get_batch_preview(db: Session, batch_id: str) -> dict:
     blob = db.get(DocumentBlob, document.id)
     if blob is None:
         raise not_found("Fayl mazmuni topilmadi.")
-    headers, records, parse_warnings = parse_table(document, blob.data)
+    headers, records, parse_warnings = parse_table(document, blob.data, (document.meta or {}).get("sheet"))
     parsed, errors, warnings, summary = validate_records(db, batch.mapping or {}, records)
     for item in parse_warnings:
         warnings.append(
@@ -701,7 +771,7 @@ def commit_batch(
     blob = db.get(DocumentBlob, document.id) if document else None
     if document is None or blob is None:
         raise not_found("Import fayli topilmadi.")
-    headers, records, _ = parse_table(document, blob.data)
+    headers, records, _ = parse_table(document, blob.data, (document.meta or {}).get("sheet"))
     parsed, errors, warnings, summary = validate_records(db, batch.mapping or {}, records)
     if errors:
         batch.status = "failed"
