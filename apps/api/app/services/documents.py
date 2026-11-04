@@ -612,7 +612,9 @@ def analyze_document(
             if match:
                 chosen_sheet = match.group(1)
         if "mavjud:" in warning:
-            available_sheets = [item.strip().rstrip(".") for item in warning.split("mavjud:")[1].split(",")]
+            match_list = re.search(r"mavjud: (.+?)\)", warning)
+            if match_list:
+                available_sheets = [item.strip() for item in match_list.group(1).split(",")]
     if chosen_sheet is None:
         chosen_sheet = document.meta.get("sheet")
     if available_sheets is None and chosen_sheet:
@@ -648,7 +650,7 @@ def build_preview(
     errors: list[dict],
     warnings: list[dict],
 ) -> dict:
-    meta = document.meta or {}
+    meta = (batch.document.meta or {}) if batch.document else {}
     return {
         "batch": import_batch_out(db, batch),
         "headers": headers,
