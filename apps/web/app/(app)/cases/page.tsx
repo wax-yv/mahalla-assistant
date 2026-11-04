@@ -1,48 +1,71 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { Badge, Empty, ErrorNote, Loading, Pager, PageHead } from "@/components/ui";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { Inbox, Plus, Search } from "@/components/ui/icons";
+import { Badge, Empty, PageHead } from "@/components/ui";
+import { Drawer, ErrorState, SkeletonList, useToast } from "@/components/ui/overlays";
+import { Field } from "@/components/ui/inputs";
+import { SearchSelect } from "@/components/ui/inputs";
 import { api, type Paged } from "@/lib/api";
 import { CASE_STATUS, PRIORITY, fmtDate, statusBadge } from "@/lib/format";
 
 type CaseRow = {
-  id: string;
-  title: string;
-  category: string;
-  status: string;
-  priority: string;
-  citizen_name?: string | null;
-  opened_at: string;
-  task_count: number;
+  id: string; title: string; category: string; status: string; priority: string;
+  citizen_name?: string | null; opened_at: string; task_count: number;
 };
+type Option = { value: string; label: string; sub?: string };
 
-export default function CasesPage() {
+const CATEGORIES = ["Bandlik", "Ijtimoiy yordam", "Kredit va subsidiya", "Ta'lim", "Tibbiy yordam", "Uy-joy", "Hujjatlar", "Oila munosabatlari", "Boshqa"];
+const PRIORITIES = [
+  { value: "low", label: "Past" }, { value: "normal", label: "Oddiy" },
+  { value: "high", label: "Yuqori" }, { value: "urgent", label: "Shoshilinch" },
+];
+
+function CasesInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const toast = useToast();
   const [data, setData] = useState<Paged<CaseRow> | null>(null);
   const [error, setError] = useState("");
-  const [status, setStatus] = useState("");
-  const [q, setQ] = useState("");
-  const [page, setPage] = useState(1);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
-    title: "",
-    category: "Ijtimoiy yordam",
-    description: "",
-    priority: "normal",
-    citizen_id: "",
-    target_date: "",
-  });
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(Number(searchParams.get("page") ?? "1"));
+  const status = searchParams.get("status") ?? "";
+  const q = searchParams.get("q") ?? "";
+
+  const [formOpen, setFormOpen] = useState(false);
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [citizenOptions, setCitizenOptions] = useState<Option[]>([]);
+  const [citizenLoading, setCitizenLoading] = useState(false);
+  const [form, setForm] = useState({
+    title: "", category: "Ijtimoiy yordam", description: "", priority: "normal",
+    citizen_id: "", target_date: "",
+  });
+
+  const setParam = useCallback(
+    (patch: Record<string, string | null>) => {
+      const params = new URLSearchParams(searchParams.toString());
+      for (const [key, value] of Object.entries(patch)) {
+        if (value) params.set(key, value);
+        else params.delete(key);
+      }
+      router.replace(`/cases?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
 
   const load = useCallback(() => {
+    setLoading(true);
     const params = new URLSearchParams({ page: String(page), page_size: "20" });
     if (status) params.set("status", status);
     if (q) params.set("q", q);
     api
       .get<Paged<CaseRow>>(`/cases?${params}`)
-      .then(setData)
-      .catch((err) => setError(err instanceof Error ? err.message : "Xatolik"));
+      .then((d) => { setData(d); setError(""); })
+      .catch((err) => setError(err instanceof Error ? err.message : "Xatolik"))
+      .finally(() => setLoading(false));
   }, [status, q, page]);
 
   useEffect(() => {
@@ -50,19 +73,34 @@ export default function CasesPage() {
     return () => clearTimeout(timer);
   }, [load]);
 
+  function openForm() {
+    setFormOpen(true);
+    setFormError("");
+    if (citizenOptions.length === 0 && !citizenLoading) {
+      setCitizenLoading(true);
+      api
+        .get<{ items: Array<{ id: string; full_name: string; phone: string; address?: { address_label?: string } }> }>("/citizens/options")
+        .then((d) => setCitizenOptions(d.items.map((c) => ({ value: c.id, label: c.full_name, sub: [c.phone, c.address?.address_label].filter(Boolean).join(" · ") }))))
+        .catch(() => {})
+        .finally(() => setCitizenLoading(false));
+    }
+  }
+
   async function submit() {
+    if (form.title.trim().length < 3) { setFormError("Murojaat nomi kamida 3 belgi."); return; }
     setBusy(true);
     setFormError("");
     try {
       await api.post("/cases", {
-        title: form.title,
+        title: form.title.trim(),
         category: form.category,
         description: form.description,
         priority: form.priority,
         citizen_id: form.citizen_id || undefined,
         target_date: form.target_date || undefined,
       });
-      setShowForm(false);
+      toast.show("success", "Murojaat ro'yxatga olindi.");
+      setFormOpen(false);
       setForm({ title: "", category: "Ijtimoiy yordam", description: "", priority: "normal", citizen_id: "", target_date: "" });
       load();
     } catch (err) {
@@ -77,83 +115,27 @@ export default function CasesPage() {
       <PageHead
         kicker="Murojaatlar"
         title="Fuqarolar murojaatlari"
-        lede="Har bir murojaat holati, ustuvorligi va bog‘langan vazifalar bilan nazorat qilinadi."
-        actions={
-          <button className="btn primary" onClick={() => setShowForm((value) => !value)}>
-            {showForm ? "Bekor qilish" : "+ Yangi murojaat"}
-          </button>
-        }
+        lede="Har bir murojaat holati, ustuvorligi va bog'langan vazifalar bilan nazorat qilinadi."
+        actions={<button className="btn primary" onClick={openForm}><Plus size={16} /> Yangi murojaat</button>}
       />
-      {showForm && (
-        <div className="card card-pad mb">
-          <h3 className="mb">Yangi murojaat</h3>
-          {formError && <div className="alert danger">⚠️ {formError}</div>}
-          <div className="grid grid-2">
-            <div className="field">
-              <label>Nomi</label>
-              <input className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Masalan: Moddiy yordam ajratish masalasi" />
-            </div>
-            <div className="field">
-              <label>Toifa</label>
-              <select className="select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-                {["Bandlik", "Ijtimoiy yordam", "Kredit va subsidiya", "Ta'lim", "Tibbiy yordam", "Uy-joy", "Hujjatlar", "Oila munosabatlari", "Boshqa"].map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label>Fuqaro ID (ixtiyoriy)</label>
-              <input className="input mono" value={form.citizen_id} onChange={(e) => setForm({ ...form, citizen_id: e.target.value })} placeholder="F-00001" />
-            </div>
-            <div className="field">
-              <label>Ustuvorlik</label>
-              <select className="select" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
-                <option value="low">Past</option>
-                <option value="normal">Oddiy</option>
-                <option value="high">Yuqori</option>
-                <option value="urgent">Shoshilinch</option>
-              </select>
-            </div>
-            <div className="field">
-              <label>Nazorat muddati</label>
-              <input type="date" className="input" value={form.target_date} onChange={(e) => setForm({ ...form, target_date: e.target.value })} />
-            </div>
-          </div>
-          <div className="field">
-            <label>Tavsif</label>
-            <textarea className="textarea" rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
-          </div>
-          <button className="btn primary" disabled={busy || form.title.trim().length < 3} onClick={submit}>
-            {busy ? "Saqlanmoqda…" : "Murojaatni ro‘yxatga olish"}
-          </button>
-        </div>
-      )}
-      <div className="filters">
-        <select className="select" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }}>
+      <div className="toolbar">
+        <select className="select" value={status} onChange={(e) => { setParam({ status: e.target.value || null, page: null }); }} aria-label="Holat filtri">
           <option value="">Holat — barchasi</option>
-          <option value="open">Yangi</option>
-          <option value="in_progress">Jarayonda</option>
-          <option value="waiting">Kutilmoqda</option>
-          <option value="resolved">Hal qilindi</option>
-          <option value="closed">Yopilgan</option>
+          {Object.entries(CASE_STATUS).map(([key, val]) => <option key={key} value={key}>{val.label}</option>)}
         </select>
-        <input className="input" placeholder="Qidiruv…" value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
+        <div style={{ position: "relative", flex: 1, minWidth: 200, maxWidth: 340 }}>
+          <Search size={15} style={{ position: "absolute", left: 12, top: 13, color: "var(--color-text-muted)" }} />
+          <input className="input" style={{ paddingLeft: 36 }} placeholder="Qidiruv…" value={q}
+            onChange={(e) => setParam({ q: e.target.value || null, page: null })} aria-label="Qidiruv" />
+        </div>
       </div>
-      {!data && !error && <Loading />}
-      {data && (
-        <div className="card">
+      {loading && !data && <SkeletonList rows={6} />}
+      {data && !loading && (
+        <>
           <div className="table-wrap">
             <table className="data">
               <thead>
-                <tr>
-                  <th>Murojaat</th>
-                  <th>Fuqaro</th>
-                  <th>Toifa</th>
-                  <th>Holat</th>
-                  <th>Ustuvorlik</th>
-                  <th>Ochildi</th>
-                  <th>Vazifa</th>
-                </tr>
+                <tr><th>Murojaat</th><th>Fuqaro</th><th>Toifa</th><th>Holat</th><th>Ustuvorlik</th><th>Ochildi</th><th className="num">Vazifa</th></tr>
               </thead>
               <tbody>
                 {data.items.map((row) => {
@@ -161,37 +143,90 @@ export default function CasesPage() {
                   const pr = statusBadge(PRIORITY, row.priority);
                   return (
                     <tr key={row.id}>
-                      <td>
-                        <Link className="rowlink" href={`/cases/${row.id}`}>
-                          {row.title}
-                        </Link>
-                      </td>
+                      <td><Link className="rowlink" href={`/cases/${row.id}`}>{row.title}</Link></td>
                       <td>{row.citizen_name ?? "—"}</td>
                       <td>{row.category}</td>
-                      <td>
-                        <Badge tone={st.tone}>{st.label}</Badge>
-                      </td>
-                      <td>
-                        <Badge tone={pr.tone}>{pr.label}</Badge>
-                      </td>
+                      <td><Badge tone={st.tone}>{st.label}</Badge></td>
+                      <td><Badge tone={pr.tone}>{pr.label}</Badge></td>
                       <td className="nowrap">{fmtDate(row.opened_at)}</td>
-                      <td>{row.task_count}</td>
+                      <td className="num">{row.task_count}</td>
                     </tr>
                   );
                 })}
                 {data.items.length === 0 && (
-                  <tr>
-                    <td colSpan={7}>
-                      <Empty title="Murojaat topilmadi" />
-                    </td>
-                  </tr>
+                  <tr><td colSpan={7}><Empty title="Murojaat topilmadi" icon={<Inbox size={17} />} /></td></tr>
                 )}
               </tbody>
             </table>
           </div>
-          <Pager meta={data.meta} onPage={setPage} />
-        </div>
+          {data.meta.total_pages > 1 && (
+            <div className="pager">
+              <span className="num">{data.meta.total} ta murojaat · {data.meta.page}/{data.meta.total_pages}</span>
+              <span style={{ display: "flex", gap: 8 }}>
+                <button className="btn sm" disabled={page <= 1} onClick={() => setParam({ page: String(page - 1) })}>‹ Oldingi</button>
+                <button className="btn sm" disabled={page >= data.meta.total_pages} onClick={() => setParam({ page: String(page + 1) })}>Keyingi ›</button>
+              </span>
+            </div>
+          )}
+        </>
       )}
+
+      <Drawer
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        title="Yangi murojaat"
+        footer={
+          <>
+            <button className="btn ghost" onClick={() => setFormOpen(false)} disabled={busy}>Bekor qilish</button>
+            <button className="btn primary" onClick={() => void submit()} disabled={busy || form.title.trim().length < 3}>
+              {busy ? "Saqlanmoqda…" : "Murojaatni ro'yxatga olish"}
+            </button>
+          </>
+        }
+      >
+        {formError && <div className="alert danger" role="alert">{formError}</div>}
+        <Field label="Nomi" required htmlFor="cf-title">
+          <input id="cf-title" className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Masalan: Moddiy yordam ajratish masalasi" />
+        </Field>
+        <div className="grid grid-2">
+          <Field label="Toifa" htmlFor="cf-cat">
+            <select id="cf-cat" className="select" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
+              {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </Field>
+          <Field label="Ustuvorlik" htmlFor="cf-pri">
+            <select id="cf-pri" className="select" value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>
+              {PRIORITIES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>
+          </Field>
+        </div>
+        <Field label="Fuqaro" htmlFor="cf-citizen" hint="Yozib qidiring — F.I.Sh. yoki telefon">
+          <SearchSelect
+            id="cf-citizen"
+            value={form.citizen_id}
+            onChange={(v) => setForm({ ...form, citizen_id: v })}
+            options={citizenOptions}
+            placeholder="Fuqaro tanlanmagan"
+            searchPlaceholder="F.I.Sh. yoki telefon…"
+            loading={citizenLoading}
+            clearable
+          />
+        </Field>
+        <Field label="Nazorat muddati" htmlFor="cf-date">
+          <input id="cf-date" type="date" className="input" value={form.target_date} onChange={(e) => setForm({ ...form, target_date: e.target.value })} />
+        </Field>
+        <Field label="Tavsif" htmlFor="cf-desc">
+          <textarea id="cf-desc" className="textarea" rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+        </Field>
+      </Drawer>
     </>
+  );
+}
+
+export default function CasesPage() {
+  return (
+    <Suspense fallback={<SkeletonList rows={6} />}>
+      <CasesInner />
+    </Suspense>
   );
 }
