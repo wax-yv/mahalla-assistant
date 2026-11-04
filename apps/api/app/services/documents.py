@@ -617,8 +617,8 @@ def analyze_document(
                 available_sheets = [item.strip() for item in match_list.group(1).split(",")]
     if chosen_sheet is None:
         chosen_sheet = document.meta.get("sheet")
-    if available_sheets is None and chosen_sheet:
-        available_sheets = [chosen_sheet]
+    if available_sheets is None:
+        available_sheets = document.meta.get("available_sheets") or ([chosen_sheet] if chosen_sheet else None)
     document.status = "parsed"
     document.meta = {
         **(document.meta or {}),
