@@ -87,17 +87,45 @@ def available_models() -> list[dict[str, Any]]:
     return sorted(models, key=lambda item: item["rank"])
 
 
-def provider_status() -> list[dict[str, Any]]:
+def _live_provider_check(provider: str) -> tuple[bool, str]:
+    """Provayder /models endpointini qisqa so'rov bilan tekshirish."""
+    try:
+        url, headers = _endpoint(provider)
+        models_url = url.rsplit("/chat/completions", 1)[0] + "/models"
+        with httpx.Client(timeout=8) as client:
+            response = client.get(models_url, headers=headers)
+        if response.status_code == 200:
+            payload = response.json()
+            count = len(payload.get("data") or payload.get("models") or [])
+            return True, f"Ulangan — {count} model mavjud"
+        if response.status_code in (401, 403):
+            return False, "API kaliti rad etildi (401/403)"
+        return False, f"Server javobi: HTTP {response.status_code}"
+    except httpx.HTTPError as error:
+        return False, f"Ulanmadi: {type(error).__name__}"
+
+
+def provider_status(live: bool = True) -> list[dict[str, Any]]:
     models = available_models()
     result = []
     for key, label in (("nvidia", "NVIDIA NIM"), ("openrouter", "OpenRouter")):
+        configured = bool(
+            settings.nvidia_nim_api_key if key == "nvidia" else settings.openrouter_api_key
+        )
+        if not configured:
+            ok, detail = False, "API kaliti sozlanmagan"
+        elif live:
+            ok, detail = _live_provider_check(key)
+        else:
+            ok, detail = True, "Ulangan (tezkor rejim)"
         result.append(
             {
                 "id": key,
+                "name": label,
                 "label": label,
-                "configured": bool(
-                    settings.nvidia_nim_api_key if key == "nvidia" else settings.openrouter_api_key
-                ),
+                "configured": configured,
+                "ok": ok,
+                "detail": detail,
                 "model_count": len([m for m in models if m["provider"] == key]),
                 "models": [m for m in models if m["provider"] == key],
             }

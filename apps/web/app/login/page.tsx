@@ -68,7 +68,7 @@ export default function LoginPage() {
             <ThemeToggle />
           </div>
           <h1>Tizimga kirish</h1>
-          <p className="sub">Demo hisob: login <b>wax</b>, parol <b>waxs</b></p>
+          <p className="sub">Login va parolingizni kiriting.</p>
           {error && <div className="alert danger">⚠️ {error}</div>}
           <form onSubmit={submit}>
             <div className="field">

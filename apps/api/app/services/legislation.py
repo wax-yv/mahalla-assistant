@@ -361,27 +361,35 @@ def document_detail(db: Session, document_id: str) -> dict[str, Any]:
     }
 
 
-SYSTEM = """Siz O'zbekiston qonunchiligi bo'yicha mahalla xodimiga yordam beruvchi assistentsiz.
-Faqat o'zbek lotin tilida yozing. Faqat berilgan manbalar asosida javob bering.
-Har bir xulosadan keyin manba raqamini kvadrat qavsda ko'rsating, masalan [1].
-Manbada bo'lmagan norma, modda raqami yoki muddatni o'ylab topmang.
-Agar manbalar savolga javob bermasa, "Taqdim etilgan manbalarda bu savolga to'liq javob topilmadi" deb yozing.
-Javob 3-5 xatboshidan oshmasin, amaliy va aniq bo'lsin.
-Oxirida "Rasmiy tasdiq uchun Lex.uz dagi amaldagi tahrirni tekshiring." degan ogohlantirish qo'shing."""
+SYSTEM = """Siz O'zbekiston qonunchiligi bo'yicha mahalla xodimi uchun yuridik tahlilchi assistentsiz.
+Faqat o'zbek lotin tilida yozing. Faqat BERILGAN manbalar asosida ishlang.
+
+JAVOB STRUKTURASI (majburiy, aynan shu sarlavhalar bilan):
+1. «JAVOB:» — savolga to'g'ridan-to'g'ri aniq javob bering (Ha / Yo'q / Shartli — va 1-2 gapda mohiyati). Umuman javob bermang deb aytmang.
+2. «ASOS:» — bu xulosani qaysi norma beradi; manbadan matnni O'ZGARTIRMASDAN iqtibos keltiring («...» qo'shtirnoq ichida) va manba raqamini ko'rsating [1]. Ikkita asosiy manba bo'lsa, ikkalasidan qisqa iqtibos keltiring.
+3. «IZOH:» — qo'shimcha shartlar, istisnolar yoki cheklovlar (agar manbalarda mavjud bo'lsa). Agar manbalar savolning barcha jihatlarini yopmasa, qaysi qism aniq asoslangan va qaysi qism rasmiy tasdiq talab qilishini ochiq ajratib ko'rsating.
+
+QAT'IY QOIDALAR:
+- Iqtibos faqat manbada AYNAN yozilgan matndan bo'lishi shart; o'zingiz matn tuzmang.
+- O'ylab topilgan modda raqami, muddat, summa yozmang — manbada bo'lsa keltiring, bo'lmasa yozmang.
+- Manbalar asosida mantiqiy xulosa chiqarishga intiling: masalan, ta'rif normasi bor bo'lsa, uni savol holatiga qo'llab aniq javob bering.
+- «Javob yo'q» kabi umumiy rad etish yozmang — eng yaqin amaldagi normani keltirib, chegarasini tushuntiring.
+- Oxirida doim: "Rasmiy tasdiq uchun Lex.uz dagi amaldagi tahrirni tekshiring."
+- Umumiy hajm: 6-10 gap."""
 
 
 def ask(db: Session, question: str, *, use_ai: bool = True, sync_if_empty: bool = True) -> dict[str, Any]:
     question = (question or "").strip()
     if len(question) < 3:
         raise bad_request("Savol matni juda qisqa.")
-    hits = search_chunks(db, question, limit=6)
+    hits = search_chunks(db, question, limit=8)
     synced: list[str] = []
     warnings: list[str] = []
     if not hits and sync_if_empty:
         try:
             documents = sync_query(db, question, limit=3)
             synced = [document.title for document in documents]
-            hits = search_chunks(db, question, limit=6)
+            hits = search_chunks(db, question, limit=8)
         except Exception as error:
             warnings.append(f"Lex.uz dan jonli yuklash amalga oshmadi: {error}")
     documents = []
@@ -419,6 +427,7 @@ def ask(db: Session, question: str, *, use_ai: bool = True, sync_if_empty: bool 
                 "article": chunk["article"],
                 "url": document["source_url"],
                 "retrieved_at": document["retrieved_at"],
+                "excerpt": chunk["content"][:240],
             }
         )
         context_parts.append(
@@ -440,7 +449,7 @@ def ask(db: Session, question: str, *, use_ai: bool = True, sync_if_empty: bool 
                     },
                 ],
                 agent="legislation",
-                max_tokens=1200,
+                max_tokens=1600,
                 temperature=0.1,
             )
             answer = result.content.strip()
