@@ -75,7 +75,9 @@ def get_settings(db: Session) -> dict[str, Any]:
         "district": "Urganch shahri",
         "region": "Xorazm viloyati",
     }
-    defaults.update({key: val for key, val in value.items() if val is not None})
+    # N-7: `null` qiymat saqlanadi — sozlamani tozalash mumkin (avval null
+    # e'tiborsiz qolardi va default qaytardi).
+    defaults.update(value)
     defaults["usage"] = ai_gateway.usage_today(db)
     defaults["providers"] = ai_gateway.provider_status()
     return defaults
@@ -99,9 +101,14 @@ def update_settings(db: Session, updates: dict[str, Any], actor: str, request_id
                 )
     if "ai_budget" in updates:
         try:
-            updates["ai_budget"] = max(1000, int(updates["ai_budget"]))
+            budget = int(updates["ai_budget"])
         except (TypeError, ValueError) as error:
             raise validation_error("AI budjeti butun son bo'lishi kerak.") from error
+        # N-7: pastki chegaraga jim ko'tarilmaydi — foydalanuvchi niyati
+        # aniqlashtiriladi (422).
+        if budget < 1000:
+            raise validation_error("AI budjeti kamida 1000 token bo'lishi kerak.")
+        updates["ai_budget"] = budget
     row = db.get(AppSetting, "app")
     if row is None:
         row = AppSetting(key="app", value={})
@@ -168,47 +175,92 @@ def audit_page(
 
 
 def usage_summary(db: Session, days: int = 14) -> dict[str, Any]:
+    """AI sarflari — SQL GROUP BY bilan (N-7).
+
+    Eski kod barcha `AIUsage` qatorlarini Python'ga yuklab, xotirada
+    yig'ardi — katta jurnalda sekinlik va xotira xavfi.
+    """
     since = datetime.now(timezone.utc) - timedelta(days=max(1, min(90, days)))
-    rows = db.execute(
-        select(AIUsage).where(AIUsage.created_at >= since).order_by(AIUsage.created_at)
-    ).scalars().all()
-    by_day: dict[str, dict[str, int]] = {}
-    by_model: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        day = row.created_at.date().isoformat()
-        bucket = by_day.setdefault(day, {"prompt": 0, "completion": 0, "total": 0, "requests": 0})
-        bucket["prompt"] += row.prompt_tokens
-        bucket["completion"] += row.completion_tokens
-        bucket["total"] += row.total_tokens
-        bucket["requests"] += 1
-        model = by_model.setdefault(
-            row.model,
-            {"model": row.model, "provider": row.provider, "tokens": 0, "requests": 0},
+    day_rows = db.execute(
+        select(
+            func.date(AIUsage.created_at).label("day"),
+            func.coalesce(func.sum(AIUsage.prompt_tokens), 0),
+            func.coalesce(func.sum(AIUsage.completion_tokens), 0),
+            func.coalesce(func.sum(AIUsage.total_tokens), 0),
+            func.count(),
         )
-        model["tokens"] += row.total_tokens
-        model["requests"] += 1
+        .where(AIUsage.created_at >= since)
+        .group_by(func.date(AIUsage.created_at))
+        .order_by(func.date(AIUsage.created_at))
+    ).all()
+    model_rows = db.execute(
+        select(
+            AIUsage.model,
+            AIUsage.provider,
+            func.coalesce(func.sum(AIUsage.total_tokens), 0),
+            func.count(),
+        )
+        .where(AIUsage.created_at >= since)
+        .group_by(AIUsage.model, AIUsage.provider)
+    ).all()
+    by_day = [
+        {
+            "date": str(row[0]),
+            "prompt": int(row[1]),
+            "completion": int(row[2]),
+            "total": int(row[3]),
+            "requests": int(row[4]),
+        }
+        for row in day_rows
+    ]
+    by_model = [
+        {"model": row[0] or "", "provider": row[1] or "", "tokens": int(row[2]), "requests": int(row[3])}
+        for row in model_rows
+    ]
+    by_model.sort(key=lambda item: item["tokens"], reverse=True)
+    total_rows = db.execute(
+        select(func.count(), func.coalesce(func.sum(AIUsage.total_tokens), 0)).where(
+            AIUsage.created_at >= since
+        )
+    ).one()
     return {
         "today": ai_gateway.usage_today(db),
-        "days": [{"date": day, **value} for day, value in sorted(by_day.items())],
-        "models": sorted(by_model.values(), key=lambda item: item["tokens"], reverse=True),
-        "total_requests": len(rows),
-        "total_tokens": sum(row.total_tokens for row in rows),
+        "days": by_day,
+        "models": by_model,
+        "total_requests": int(total_rows[0]),
+        "total_tokens": int(total_rows[1]),
     }
 
 
 def system_info(db: Session) -> dict[str, Any]:
+    # N-1/N-7: 11 ta alohida COUNT o'rniga scalar-subquery'li bitta so'rov.
+    counts_row = db.execute(
+        select(
+            select(func.count()).select_from(Citizen).where(Citizen.archived_at.is_(None)).scalar_subquery(),
+            select(func.count()).select_from(Family).scalar_subquery(),
+            select(func.count()).select_from(House).scalar_subquery(),
+            select(func.count()).select_from(Street).scalar_subquery(),
+            select(func.count()).select_from(Case).scalar_subquery(),
+            select(func.count()).select_from(Task).scalar_subquery(),
+            select(func.count()).select_from(WorkLog).scalar_subquery(),
+            select(func.count()).select_from(Document).scalar_subquery(),
+            select(func.count()).select_from(Report).scalar_subquery(),
+            select(func.count()).select_from(Program).scalar_subquery(),
+            select(func.count()).select_from(User).scalar_subquery(),
+        )
+    ).one()
     counts = {
-        "citizens": int(db.execute(select(func.count()).select_from(Citizen).where(Citizen.archived_at.is_(None))).scalar_one()),
-        "families": int(db.execute(select(func.count()).select_from(Family)).scalar_one()),
-        "houses": int(db.execute(select(func.count()).select_from(House)).scalar_one()),
-        "streets": int(db.execute(select(func.count()).select_from(Street)).scalar_one()),
-        "cases": int(db.execute(select(func.count()).select_from(Case)).scalar_one()),
-        "tasks": int(db.execute(select(func.count()).select_from(Task)).scalar_one()),
-        "work_logs": int(db.execute(select(func.count()).select_from(WorkLog)).scalar_one()),
-        "documents": int(db.execute(select(func.count()).select_from(Document)).scalar_one()),
-        "reports": int(db.execute(select(func.count()).select_from(Report)).scalar_one()),
-        "programs": int(db.execute(select(func.count()).select_from(Program)).scalar_one()),
-        "users": int(db.execute(select(func.count()).select_from(User)).scalar_one()),
+        "citizens": int(counts_row[0]),
+        "families": int(counts_row[1]),
+        "houses": int(counts_row[2]),
+        "streets": int(counts_row[3]),
+        "cases": int(counts_row[4]),
+        "tasks": int(counts_row[5]),
+        "work_logs": int(counts_row[6]),
+        "documents": int(counts_row[7]),
+        "reports": int(counts_row[8]),
+        "programs": int(counts_row[9]),
+        "users": int(counts_row[10]),
     }
     return {
         "version": settings.app_version,
@@ -216,7 +268,9 @@ def system_info(db: Session) -> dict[str, Any]:
         "timezone": settings.scheduler_timezone,
         "demo_mode": settings.demo_mode,
         "database": "postgresql",
-        "storage": "vercel_blob" if settings.blob_read_write_token else "postgres",
+        # N-7: hujjatlar PostgreSQL BLOB'da saqlanadi — "vercel_blob"
+        # yolg'on ko'rsatkich edi (storage kaliti hech qachon ishlatilmagan).
+        "storage": "postgres",
         "ai": {
             "default_provider": settings.ai_default_provider,
             "providers": ai_gateway.provider_status(),
@@ -227,7 +281,8 @@ def system_info(db: Session) -> dict[str, Any]:
             "legislation_live": True,
             "scheduler": True,
             "import_export": True,
-            "pwa": False,
+            # PWA manifesti qo'shildi (UI/UX audit P2-6).
+            "pwa": True,
         },
         "timestamp": datetime.now(timezone.utc),
     }
