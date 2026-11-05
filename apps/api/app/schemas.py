@@ -648,6 +648,16 @@ class LegislationSyncRequest(BaseModel):
     url: str | None = None
     limit: int = 5
 
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, value: str | None) -> str | None:
+        """SSRF himoyasi: faqat lex.uz/docs/<raqam> manzillari."""
+        if value is None or not value.strip():
+            return value
+        from app.core.urls import validate_lex_url
+
+        return validate_lex_url(value)
+
 
 class ProgramOut(ORMModel):
     id: str

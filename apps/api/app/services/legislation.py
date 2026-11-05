@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import write_audit
 from app.core.errors import bad_request, not_found, service_unavailable
+from app.core.urls import REDIRECT_CODES, validate_lex_host, validate_lex_url
 from app.models import (
     LegislationChunk,
     LegislationDocument,
@@ -39,12 +40,60 @@ STOP = {
 }
 
 
+MAX_DOC_BYTES = 3 * 1024 * 1024
+MAX_REDIRECTS = 3
+
+
 def _client() -> httpx.Client:
+    # Redirect'lar qo'lda kuzatiladi — har safar manzil qayta tekshiriladi.
     return httpx.Client(
         timeout=25,
-        follow_redirects=True,
+        follow_redirects=False,
         headers={"User-Agent": USER_AGENT, "Accept-Language": "uz,ru;q=0.8,en;q=0.5"},
     )
+
+
+def _read_capped(response: httpx.Response, limit: int = MAX_DOC_BYTES) -> bytes:
+    """Javob hajmini cheklaydi (zip-bomba / katta javob himoyasi)."""
+    declared = response.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > limit:
+        raise service_unavailable("Hujjat hajmi chegaradan oshdi.")
+    buffer = bytearray()
+    for chunk in response.iter_bytes():
+        buffer.extend(chunk)
+        if len(buffer) > limit:
+            raise service_unavailable("Hujjat hajmi chegaradan oshdi.")
+    return bytes(buffer)
+
+
+def _fetch_checked(url: str, *, document: bool) -> tuple[str, str]:
+    """Ruxsat etilgan manzildan HTML yuklaydi (redirect nazorati bilan)."""
+    validate = validate_lex_url if document else validate_lex_host
+    current = validate(url)
+    with _client() as client:
+        for _ in range(MAX_REDIRECTS + 1):
+            try:
+                with client.stream("GET", current) as response:
+                    if response.status_code in REDIRECT_CODES:
+                        location = response.headers.get("location") or ""
+                        if not location:
+                            raise service_unavailable(
+                                "Manzil qayta yo'naltirildi, lekin yangi manzil topilmadi."
+                            )
+                        current = validate(urljoin(current, location))
+                        continue
+                    if response.status_code >= 400:
+                        raise service_unavailable(
+                            f"Lex.uz javobi: {response.status_code}."
+                        )
+                    content_type = response.headers.get("content-type", "").lower()
+                    if "text/html" not in content_type:
+                        raise service_unavailable("Manzil HTML formatida emas.")
+                    data = _read_capped(response)
+            except httpx.HTTPError as error:
+                raise service_unavailable(f"Lex.uz bilan aloqa o'rnatilmadi: {error}") from error
+            return current, data.decode("utf-8", errors="replace")
+    raise service_unavailable("Juda ko'p qayta yo'naltirildi — manzil rad etildi.")
 
 
 def _clean_lines(text: str) -> str:
@@ -93,13 +142,8 @@ def search_lex(query: str, limit: int = 5) -> list[dict[str, Any]]:
     if len(query) < 2:
         raise bad_request("Qidiruv so'zi kamida 2 belgidan iborat bo'lishi kerak.")
     url = f"{LEX_BASE}/uz/search/all?query={quote(query)}"
-    try:
-        with _client() as client:
-            response = client.get(url)
-        response.raise_for_status()
-    except httpx.HTTPError as error:
-        raise service_unavailable(f"Lex.uz bilan aloqa o'rnatilmadi: {error}") from error
-    data = _parse_search(response.text)
+    _, html = _fetch_checked(url, document=False)
+    data = _parse_search(html)
     if not data:
         raise service_unavailable(
             "Lex.uz qidiruv natijalari topilmadi. Sayt vaqtincha javob bermayotgan bo'lishi mumkin."
@@ -119,13 +163,8 @@ def _parse_date(text: str) -> date | None:
 
 
 def fetch_document(url: str) -> dict[str, Any]:
-    try:
-        with _client() as client:
-            response = client.get(url)
-        response.raise_for_status()
-    except httpx.HTTPError as error:
-        raise service_unavailable(f"Lex.uz hujjati yuklanmadi: {error}") from error
-    soup = BeautifulSoup(response.text, "lxml")
+    final_url, html = _fetch_checked(url, document=True)
+    soup = BeautifulSoup(html, "lxml")
     body = soup.select_one(".document") or soup.select_one("#doc_body")
     title = ""
     if soup.title and soup.title.string:
@@ -150,7 +189,7 @@ def fetch_document(url: str) -> dict[str, Any]:
     if eff_match:
         effective = None
     return {
-        "url": url,
+        "url": final_url,
         "title": title[:480] or "Lex.uz hujjati",
         "text": text,
         "number": number,
@@ -158,8 +197,8 @@ def fetch_document(url: str) -> dict[str, Any]:
         "adoption_date": _parse_date(header),
         "effective_date": effective,
         "content_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-        "raw_html": response.text[:400000],
-        "legal_status": "amaldagi" if "status_code_y" in response.text[:20000] else "tekshirilgan",
+        "raw_html": html[:400000],
+        "legal_status": "amaldagi" if "status_code_y" in html[:20000] else "tekshirilgan",
     }
 
 
