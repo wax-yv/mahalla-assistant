@@ -37,7 +37,8 @@ from app.models import (
     WorkLog,
 )
 
-DATA_FILE = Path("/home/shohjahon/Downloads/Telegram Desktop/demo_fuqarolar_bazasi.xlsx")
+# N-8: tashqi absolyut yo'l (Downloads) olib tashlandi — faqat loyihaga
+# kiritilgan sintetik dataset ishlatiladi.
 # Bundled with the API project so the Vercel serverless bundle includes it.
 PREFERRED_FILE = Path(__file__).resolve().parents[1] / "data" / "demo_fuqarolar_bazasi.xlsx"
 RNG = random.Random(20261103)
@@ -53,7 +54,10 @@ def _verified(seed: str) -> datetime:
 
 
 def load_source_rows():
-    path = DATA_FILE if DATA_FILE.exists() else PREFERRED_FILE
+    # N-8: faqat loyiha ichidagi (repo'ga kiritilgan) sintetik dataset
+    # ishlatiladi — tashqi/absolyut yo'l (masalan, Downloads) hech qachon
+    # o'qilmaydi, aks holda tashodifiy real ma'lumot yuklanishi mumkin edi.
+    path = PREFERRED_FILE
     if not path.exists():
         raise RuntimeError(
             "Demo XLSX topilmadi. Uni apps/api/data/demo_fuqarolar_bazasi.xlsx ga joylang."
@@ -287,9 +291,22 @@ def seed_operational(db: Session) -> None:
     else:
         cases = db.execute(select(Case).order_by(Case.opened_at.desc())).scalars().all()
     if not db.execute(select(Task).limit(1)).scalar_one_or_none():
+        # N-8: task fuqarosi — tanlangan case fuqarosi bilan mos bo'lishi kerak
+        # (case fuqarosi A, task fuqarosi B bo'lib qolmasin).
+        case_by_index = [
+            (case.id, case.citizen_id, case.family_id) for case in cases
+        ]
         for index, (title, category, priority, description) in enumerate(TASK_BLUEPRINTS):
-            citizen = pool[(index * 7) % len(pool)]
-            case = cases[index % len(cases)] if cases else None
+            case_id, case_citizen_id, case_family_id = (
+                case_by_index[index % len(case_by_index)] if case_by_index else (None, None, None)
+            )
+            if case_citizen_id:
+                citizen_id_for_task = case_citizen_id
+                family_id_for_task = case_family_id
+            else:
+                citizen = pool[(index * 7) % len(pool)]
+                citizen_id_for_task = citizen.id
+                family_id_for_task = citizen.family_id
             if index < 3:
                 due = today
                 status = "new"
@@ -311,9 +328,9 @@ def seed_operational(db: Session) -> None:
             task = Task(
                 title=title,
                 description=description,
-                citizen_id=citizen.id,
-                family_id=citizen.family_id,
-                case_id=case.id if case else None,
+                citizen_id=citizen_id_for_task,
+                family_id=family_id_for_task,
+                case_id=case_id,
                 category=category,
                 priority=priority,
                 status=status,
@@ -325,9 +342,9 @@ def seed_operational(db: Session) -> None:
             db.flush()
             db.add(
                 WorkLog(
-                    citizen_id=citizen.id,
-                    family_id=citizen.family_id,
-                    case_id=case.id if case else None,
+                    citizen_id=citizen_id_for_task,
+                    family_id=family_id_for_task,
+                    case_id=case_id,
                     task_id=task.id,
                     type="vazifa",
                     title="Vazifa yaratildi",
@@ -337,9 +354,15 @@ def seed_operational(db: Session) -> None:
                     source="seed",
                 )
             )
+        # N-8: sikl ichida takroriy SELECT o'rniga — bir marta o'qiladi.
+        first_tasks = db.execute(
+            select(Task).order_by(Task.created_at).limit(8)
+        ).scalars().all()
         for index in range(8):
             citizen = pool[(index * 11) % len(pool)]
-            task = db.execute(select(Task).order_by(Task.created_at).limit(8)).scalars().all()[index]
+            if index >= len(first_tasks):
+                break
+            task = first_tasks[index]
             completed_at = datetime.now(timezone.utc) - timedelta(days=index % 6, hours=index + 1)
             task.status = "completed"
             task.completed_at = completed_at
