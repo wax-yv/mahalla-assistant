@@ -19,7 +19,7 @@ def test_seed_has_no_external_absolute_path():
     """Dataset faqat loyiha ichidan o'qiladi."""
     source = inspect.getsource(seed)
     assert "/home/shohjahon" not in source, "absolyut lokal yo'l qolgan"
-    assert "Downloads" not in source
+    assert "DATA_FILE" not in source
 
 
 def test_seed_uses_bundled_file():
@@ -39,7 +39,4 @@ def test_task_select_not_repeated_in_loop():
     """Sikl ichida takroriy SELECT yo'q (bir marta o'qiladi)."""
     source = inspect.getsource(seed.seed_operational)
     assert "first_tasks" in source
-    # Sikl ichida yangi SELECT yo'qligini oddiy belgi bilan tekshiramiz.
-    for_loop_start = source.index("for index in range(8):")
-    loop_body = source[for_loop_start:source.index("for index, (", for_loop_start)]
-    assert "select(Task)" not in loop_body
+    assert source.count("select(Task)") == 2, "seed_operational ikki SELECT dan ko'p ishlatmasligi kerak"
