@@ -58,5 +58,10 @@ def too_many_requests(message: str = "So'rovlar soni chegaradan oshdi.") -> APIE
     return APIError(429, "RATE_LIMITED", message)
 
 
+def payload_too_large(message: str = "Fayl hajmi chegaradan oshdi.") -> APIError:
+    """O'ta katta fayl (O-10: yuklashda 413)."""
+    return APIError(413, "PAYLOAD_TOO_LARGE", message)
+
+
 def service_unavailable(message: str = "Xizmat vaqtincha ishlamayapti.") -> APIError:
     return APIError(503, "SERVICE_UNAVAILABLE", message)

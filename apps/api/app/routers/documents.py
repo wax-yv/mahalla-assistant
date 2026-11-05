@@ -7,10 +7,11 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.db import get_db
 from app.core.deps import require_csrf_and_permission, require_permission
 from app.core.downloads import content_disposition
-from app.core.errors import not_found
+from app.core.errors import not_found, payload_too_large, validation_error
 from app.models import ImportBatch, User
 from app.schemas import ExportRequest, ImportCommitRequest, MessageResponse
 from app.services import documents as service
@@ -39,6 +40,48 @@ def list_documents(
     return {"items": rows, "meta": meta.model_dump()}
 
 
+async def _read_upload(request: Request, file: UploadFile) -> bytes:
+    """Faylni oqimli o'qib, hajm chegarasini qo'llaydi (O-10).
+
+    Katta fayl butunligi bilan RAM'ga yuklanmasligi kerak — `Content-Length`
+    oldindan tekshiriladi, oqim esa chegarani buzsa to'xtatiladi (413).
+    """
+    limit = settings.max_upload_bytes
+    # Multipart body'siz da chegaradan biroz kattaroq bo'ladi — kichik
+    # zaxira (64 KB) multipart sarlavhalari uchun.
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > limit + 64 * 1024:
+        raise payload_too_large(
+            f"Fayl hajmi {settings.max_upload_mb} MB dan oshmasligi kerak."
+        )
+    buffer = bytearray()
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        buffer.extend(chunk)
+        if len(buffer) > limit:
+            raise payload_too_large(
+                f"Fayl hajmi {settings.max_upload_mb} MB dan oshmasligi kerak."
+            )
+    return bytes(buffer)
+
+
+def _parse_mapping(mapping: str | None) -> dict | None:
+    """`mapping` JSON'ini tekshiradi (O-10: noto'g'ri JSON -> 422, 500 emas)."""
+    if not mapping:
+        return None
+    try:
+        parsed = json.loads(mapping)
+    except json.JSONDecodeError:
+        raise validation_error(
+            "«mapping» maydoni yaroq JSON emas. JSON formatida yuboring."
+        )
+    if not isinstance(parsed, dict):
+        raise validation_error("«mapping» JSON obyekti bo'lishi kerak.")
+    return parsed
+
+
 @router.post("/documents", status_code=201)
 async def upload_document(
     request: Request,
@@ -48,7 +91,8 @@ async def upload_document(
     db: Session = Depends(get_db),
     user: User = Depends(require_csrf_and_permission("documents.import")),
 ):
-    data = await file.read()
+    data = await _read_upload(request, file)
+    parsed_mapping = _parse_mapping(mapping)
     document = service.upload_document(
         db,
         filename=file.filename or "upload.bin",
@@ -59,7 +103,6 @@ async def upload_document(
     )
     payload = {"document": service.document_out(document)}
     if analyze and document.kind in {"xlsx", "csv", "docx"}:
-        parsed_mapping = json.loads(mapping) if mapping else None
         payload["analysis"] = service.analyze_document(db, document, data, parsed_mapping, user.id)
     return payload
 

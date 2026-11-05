@@ -18,7 +18,12 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.audit import model_snapshot, write_audit
 from app.core.config import settings
-from app.core.errors import bad_request, not_found, validation_error
+from app.core.errors import (
+    bad_request,
+    not_found,
+    payload_too_large,
+    validation_error,
+)
 from app.core.pagination import PageMeta, paginate
 from app.core.time import today_local
 from app.models import (
@@ -38,6 +43,15 @@ from app.models import (
 from app.services.serializers import citizen_out, document_out
 
 ALLOWED_EXTENSIONS = {".xlsx", ".csv", ".docx", ".pdf"}
+# O-10: mime turi mijozdan olinmaydi — allowlistdan belgilanadi.
+MIME_BY_KIND: dict[str, str] = {
+    "csv": "text/csv",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pdf": "application/pdf",
+}
+# O-10: ZIP (xlsx/docx) ichidagi ochilgan hajm chegarasi — zip-bomba himoyasi.
+MAX_ZIP_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
 MODULE_ALIASES: dict[str, list[str]] = {
     "full_name": ["f.i.sh.", "fish", "f.i.sh", "full_name", "ism", "fuqaro", "fio"],
     "gender": ["jinsi", "gender", "jins"],
@@ -1124,6 +1138,28 @@ def rollback_batch(db: Session, batch_id: str, actor: str, request_id: str | Non
     return {"batch": import_batch_out(db, batch), "deleted": deleted, "restored": restored}
 
 
+def _check_zip_size(data: bytes) -> None:
+    """O-10: ZIP paket ichidagi ochilgan hajm chegaradan oshmasligini tekshiradi.
+
+    `.xlsx` va `.docx` — ZIP (OOXML) paketlar. Zararli arxiv ichida
+    yozilgan hajm juda kichik bo'lishi mumkin (zip-bomba) — ochilganda
+    esa gigabayt egallaydi.
+    """
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            total = 0
+            for info in archive.infolist():
+                total += int(info.file_size)
+                if total > MAX_ZIP_UNCOMPRESSED_BYTES:
+                    raise validation_error(
+                        "Arxiv ichidagi ma'lumot hajmi 50 MB dan oshdi. "
+                        "Faylni bo‘lib, alohida yuklang."
+                    )
+    except zipfile.BadZipFile:
+        # Buzilgan arxiv — `_detect_kind` allaqachon xato beradi.
+        return
+
+
 def upload_document(
     db: Session,
     *,
@@ -1133,13 +1169,33 @@ def upload_document(
     actor: str,
     request_id: str | None,
 ) -> Document:
+    """Hujjatni yuklaydi va bazaga saqlaydi.
+
+    O-10:
+    - hajm chegarasi `413` bilan qaytariladi;
+    - format **tarkib** bo'yicha aniqlanadi (`_detect_kind`) va kengaytmaga
+      mos kelishi shart;
+    - mime turi allowlistdan olinadi (mijoz yuborgan `Content-Type` ishlatilmaydi);
+    - ZIP paket ichidagi ochilgan hajm 50 MB dan oshsa — rad etiladi.
+    """
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         raise validation_error("Faqat .xlsx, .csv, .docx va .pdf fayllar qabul qilinadi.")
     if len(data) > settings.max_upload_bytes:
-        raise validation_error(f"Fayl hajmi {settings.max_upload_mb} MB dan oshmasligi kerak.")
+        raise payload_too_large(
+            f"Fayl hajmi {settings.max_upload_mb} MB dan oshmasligi kerak."
+        )
     if not data:
         raise validation_error("Fayl bo'sh.")
+    # O-10: format kengaytmadan emas, tarkibdan aniqlanadi.
+    kind = _detect_kind(filename, data)
+    if kind != suffix.lstrip("."):
+        raise validation_error(
+            "Fayl tarkibi kengaytmasi bilan mos kelmaydi. "
+            "Fayl haqiqiy formatida (CSV/XLSX/DOCX/PDF) qayta saqlang."
+        )
+    if kind in {"xlsx", "docx"}:
+        _check_zip_size(data)
     digest = sha256_bytes(data)
     existing = db.execute(
         select(Document).where(Document.content_hash == digest, Document.status != "archived")
@@ -1149,12 +1205,13 @@ def upload_document(
     document = Document(
         filename=f"{digest[:12]}{suffix}",
         original_name=filename,
-        mime_type=content_type or "application/octet-stream",
+        # O-10: mime turi allowlistdan — mijoz yubgan `Content-Type` emas.
+        mime_type=MIME_BY_KIND.get(kind, "application/octet-stream"),
         size=len(data),
         content_hash=digest,
         storage_backend="database",
         storage_key=None,
-        kind=suffix.lstrip("."),
+        kind=kind,
         status="uploaded",
         uploaded_by=actor,
         meta={},
