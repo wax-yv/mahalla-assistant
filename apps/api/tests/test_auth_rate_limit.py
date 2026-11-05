@@ -6,6 +6,8 @@ muvaffaqiyatli login esa hisoblagichni tozalashi.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from sqlalchemy import delete, select
 
@@ -14,8 +16,17 @@ from app.models import RateLimit
 
 
 @pytest.fixture(autouse=True)
-def _clean_rate_limits():
-    """Har testdan oldin va keyin login hisoblagichini tozalaydi."""
+def _clean_rate_limits(monkeypatch):
+    """Har testdan oldin va keyin login hisoblagichini tozalaydi.
+
+    Vaqt oynasi ham "muzlatiladi" — test 15 daqiqalik oyna chegarasiga
+  to'g'ri kelmasligi uchun ( chegarasiz test barqaror bo'lsin).
+    """
+    from app.services import auth as auth_service
+
+    fixed_window = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(auth_service, "_window_start", lambda minutes: fixed_window)
+
     from tests.conftest import clear_login_limit
 
     clear_login_limit()

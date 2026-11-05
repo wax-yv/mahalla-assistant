@@ -83,6 +83,27 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _release_savepoint(db: Session, savepoint: Any) -> None:
+    """Savepointni bo'shatadi (ichida commit bo'lgan bo'lsa — e'tiborsiz)."""
+    try:
+        if savepoint.is_active:
+            savepoint.commit()
+    except Exception:
+        pass
+
+
+def _rollback_savepoint(db: Session, savepoint: Any) -> None:
+    """Savepointgacha qaytaradi — agent xatosi boshqa agentlarga ta'sir qilmaydi."""
+    try:
+        if savepoint.is_active:
+            savepoint.rollback()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
 # Oddiy salomlashish — deterministik javob beriladi (LLM chaqirilmaydi).
 GREETING_RE = re.compile(
     r"\b(salom|assalomu|assalomu alaykum|hayrli|salomlayman|hello|hi|good morning|good evening)\b",
@@ -1128,6 +1149,7 @@ def chat(
     last_model = ""
     last_provider = ""
     lowest_confidence = "high"
+    failed_agents = 0
     confidence_rank = {"high": 3, "medium": 2, "low": 1, "needs_review": 1}
 
     for position, step_intent in enumerate(agents_to_run):
@@ -1144,6 +1166,10 @@ def chat(
         db.add(run)
         db.flush()
         started = time.perf_counter()
+        # J-5: har agent savepoint (ichki tranzaksiya) ichida ishga tushadi —
+        # xatoda butun suhbat buzilmaydi, faqat shu agentning ishi bekor qilinadi.
+        savepoint = db.begin_nested()
+        failed = False
         try:
             if handler is None:
                 result = _smalltalk(
@@ -1159,7 +1185,10 @@ def chat(
                     {"conversation_id": conversation.id, "actor": actor},
                 )
         except Exception as error:
-            warning_messages.append(f"{AGENT_LABELS.get(agent_name, agent_name)}: {_agent_error_message(error)}")
+            failed = True
+            _rollback_savepoint(db, savepoint)
+            error_message = _agent_error_message(error)
+            warning_messages.append(f"{AGENT_LABELS.get(agent_name, agent_name)}: {error_message}")
             result = {
                 "text": "Bu bo'yicha ma'lumot tayyorlab bo'lmadi — boshqa agentlar javobini ko'ring yoki savolni aniqroq yozing.",
                 "sources": [],
@@ -1168,8 +1197,16 @@ def chat(
                 "confidence": "low",
                 "warnings": [],
             }
+        else:
+            _release_savepoint(db, savepoint)
         elapsed = int((time.perf_counter() - started) * 1000)
-        run.status = "completed"
+        if failed:
+            # J-5: muvaffaqiyatsiz agent "completed" emas — "failed".
+            run.status = "failed"
+            run.error = error_message[:500]
+            failed_agents += 1
+        else:
+            run.status = "completed"
         run.output = {"text": result["text"], "data": result.get("data", {})}
         run.sources = result.get("sources", [])
         run.warnings = list(dict.fromkeys([*result.get("warnings", [])]))
@@ -1210,7 +1247,15 @@ def chat(
         step_run = draft.pop("_run", None)
         draft_rows.append(_draft_row(db, workflow, step_run, draft))
     all_warnings = list(dict.fromkeys(warning_messages))
-    workflow.status = "completed"
+    # J-5: workflow holati haqiqiy natijani aks ettiradi.
+    if failed_agents and failed_agents >= len(agents_to_run):
+        workflow.status = "failed"
+        workflow.error = "; ".join(all_warnings)[:500]
+    elif failed_agents:
+        workflow.status = "partial"
+        workflow.error = "; ".join(all_warnings)[:500]
+    else:
+        workflow.status = "completed"
     workflow.result = {
         "text": result["text"],
         "agents_used": agents_used,
