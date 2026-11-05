@@ -141,11 +141,15 @@ AGENT_NAMES = (
     "plan_control",
 )
 
+# N-9: chat niyyatlari — `agents.py` dagi INTENT_RULES/INTENT_AGENT bilan
+# mos kelishi shart (`data_stats` va `agent_status` ham bor).
 INTENTS = (
     "citizen_lookup",
     "greeting",
     "document",
     "reporting",
+    "data_stats",
+    "agent_status",
     "legislation",
     "credit_subsidy",
     "plan_control",

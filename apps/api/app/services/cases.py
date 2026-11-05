@@ -152,8 +152,11 @@ def update_case(
                 f"Case holatini '{case.status}' dan '{new_status}' ga o'zgartirish mumkin emas."
             )
         case.status = new_status
+        # N-9: `resolved` — hal qilingan, lekin **yopilmagan** case. Yopish
+        # sanasi faqat `closed`/`cancelled` holatlarida belgilanadi; aks
+        # holda hisobotlarda "yopilgan" deb hisoblanib ketardi.
         case.closed_at = (
-            datetime.now(timezone.utc) if new_status in {"closed", "resolved", "cancelled"} else None
+            datetime.now(timezone.utc) if new_status in {"closed", "cancelled"} else None
         )
         data.pop("status")
     for key, value in data.items():
