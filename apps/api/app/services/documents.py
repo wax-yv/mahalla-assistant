@@ -1201,9 +1201,14 @@ def upload_document(
     if kind in {"xlsx", "docx"}:
         _check_zip_size(data)
     digest = sha256_bytes(data)
+    # D-13: bir xil xeshli bir nechta faol hujjat bo'lsa
+    # `scalar_one_or_none()` `MultipleResultsFound` bilan 500 berardi —
+    # eng so'nggisi qaytariladi (`.first()`).
     existing = db.execute(
-        select(Document).where(Document.content_hash == digest, Document.status != "archived")
-    ).scalar_one_or_none()
+        select(Document)
+        .where(Document.content_hash == digest, Document.status != "archived")
+        .order_by(Document.created_at.desc())
+    ).scalars().first()
     if existing is not None:
         return existing
     document = Document(
