@@ -11,15 +11,35 @@ from sqlalchemy.orm import Session as DbSession
 from app.core.db import get_db
 from app.core.errors import APIError, forbidden, unauthenticated
 from app.core.security import CSRF_HEADER, SESSION_COOKIE, hash_token, secure_compare
+from app.core.config import settings
 from app.models import Session as SessionModel
 from app.models import User
 
 
 def client_ip(request: Request) -> str:
+    """Mijoz manzilini ishonchli manzildan aniqlaydi (O-1).
+
+    X-Forwarded-For sarlavhasiga **ishonmaydi** — mijoz uni o'zi yozishi
+    mumkin. `TRUSTED_PROXY_HOPS` sozlamasi proksi zanjirining uzunligini
+    bildiradi: XFF'ning o'ng tomonidan shu N-chi element haqiqiy mijoz
+    manzili bo'lib hisoblanadi. Sozlama 0 bo'lsa (yoki o'zgarmagan bo'lsa)
+    XFF butunlay e'tiborsiz qoldiriladi va `request.client.host` ishlatiladi.
+    """
+    direct = (request.client.host if request.client else "unknown")[:64]
+    try:
+        hops = int(getattr(settings, "trusted_proxy_hops", 0) or 0)
+    except (TypeError, ValueError):
+        hops = 0
+    if hops <= 0:
+        return direct
     forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()[:64]
-    return (request.client.host if request.client else "unknown")[:64]
+    if not forwarded:
+        return direct
+    parts = [item.strip() for item in forwarded.split(",") if item.strip()]
+    if len(parts) < hops:
+        # Ishonchli proksi sonidan kam qiymat bor — XFF'ga ishonib bo'lmaydi.
+        return direct
+    return parts[-hops][:64]
 
 
 def request_id(request: Request) -> str:

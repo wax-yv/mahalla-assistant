@@ -66,12 +66,24 @@ class Settings(BaseSettings):
     scheduler_timezone: str = "Asia/Tashkent"
     demo_mode: bool = True
 
+    # O-1: ishonchli proksi zanjiri uzunligi. X-Forwarded-For sarlavhasining
+    # **o'ng** tomonidan shu N-chi element haqiqiy mijoz manzili hisoblanadi.
+    # 0 = proksi yo'q (XFF butunlay e'tiborsiz qoldiriladi).
+    trusted_proxy_hops: int = 0
+
     sentry_dsn: str = ""
 
     @field_validator("ai_temperature")
     @classmethod
     def _temperature(cls, value: float) -> float:
         return max(0.0, min(1.0, value))
+
+    @field_validator("trusted_proxy_hops")
+    @classmethod
+    def _trusted_proxy_hops(cls, value: int) -> int:
+        if value < 0 or value > 10:
+            raise ValueError("TRUSTED_PROXY_HOPS 0..10 oralig'ida bo'lishi kerak.")
+        return value
 
     @property
     def is_production(self) -> bool:
