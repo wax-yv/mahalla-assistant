@@ -85,6 +85,12 @@ def next_run_at(
     return target.astimezone(timezone.utc)
 
 
+# D-14: bir xil vazifa uchun takroriy bildirishnoma yuborilmasligi uchun
+# oxirgi skanerdagi kechikkan vazifa id'lari job payload'ida saqlanadi.
+OVERDUE_IDS_KEY = "overdue_notified_ids"
+OVERDUE_IDS_LIMIT = 200
+
+
 def _notify(db: Session, title: str, body: str, kind: str = "info") -> None:
     user = db.execute(select(User).where(User.role == "admin").limit(1)).scalar_one_or_none()
     db.add(Notification(user_id=user.id if user else None, title=title, body=body, kind=kind))
@@ -105,23 +111,44 @@ def _daily_report(db: Session, job: ScheduledJob, actor: str) -> dict[str, Any]:
 
 
 def _overdue_scan(db: Session, job: ScheduledJob, actor: str) -> dict[str, Any]:
+    """Muddati o'tgan vazifalarni tekshiradi (D-14).
+
+    Eski kod har ishga tushishda **barcha** kechikkan vazifalar uchun
+    qayta bildirishnoma yuborardi va ustuvorlikni qayta-qayta "high"
+    qilardi — foydalanuvchi pasaytirsa ham keyingi skan yana ko'tarardi.
+
+    Endi:
+    - faqat **yangi** kechikkan vazifalar haqida xabar yuboriladi;
+    - ustuvorlik faqat yangi kechikkanlar uchun ko'tariladi;
+    - oxirgi skaner id'lari job payload'ida saqlanadi.
+    """
     today = today_local()
     rows = db.execute(
         select(Task).where(
             Task.due_date < today, Task.status.notin_(["completed", "cancelled"])
         )
     ).scalars().all()
-    for task in rows:
+    previous = set((job.payload or {}).get(OVERDUE_IDS_KEY) or [])
+    current_ids = [task.id for task in rows]
+    newly = [task for task in rows if task.id not in previous]
+    for task in newly:
         if task.priority in {"low", "normal"}:
             task.priority = "high"
-    if rows:
+    if newly:
         _notify(
             db,
             "Muddatidan oshgan vazifalar",
-            f"{len(rows)} ta vazifa muddati o'tgan. Ular yuqori ustuvorlikka o'tkazildi.",
+            f"{len(newly)} ta vazifa yangi muddatidan oshdi (jami {len(rows)} kechikkan). "
+            "Yangilari yuqori ustuvorlikka o'tkazildi.",
             "warning",
         )
-    return {"overdue": len(rows), "ids": [task.id for task in rows[:50]]}
+    # D-14: holat payload'da saqlanadi — keyingi skan bilan solishtiriladi.
+    job.payload = {**(job.payload or {}), OVERDUE_IDS_KEY: current_ids[-OVERDUE_IDS_LIMIT:]}
+    return {
+        "overdue": len(rows),
+        "newly": len(newly),
+        "ids": [task.id for task in newly[:50]],
+    }
 
 
 def _legislation_refresh(db: Session, job: ScheduledJob, actor: str) -> dict[str, Any]:
