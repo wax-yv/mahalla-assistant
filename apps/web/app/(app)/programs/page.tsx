@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Check, HandCoins } from "@/components/ui/icons";
 import { Badge, Empty, ErrorNote, Loading, PageHead } from "@/components/ui";
 import { api } from "@/lib/api";
 import { fmtDate } from "@/lib/format";
@@ -80,17 +81,17 @@ export default function ProgramsPage() {
       <PageHead
         kicker="Kredit va subsidiya"
         title="Davlat dasturlari katalogi"
-        lede="Dastur shartlari, zarur hujjatlar va rasmiy manbalar. AI assistent faqat foydalanuvchi tanlagan bank bo‘yicha ma'lumot beradi."
+        lede="Dastur shartlari, zarur hujjatlar va rasmiy manbalar. AI assistent faqat foydalanuvchi tanlagan bank bo‘yicha ma’lumot beradi."
       />
       {error && <ErrorNote message={error} />}
       <div className="filters">
-        <select className="select" value={org} onChange={(e) => setOrg(e.target.value)}>
+        <select className="select" value={org} onChange={(e) => setOrg(e.target.value)} aria-label="Tashkilot filtri">
           <option value="">Tashkilot — barchasi</option>
           {organizations.map((item) => (
             <option key={item}>{item}</option>
           ))}
         </select>
-        <select className="select" value={type} onChange={(e) => setType(e.target.value)}>
+        <select className="select" value={type} onChange={(e) => setType(e.target.value)} aria-label="Tur filtri">
           <option value="">Tur — barchasi</option>
           <option value="credit">Kredit</option>
           <option value="subsidy">Subsidiya</option>
@@ -101,13 +102,13 @@ export default function ProgramsPage() {
 
       <div className="card card-pad mb">
         <h3 className="mb">Fuqaro bo‘yicha moslik tekshiruvi</h3>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div className="row-wrap">
           <input
-            className="input"
-            style={{ maxWidth: 260 }}
+            className="input maxw-260"
             placeholder="Fuqaro ID, masalan F-00001"
             value={citizenId}
             onChange={(e) => setCitizenId(e.target.value)}
+            aria-label="Fuqaro ID"
           />
           <button className="btn primary" disabled={busy} onClick={match}>
             Tekshirish
@@ -124,17 +125,17 @@ export default function ProgramsPage() {
                 </tr>
               </thead>
               <tbody>
-                {matches.map((match) => (
-                  <tr key={match.program_name}>
-                    <td>{match.program_name}</td>
-                    <td>
-                      <Badge tone={match.result === "mos kelishi mumkin" ? "ok" : match.result === "mos kelmaydi" ? "danger" : "warn"}>
-                        {match.result}
+                {matches.map((item) => (
+                  <tr key={item.program_name}>
+                    <td data-label="Dastur">{item.program_name}</td>
+                    <td data-label="Natija">
+                      <Badge tone={item.result === "mos kelishi mumkin" ? "ok" : item.result === "mos kelmaydi" ? "danger" : "warn"}>
+                        {item.result}
                       </Badge>
                     </td>
-                    <td className="text-soft">
-                      {match.reasons.slice(0, 2).join(" ")}
-                      {match.missing_fields.length > 0 && ` · yetishmaydi: ${match.missing_fields.join(", ")}`}
+                    <td className="text-soft" data-label="Asos">
+                      {item.reasons.slice(0, 2).join(" ")}
+                      {item.missing_fields.length > 0 && ` · yetishmaydi: ${item.missing_fields.join(", ")}`}
                     </td>
                   </tr>
                 ))}
@@ -148,16 +149,17 @@ export default function ProgramsPage() {
       <div className="grid grid-2">
         {filtered.map((program) => {
           const meta = TYPE_LABELS[program.type] ?? { label: program.type, tone: "muted" };
+          const isSelected = selected.includes(program.id);
           return (
             <div className="card card-pad" key={program.id}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+              <div className="row-between-top">
                 <h3>{program.name}</h3>
                 <Badge tone={meta.tone}>{meta.label}</Badge>
               </div>
               <p className="text-soft mt">{program.organization} · {program.target_group}</p>
               <dl className="kv mt">
                 <dt>Summa</dt>
-                <dd>{program.amount}</dd>
+                <dd className="chip-inline"><HandCoins size={13} /> {program.amount}</dd>
                 <dt>Stavka</dt>
                 <dd>{program.interest_rate}</dd>
                 <dt>Muddat</dt>
@@ -169,7 +171,7 @@ export default function ProgramsPage() {
                 <dt>Oxirgi tekshiruv</dt>
                 <dd>{fmtDate(program.last_verified_at)}</dd>
               </dl>
-              <div className="mt" style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <div className="row-wrap-lg mt">
                 {program.official_url && (
                   <a className="link" href={program.official_url} target="_blank" rel="noreferrer">
                     Rasmiy manba ↗
@@ -177,22 +179,21 @@ export default function ProgramsPage() {
                 )}
                 <button
                   className="btn sm"
+                  aria-pressed={isSelected}
                   onClick={() =>
                     setSelected((prev) =>
                       prev.includes(program.id) ? prev.filter((id) => id !== program.id) : [...prev, program.id]
                     )
                   }
                 >
-                  {selected.includes(program.id) ? "✓ Tanlangan" : "Taqqoslashga qo‘shish"}
+                  {isSelected ? <><Check size={13} /> Tanlangan</> : "Taqqoslashga qo‘shish"}
                 </button>
               </div>
-              <p className="text-faint mt" style={{ fontSize: 12.5 }}>
-                {program.notes}
-              </p>
+              <p className="text-faint mt fs-12_5">{program.notes}</p>
             </div>
           );
         })}
-        {programs && filtered.length === 0 && <Empty title="Dastur topilmadi" icon="₴" />}
+        {programs && filtered.length === 0 && <Empty title="Dastur topilmadi" note="Filtrlarni o‘zgartirib, qayta urinib ko‘ring." art="document" />}
       </div>
 
       {selected.length > 1 && (
@@ -222,10 +223,10 @@ export default function ProgramsPage() {
                   ] as const
                 ).map(([label, getter]) => (
                   <tr key={label}>
-                    <td className="text-faint">{label}</td>
+                    <td className="text-faint" data-label="Parametr">{label}</td>
                     {selected.map((id) => {
                       const program = programs?.find((p) => p.id === id);
-                      return <td key={id}>{program ? getter(program) : "—"}</td>;
+                      return <td key={id} data-label={programs?.find((p) => p.id === id)?.name ?? "Dastur"}>{program ? getter(program) : "—"}</td>;
                     })}
                   </tr>
                 ))}

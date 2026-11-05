@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, Check, Download, Database, Play, Search } from "@/components/ui/icons";
-import { Badge, Empty, PageHead, Stat } from "@/components/ui";
+import { AlertTriangle, Check, Database, Play, Search } from "@/components/ui/icons";
+import { Badge, Empty, PageHead, Pager } from "@/components/ui";
 import { ConfirmDialog, ErrorState, SkeletonList, useToast } from "@/components/ui/overlays";
 import { Field } from "@/components/ui/inputs";
+import { Tabs, TabPanel } from "@/components/ui/Tabs";
 import { api, type Paged } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
 
@@ -31,6 +32,10 @@ const TABS = [
   { key: "jobs", label: "Joblar" },
 ] as const;
 
+type TabKey = (typeof TABS)[number]["key"];
+
+const AUDIT_ACTIONS = ["agent.chat", "auth.login", "citizen", "case", "task", "document", "report", "legislation", "settings", "job", "draft"];
+
 function auditTone(action: string): string {
   if (action.includes("created") || action.includes("completed") || action.includes("approved") || action.includes("login")) return "ok";
   if (action.includes("archived") || action.includes("cancelled") || action.includes("deleted") || action.includes("failed")) return "danger";
@@ -40,7 +45,7 @@ function auditTone(action: string): string {
 
 export default function AdminPage() {
   const toast = useToast();
-  const [tab, setTab] = useState<(typeof TABS)[number]["key"]>("settings");
+  const [tab, setTab] = useState<TabKey>("settings");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [audit, setAudit] = useState<Paged<AuditRow> | null>(null);
   const [auditQ, setAuditQ] = useState("");
@@ -141,251 +146,237 @@ export default function AdminPage() {
         }
       />
       {error && <ErrorState note={error} />}
-      {note && <div className="alert success" role="alert">{note}</div>}
-      <div className="tabbar" role="tablist">
-        {TABS.map((t) => (
-          <button key={t.key} role="tab" aria-selected={tab === t.key} className={tab === t.key ? "active" : ""} onClick={() => setTab(t.key)}>
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {note && <div className="alert success" role="alert"><Check size={16} /><span>{note}</span></div>}
 
-      {tab === "settings" &&
-        (settings ? (
-          <div className="split s2">
-            <div className="card card-pad">
-              <h3 className="mb">Mahalla va hudud</h3>
-              <div className="grid grid-2">
-                <Field label="Mahalla" htmlFor="s-mahalla"><input id="s-mahalla" className="input" value={settings.mahalla} onChange={(e) => setSettings({ ...settings, mahalla: e.target.value })} /></Field>
-                <Field label="Tuman" htmlFor="s-district"><input id="s-district" className="input" value={settings.district} onChange={(e) => setSettings({ ...settings, district: e.target.value })} /></Field>
-                <Field label="Viloyat" htmlFor="s-region"><input id="s-region" className="input" value={settings.region} onChange={(e) => setSettings({ ...settings, region: e.target.value })} /></Field>
-                <Field label="Rejim" htmlFor="s-demo">
-                  <p style={{ paddingTop: 8 }}><Badge tone={settings.demo_mode ? "warn" : "ok"}>{settings.demo_mode ? "Demo rejim" : "Ishlab chiqarish"}</Badge></p>
-                </Field>
-              </div>
-              <h3 className="mt mb">Lokal</h3>
-              <div className="grid grid-2">
-                <Field label="Til" htmlFor="s-lang">
-                  <select id="s-lang" className="select" value={settings.language} onChange={(e) => setSettings({ ...settings, language: e.target.value })}>
-                    <option value="uz-Latn">O'zbek (lotin)</option>
-                    <option value="uz-Cyrl">O'zbek (kirill)</option>
-                    <option value="ru">Русский</option>
-                  </select>
-                </Field>
-                <Field label="Vaqt zonasi" htmlFor="s-tz">
-                  <select id="s-tz" className="select" value={settings.timezone} onChange={(e) => setSettings({ ...settings, timezone: e.target.value })}>
-                    <option value="Asia/Tashkent">Asia/Tashkent</option>
-                    <option value="UTC">UTC</option>
-                  </select>
-                </Field>
-              </div>
-              <h3 className="mt mb">Rejalashtiruvchi</h3>
-              <Field label="Kunlik hisobot vaqti" htmlFor="s-sched" hint="Asia/Tashkent bo'yicha, masalan 21:00">
-                <input id="s-sched" className="input" value={settings.scheduler_time} onChange={(e) => setSettings({ ...settings, scheduler_time: e.target.value })} />
-              </Field>
-              <button className="btn primary" disabled={busy} onClick={() => void save()}>Saqlash</button>
-            </div>
-            <div>
-              <div className="card card-pad mb">
-                <h3 className="mb">AI konfiguratsiya</h3>
-                <Field label="Asosiy provayder" htmlFor="s-provider">
-                  <select id="s-provider" className="select" value={settings.ai_provider} onChange={(e) => setSettings({ ...settings, ai_provider: e.target.value })}>
-                    <option value="nvidia">NVIDIA NIM</option>
-                    <option value="openrouter">OpenRouter</option>
-                  </select>
-                </Field>
-                <Field label="Model" hint="Tanlangan model zanjir boshida; xatolik bo'lsa avtomatik davom etadi" htmlFor="s-model">
-                  <select id="s-model" className="select" value={settings.ai_model} onChange={(e) => setSettings({ ...settings, ai_model: e.target.value })}>
-                    <option value="">Avto (registratsiya tartibida)</option>
-                    {(settings.providers ?? []).flatMap((provider) =>
-                      (provider.models ?? []).map((model: { id: string; label: string }) => (
-                        <option key={model.id} value={model.id}>{model.label || model.id}</option>
-                      ))
-                    )}
-                  </select>
-                </Field>
-                <Field label="Kunlik AI token budjeti" htmlFor="s-budget">
-                  <input id="s-budget" className="input" type="number" value={settings.ai_budget} onChange={(e) => setSettings({ ...settings, ai_budget: Number(e.target.value) })} />
+      <Tabs tabs={TABS} value={tab} onChange={setTab} ariaLabel="Administrator bo‘limlari">
+                <TabPanel tabKey="settings">
+          {settings ? (
+            <div className="split s2">
+              <div className="card card-pad">
+                <h3 className="mb">Mahalla va hudud</h3>
+                <div className="grid grid-2">
+                  <Field label="Mahalla" htmlFor="s-mahalla"><input id="s-mahalla" className="input" value={settings.mahalla} onChange={(e) => setSettings({ ...settings, mahalla: e.target.value })} /></Field>
+                  <Field label="Tuman" htmlFor="s-district"><input id="s-district" className="input" value={settings.district} onChange={(e) => setSettings({ ...settings, district: e.target.value })} /></Field>
+                  <Field label="Viloyat" htmlFor="s-region"><input id="s-region" className="input" value={settings.region} onChange={(e) => setSettings({ ...settings, region: e.target.value })} /></Field>
+                  <Field label="Rejim" htmlFor="s-demo">
+                    <p className="mt-sm"><Badge tone={settings.demo_mode ? "warn" : "ok"}>{settings.demo_mode ? "Demo rejim" : "Ishlab chiqarish"}</Badge></p>
+                  </Field>
+                </div>
+                <h3 className="mt mb">Lokal</h3>
+                <div className="grid grid-2">
+                  <Field label="Til" htmlFor="s-lang">
+                    <select id="s-lang" className="select" value={settings.language} onChange={(e) => setSettings({ ...settings, language: e.target.value })}>
+                      <option value="uz-Latn">O‘zbek (lotin)</option>
+                      <option value="uz-Cyrl">O‘zbek (kirill)</option>
+                    </select>
+                  </Field>
+                  <Field label="Vaqt zonasi" htmlFor="s-tz">
+                    <select id="s-tz" className="select" value={settings.timezone} onChange={(e) => setSettings({ ...settings, timezone: e.target.value })}>
+                      <option value="Asia/Tashkent">Asia/Tashkent</option>
+                      <option value="UTC">UTC</option>
+                    </select>
+                  </Field>
+                </div>
+                <h3 className="mt mb">Rejalashtiruvchi</h3>
+                <Field label="Kunlik hisobot vaqti" htmlFor="s-sched" hint="Asia/Tashkent bo‘yicha, masalan 21:00">
+                  <input id="s-sched" className="input" value={settings.scheduler_time} onChange={(e) => setSettings({ ...settings, scheduler_time: e.target.value })} />
                 </Field>
                 <button className="btn primary" disabled={busy} onClick={() => void save()}>Saqlash</button>
               </div>
-              <div className="card card-pad">
-                <h3 className="mb">Provayderlar holati</h3>
-                <div className="timeline">
-                  {settings.providers.map((provider) => (
-                    <div className="tl-item" key={provider.name}>
-                      <span className="tl-dot" style={{ borderColor: provider.ok ? "var(--color-success)" : "var(--color-danger)" }} />
-                      <div className="tl-body">
-                        <h4>{provider.name}</h4>
-                        <div className="desc" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                          <Badge tone={provider.ok ? "ok" : "danger"}>{provider.ok ? "Ulangan" : "Xatolik"}</Badge>
-                          <span className="mono" style={{ fontSize: 12 }}>{provider.detail}</span>
+              <div>
+                <div className="card card-pad mb">
+                  <h3 className="mb">AI konfiguratsiya</h3>
+                  <Field label="Asosiy provayder" htmlFor="s-provider">
+                    <select id="s-provider" className="select" value={settings.ai_provider} onChange={(e) => setSettings({ ...settings, ai_provider: e.target.value })}>
+                      <option value="nvidia">NVIDIA NIM</option>
+                      <option value="openrouter">OpenRouter</option>
+                    </select>
+                  </Field>
+                  <Field label="Model" hint="Tanlangan model zanjir boshida; xatolik bo‘lsa avtomatik davom etadi" htmlFor="s-model">
+                    <select id="s-model" className="select" value={settings.ai_model} onChange={(e) => setSettings({ ...settings, ai_model: e.target.value })}>
+                      <option value="">Avto (registratsiya tartibida)</option>
+                      {(settings.providers ?? []).flatMap((provider) =>
+                        (provider.models ?? []).map((model: { id: string; label: string }) => (
+                          <option key={model.id} value={model.id}>{model.label || model.id}</option>
+                        ))
+                      )}
+                    </select>
+                  </Field>
+                  <Field label="Kunlik AI token budjeti" htmlFor="s-budget">
+                    <input id="s-budget" className="input" type="number" value={settings.ai_budget} onChange={(e) => setSettings({ ...settings, ai_budget: Number(e.target.value) })} />
+                  </Field>
+                  <button className="btn primary" disabled={busy} onClick={() => void save()}>Saqlash</button>
+                </div>
+                <div className="card card-pad">
+                  <h3 className="mb">Provayderlar holati</h3>
+                  <div className="timeline">
+                    {settings.providers.map((provider) => (
+                      <div className="tl-item" key={provider.name}>
+                        <span className={`tl-dot ${provider.ok ? "tone-ok" : "tone-danger"}`} aria-hidden="true" />
+                        <div className="tl-body">
+                          <h4>{provider.name}</h4>
+                          <div className="desc row-wrap">
+                            <Badge tone={provider.ok ? "ok" : "danger"}>{provider.ok ? "Ulangan" : "Xatolik"}</Badge>
+                            <span className="mono fs-12">{provider.detail}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="progress mt">
-                  <i style={{ width: `${Math.min(100, (settings.usage.total_tokens / Math.max(1, settings.usage.budget)) * 100)}%` }} />
-                </div>
-                <p className="text-soft mt" style={{ fontSize: 13 }}>
-                  Bugungi sarf: <b className="num">{settings.usage.total_tokens.toLocaleString("uz-UZ")}</b> / {settings.usage.budget.toLocaleString("uz-UZ")} token · {settings.usage.requests} so'rov
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <SkeletonList rows={4} />
-        ))}
-
-      {tab === "audit" &&
-        (audit ? (
-          <>
-            <div className="toolbar">
-              <div style={{ position: "relative", minWidth: 240 }}>
-                <Search size={15} style={{ position: "absolute", left: 12, top: 13, color: "var(--color-text-muted)" }} />
-                <input className="input" style={{ paddingLeft: 36 }} placeholder="Audit bo'yicha qidiruv (amal, ID)…" value={auditQ} onChange={(e) => { setAuditQ(e.target.value); setAuditPage(1); }} aria-label="Audit qidiruv" />
-              </div>
-              <select className="select" value={auditAction} onChange={(e) => { setAuditAction(e.target.value); setAuditPage(1); }} aria-label="Amal filtri">
-                <option value="">Amal — barchasi</option>
-                {["agent.chat", "auth.login", "citizen", "case", "task", "document", "report", "legislation", "settings", "job", "draft"].map((item) => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
-              </select>
-            </div>
-            <div className="card">
-              <div className="table-wrap" style={{ border: "none", borderRadius: 0 }}>
-                <table className="data">
-                  <thead><tr><th>Vaqt</th><th>Amal</th><th>Ob'ekt</th><th>ID</th><th>Aktor</th></tr></thead>
-                  <tbody>
-                    {audit.items.map((row) => (
-                      <tr key={row.id}>
-                        <td className="nowrap">{fmtDateTime(row.created_at)}</td>
-                        <td><Badge tone={auditTone(row.action)}><span className="mono" style={{ fontSize: 11.5 }}>{row.action}</span></Badge></td>
-                        <td>{row.entity_type}</td>
-                        <td className="mono">{row.entity_id?.slice(0, 20) ?? "—"}</td>
-                        <td className="mono">{row.actor_id?.slice(0, 12) ?? "system"}</td>
-                      </tr>
                     ))}
-                    {audit.items.length === 0 && <tr><td colSpan={5}><Empty title="Audit yozuvi topilmadi" /></td></tr>}
-                  </tbody>
-                </table>
-              </div>
-              {audit.meta.total_pages > 1 && (
-                <div className="pager">
-                  <span className="num">{audit.meta.total} yozuv · {audit.meta.page}/{audit.meta.total_pages}</span>
-                  <span style={{ display: "flex", gap: 8 }}>
-                    <button className="btn sm" disabled={auditPage <= 1} onClick={() => setAuditPage(auditPage - 1)}>‹ Oldingi</button>
-                    <button className="btn sm" disabled={auditPage >= audit.meta.total_pages} onClick={() => setAuditPage(auditPage + 1)}>Keyingi ›</button>
-                  </span>
-                </div>
-              )}
-            </div>
-          </>
-        ) : (
-          <SkeletonList rows={5} />
-        ))}
-
-      {tab === "usage" &&
-        (usage ? (
-          <div className="split s2">
-            <div className="card card-pad">
-              <h3 className="mb">Bugungi sarf</h3>
-              <div className="progress mb"><i style={{ width: `${Math.min(100, (usage.today.total_tokens / Math.max(1, usage.today.budget)) * 100)}%` }} /></div>
-              <dl className="kv">
-                <dt>Tokenlar</dt><dd className="num">{usage.today.total_tokens.toLocaleString("uz-UZ")} / {usage.today.budget.toLocaleString("uz-UZ")}</dd>
-                <dt>Qolgan</dt><dd className="num">{usage.today.remaining.toLocaleString("uz-UZ")}</dd>
-                <dt>So'rovlar</dt><dd className="num">{usage.today.requests}</dd>
-              </dl>
-            </div>
-            <div className="card">
-              <div className="card-head"><h3>14 kunlik trend</h3></div>
-              <div className="card-pad">
-                {usage.days.length === 0 ? (
-                  <Empty title="Ma'lumot yo'q" note="Bu davrda AI so'rovlari bo'lmagan." />
-                ) : (
-                  <div className="hbar">
-                    {usage.days.map((day) => {
-                      const max = Math.max(...usage.days.map((d) => d.total), 1);
-                      return (
-                        <div className="row" key={day.date}>
-                          <span className="mono" style={{ fontSize: 11.5 }}>{day.date.slice(5)}</span>
-                          <span className="track"><i style={{ width: `${Math.round((day.total / max) * 100)}%` }} /></span>
-                          <b className="num">{day.total.toLocaleString("uz-UZ")}</b>
-                        </div>
-                      );
-                    })}
                   </div>
-                )}
+                  <div className="progress mt">
+                    <i style={{ width: `${Math.min(100, (settings.usage.total_tokens / Math.max(1, settings.usage.budget)) * 100)}%` }} />
+                  </div>
+                  <p className="text-soft mt fs-13">
+                    Bugungi sarf: <b className="num">{settings.usage.total_tokens.toLocaleString("uz-UZ")}</b> / {settings.usage.budget.toLocaleString("uz-UZ")} token · {settings.usage.requests} so‘rov
+                  </p>
+                </div>
               </div>
             </div>
-            <div className="card" style={{ gridColumn: "1 / -1" }}>
-              <div className="card-head"><h3>Modellar bo'yicha (14 kun)</h3></div>
-              <div className="table-wrap" style={{ border: "none", borderRadius: 0 }}>
+          ) : (
+            <SkeletonList rows={4} />
+          )}
+        </TabPanel>
+
+              <TabPanel tabKey="audit">
+          {audit ? (
+            <>
+              <div className="toolbar">
+                <div className="search-field">
+                  <Search className="search-ico" size={15} />
+                  <input className="input" placeholder="Audit bo‘yicha qidiruv (amal, ID)…" value={auditQ} onChange={(e) => { setAuditQ(e.target.value); setAuditPage(1); }} aria-label="Audit qidiruv" />
+                </div>
+                <select className="select" value={auditAction} onChange={(e) => { setAuditAction(e.target.value); setAuditPage(1); }} aria-label="Amal filtri">
+                  <option value="">Amal — barchasi</option>
+                  {AUDIT_ACTIONS.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="card">
+                <div className="table-wrap flush">
+                  <table className="data">
+                    <thead><tr><th>Vaqt</th><th>Amal</th><th>Ob’ekt</th><th>ID</th><th>Aktor</th></tr></thead>
+                    <tbody>
+                      {audit.items.map((row) => (
+                        <tr key={row.id}>
+                          <td className="nowrap" data-label="Vaqt">{fmtDateTime(row.created_at)}</td>
+                          <td data-label="Amal"><Badge tone={auditTone(row.action)}><span className="mono fs-11_5">{row.action}</span></Badge></td>
+                          <td data-label="Ob’ekt">{row.entity_type}</td>
+                          <td className="mono" data-label="ID">{row.entity_id?.slice(0, 20) ?? "—"}</td>
+                          <td className="mono" data-label="Aktor">{row.actor_id?.slice(0, 12) ?? "tizim"}</td>
+                        </tr>
+                      ))}
+                      {audit.items.length === 0 && <tr><td colSpan={5}><Empty title="Audit yozuvi topilmadi" note="Qidiruv shartini o‘zgartirib, qayta urinib ko‘ring." /></td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+                <Pager meta={audit.meta} onPage={setAuditPage} />
+              </div>
+            </>
+          ) : (
+            <SkeletonList rows={5} />
+          )}
+        </TabPanel>
+
+              <TabPanel tabKey="usage">
+          {usage ? (
+            <div className="split s2">
+              <div className="card card-pad">
+                <h3 className="mb">Bugungi sarf</h3>
+                <div className="progress mb"><i style={{ width: `${Math.min(100, (usage.today.total_tokens / Math.max(1, usage.today.budget)) * 100)}%` }} /></div>
+                <dl className="kv">
+                  <dt>Tokenlar</dt><dd className="num">{usage.today.total_tokens.toLocaleString("uz-UZ")} / {usage.today.budget.toLocaleString("uz-UZ")}</dd>
+                  <dt>Qolgan</dt><dd className="num">{usage.today.remaining.toLocaleString("uz-UZ")}</dd>
+                  <dt>So‘rovlar</dt><dd className="num">{usage.today.requests}</dd>
+                </dl>
+              </div>
+              <div className="card">
+                <div className="card-head"><h3>14 kunlik trend</h3></div>
+                <div className="card-pad">
+                  {usage.days.length === 0 ? (
+                    <Empty title="Ma’lumot yo‘q" note="Bu davrda AI so‘rovlari bo‘lmagan." />
+                  ) : (
+                    <div className="hbar">
+                      {usage.days.map((day) => {
+                        const max = Math.max(...usage.days.map((d) => d.total), 1);
+                        return (
+                          <div className="row" key={day.date}>
+                            <span className="mono fs-11_5">{day.date.slice(5)}</span>
+                            <span className="track"><i style={{ width: `${Math.round((day.total / max) * 100)}%` }} /></span>
+                            <b className="num">{day.total.toLocaleString("uz-UZ")}</b>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="card grid-full">
+                <div className="card-head"><h3>Modellar bo‘yicha (14 kun)</h3></div>
+                <div className="table-wrap flush">
+                  <table className="data">
+                    <thead><tr><th>Model</th><th>Provayder</th><th className="num">Token</th><th className="num">So‘rov</th></tr></thead>
+                    <tbody>
+                      {usage.models.map((model) => (
+                        <tr key={model.model}>
+                          <td className="mono" data-label="Model">{model.model}</td>
+                          <td data-label="Provayder">{model.provider}</td>
+                          <td className="num" data-label="Token">{model.tokens.toLocaleString("uz-UZ")}</td>
+                          <td className="num" data-label="So‘rov">{model.requests}</td>
+                        </tr>
+                      ))}
+                      {usage.models.length === 0 && <tr><td colSpan={4}><Empty title="AI so‘rovlari yo‘q" note="Shu davr uchun model statistikasi mavjud emas." /></td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <SkeletonList rows={4} />
+          )}
+        </TabPanel>
+
+              <TabPanel tabKey="jobs">
+          {jobs ? (
+            <div className="card">
+              <div className="table-wrap flush">
                 <table className="data">
-                  <thead><tr><th>Model</th><th>Provayder</th><th className="num">Token</th><th className="num">So'rov</th></tr></thead>
+                  <thead><tr><th>Job</th><th>Tur</th><th>Jadval</th><th>Holat</th><th>Keyingi bajarilish</th><th aria-label="Amallar" /></tr></thead>
                   <tbody>
-                    {usage.models.map((model) => (
-                      <tr key={model.model}>
-                        <td className="mono">{model.model}</td>
-                        <td>{model.provider}</td>
-                        <td className="num">{model.tokens.toLocaleString("uz-UZ")}</td>
-                        <td className="num">{model.requests}</td>
+                    {jobs.map((job) => (
+                      <tr key={job.id}>
+                        <td data-label="Job">
+                          <b className="fw-600">{job.name}</b>
+                          {job.error && (
+                            <div className="mt-xs">
+                              <button className="chip" onClick={() => setJobError(jobError === job.id ? null : job.id)} aria-expanded={jobError === job.id}>
+                                <AlertTriangle size={12} /> Xatoni ko‘rish
+                              </button>
+                              {jobError === job.id && <pre className="mono error-block">{job.error}</pre>}
+                            </div>
+                          )}
+                        </td>
+                        <td className="mono" data-label="Tur">{job.job_type}</td>
+                        <td data-label="Jadval">{job.schedule}</td>
+                        <td data-label="Holat"><Badge tone={job.status === "active" ? "ok" : "danger"}>{job.status === "active" ? "Faol" : job.status}</Badge></td>
+                        <td className="nowrap" data-label="Keyingi bajarilish">{fmtDateTime(job.next_run_at)}</td>
+                        <td data-label="Amallar">
+                          <button className="btn sm" disabled={busy} onClick={() => void runJob(job)}>
+                            <Play size={13} /> Hozir bajarish
+                          </button>
+                        </td>
                       </tr>
                     ))}
-                    {usage.models.length === 0 && <tr><td colSpan={4}><Empty title="AI so'rovlari yo'q" /></td></tr>}
+                    {jobs.length === 0 && <tr><td colSpan={6}><Empty title="Job yo‘q" note="Hali rejalashtirilgan vazifa ishlar yo‘q." /></td></tr>}
                   </tbody>
                 </table>
               </div>
             </div>
-          </div>
-        ) : (
-          <SkeletonList rows={4} />
-        ))}
-
-      {tab === "jobs" &&
-        (jobs ? (
-          <div className="card">
-            <div className="table-wrap" style={{ border: "none", borderRadius: 0 }}>
-              <table className="data">
-                <thead><tr><th>Job</th><th>Tur</th><th>Jadval</th><th>Holat</th><th>Keyingi bajarilish</th><th aria-label="Amallar" /></tr></thead>
-                <tbody>
-                  {jobs.map((job) => (
-                    <tr key={job.id}>
-                      <td>
-                        <b style={{ fontWeight: 600 }}>{job.name}</b>
-                        {job.error && (
-                          <div style={{ marginTop: 4 }}>
-                            <button className="chip" onClick={() => setJobError(jobError === job.id ? null : job.id)} aria-expanded={jobError === job.id}>
-                              <AlertTriangle size={12} /> Xatoni ko'rish
-                            </button>
-                            {jobError === job.id && (
-                              <pre className="mono" style={{ marginTop: 6, background: "var(--danger-soft)", color: "var(--color-danger)", padding: 8, borderRadius: 8, whiteSpace: "pre-wrap", fontSize: 11.5, maxWidth: 420 }}>
-                                {job.error}
-                              </pre>
-                            )}
-                          </div>
-                        )}
-                      </td>
-                      <td className="mono">{job.job_type}</td>
-                      <td>{job.schedule}</td>
-                      <td><Badge tone={job.status === "active" ? "ok" : "danger"}>{job.status}</Badge></td>
-                      <td className="nowrap">{fmtDateTime(job.next_run_at)}</td>
-                      <td>
-                        <button className="btn sm" disabled={busy} onClick={() => void runJob(job)}>
-                          <Play size={13} /> Hozir bajarish
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {jobs.length === 0 && <tr><td colSpan={6}><Empty title="Job yo'q" /></td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          <SkeletonList rows={3} />
-        ))}
+          ) : (
+            <SkeletonList rows={3} />
+          )}
+        </TabPanel>
+      </Tabs>
 
       <ConfirmDialog
         open={backupOpen}

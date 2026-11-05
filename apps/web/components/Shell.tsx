@@ -4,24 +4,29 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
-  Bot, ClipboardList, FileText, HandCoins, History, Home, Inbox, LayoutDashboard,
-  ListChecks, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Scale, Settings, Users, X,
+  Bot, ChartColumn, ClipboardCheck, Files, HandCoins, History, Home, Inbox,
+  LayoutDashboard, LogOut, Menu, MessagesSquare, PanelLeftClose, PanelLeftOpen,
+  Scale, Search, Settings, Sparkles, Users,
 } from "@/components/ui/icons";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Drawer } from "@/components/ui/overlays";
+import { CommandPalette } from "@/components/CommandPalette";
+import { NotificationsBell } from "@/components/NotificationsBell";
+import { ProfileMenu } from "@/components/ProfileMenu";
 import { getMe, initAuthRedirect, logout, refreshMe, subscribeMe, type Me } from "@/lib/auth";
 
 type NavItem = { href: string; label: string; icon: typeof Home };
 type NavGroup = { group: string; items: NavItem[] };
 
+/** P1-1: Hujjatlar = Files, Hisobotlar = ChartColumn, Agentlar = Bot, Vazifalar = ClipboardCheck */
 const NAV: NavGroup[] = [
   {
     group: "Boshqaruv",
     items: [
       { href: "/dashboard", label: "Boshqaruv paneli", icon: LayoutDashboard },
-      { href: "/chat", label: "AI assistent", icon: Bot },
-      { href: "/agents", label: "Agentlar", icon: ListChecks },
+      { href: "/chat", label: "AI assistent", icon: Sparkles },
+      { href: "/agents", label: "Agentlar", icon: Bot },
     ],
   },
   {
@@ -34,16 +39,16 @@ const NAV: NavGroup[] = [
   {
     group: "Ish oqimi",
     items: [
-      { href: "/cases", label: "Murojaatlar", icon: Inbox },
-      { href: "/tasks", label: "Vazifalar", icon: ClipboardList },
+      { href: "/cases", label: "Murojaatlar", icon: MessagesSquare },
+      { href: "/tasks", label: "Vazifalar", icon: ClipboardCheck },
       { href: "/worklogs", label: "Ish yozuvlari", icon: History },
     ],
   },
   {
     group: "Bilim",
     items: [
-      { href: "/documents", label: "Hujjatlar", icon: FileText },
-      { href: "/reports", label: "Hisobotlar", icon: FileText },
+      { href: "/documents", label: "Hujjatlar", icon: Files },
+      { href: "/reports", label: "Hisobotlar", icon: ChartColumn },
       { href: "/legislation", label: "Qonunchilik", icon: Scale },
       { href: "/programs", label: "Kredit va subsidiya", icon: HandCoins },
     ],
@@ -57,8 +62,8 @@ const NAV: NavGroup[] = [
 const MOBILE_MAIN = [
   { href: "/dashboard", label: "Panel", icon: LayoutDashboard },
   { href: "/citizens", label: "Fuqarolar", icon: Users },
-  { href: "/chat", label: "Assistent", icon: Bot },
-  { href: "/tasks", label: "Vazifalar", icon: ClipboardList },
+  { href: "/chat", label: "Assistent", icon: Sparkles },
+  { href: "/tasks", label: "Vazifalar", icon: ClipboardCheck },
 ];
 
 function isActive(pathname: string, href: string) {
@@ -71,6 +76,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<Me | null>(getMe());
   const [collapsed, setCollapsed] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [drawerQuery, setDrawerQuery] = useState("");
 
   useEffect(() => {
     initAuthRedirect(() => router.replace("/login"));
@@ -80,6 +86,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setMoreOpen(false);
+    setDrawerQuery("");
   }, [pathname]);
 
   const currentLabel =
@@ -88,12 +95,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
   function navLink(item: NavItem, collapsedView: boolean) {
     const active = isActive(pathname, item.href);
     const Icon = item.icon;
-    return (
+    const link = (
       <Link
         key={item.href}
         href={item.href}
         className={active ? "active" : ""}
-        title={collapsedView ? item.label : undefined}
         aria-label={item.label}
         aria-current={active ? "page" : undefined}
       >
@@ -103,39 +109,39 @@ export function Shell({ children }: { children: React.ReactNode }) {
         {!collapsedView && <span className="lbl">{item.label}</span>}
       </Link>
     );
+    if (!collapsedView) return link;
+    return (
+      <span className="tooltip-wrap" key={item.href}>
+        {link}
+        <span className="tooltip" role="presentation">{item.label}</span>
+      </span>
+    );
   }
 
-  const restOfRoutes = NAV.flatMap((g) => g.items).filter(
-    (item) => !MOBILE_MAIN.some((m) => m.href === item.href)
-  );
+  const allRoutes = NAV.flatMap((g) => g.items);
+  const restOfRoutes = allRoutes.filter((item) => !MOBILE_MAIN.some((m) => m.href === item.href));
+  const filteredRest = drawerQuery.trim()
+    ? restOfRoutes.filter((item) => item.label.toLowerCase().includes(drawerQuery.trim().toLowerCase()))
+    : restOfRoutes;
 
   return (
     <div className="shell">
-      <aside className={`sidebar ${collapsed ? "collapsed" : ""}`} style={{ position: "relative" }}>
-        {!collapsed && (
-          <button
-            className="collapse-btn"
-            onClick={() => setCollapsed(true)}
-            aria-label="Sahifani yig‘ish"
-            title="Sahifani yig‘ish"
-          >
-            <PanelLeftClose size={14} />
-          </button>
-        )}
-        {collapsed && (
-          <button
-            className="collapse-btn"
-            onClick={() => setCollapsed(false)}
-            aria-label="Sahifani ochish"
-            title="Sahifani ochish"
-            style={{ right: -12 }}
-          >
-            <PanelLeftOpen size={14} />
-          </button>
-        )}
+      <a className="skip-link" href="#main">Asosiy kontentga o‘tish</a>
+
+      <aside className={`sidebar ${collapsed ? "collapsed" : ""}`}>
+        <button
+          className="collapse-btn"
+          onClick={() => setCollapsed((v) => !v)}
+          aria-label={collapsed ? "Sahifani ochish" : "Sahifani yig‘ish"}
+          title={collapsed ? "Sahifani ochish" : "Sahifani yig‘ish"}
+        >
+          {collapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+        </button>
+
         <Link href="/dashboard" className="brand" aria-label="Boshqaruv paneli">
           <Logo collapsed={collapsed} />
         </Link>
+
         {NAV.map((group) => (
           <div key={group.group}>
             <div className="nav-group">{group.group}</div>
@@ -144,26 +150,15 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </nav>
           </div>
         ))}
+
         <div className="foot">
-          <div className="who">{user?.user.display_name ?? "Administrator"}</div>
-          <div className="actions">
-            {!collapsed && <ThemeToggle />}
-            <button
-              className="btn sm ghost danger"
-              onClick={() => void logout().then(() => router.replace("/login"))}
-              aria-label="Tizimdan chiqish"
-              title="Tizimdan chiqish"
-            >
-              <LogOut size={15} />
-              {!collapsed && <span>Chiqish</span>}
-            </button>
-          </div>
+          <ProfileMenu user={user} />
         </div>
       </aside>
 
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      <div className="shell-main">
         <header className="topbar">
-          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <div className="tleft">
             <span className="mobile-only tbrand">
               <Logo size={28} withText={false} />
             </span>
@@ -172,17 +167,35 @@ export function Shell({ children }: { children: React.ReactNode }) {
               <b>{currentLabel}</b>
             </span>
           </div>
+
+          <button
+            className="topbar-search"
+            onClick={() => {
+              // Hodisa `document` ga yuboriladi: CommandPalette `document` da
+              // tinglaydi (`window` ga yuborilsa, pastga tarqalmasdi).
+              document.dispatchEvent(
+                new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true })
+              );
+            }}
+            aria-label="Universal qidiruvni ochish (Ctrl+K)"
+          >
+            <Search size={15} />
+            <span className="ts-label">Qidirish…</span>
+            <span className="kbd">Ctrl K</span>
+          </button>
+
           <div className="tactions">
+            <NotificationsBell />
             <ThemeToggle />
             <button
-              className="btn sm mobile-only"
-              aria-label="Boshqa bo‘limlar"
+              className="icon-btn mobile-only"
+              aria-label="Barcha bo‘limlar"
+              title="Barcha bo‘limlar"
               onClick={() => setMoreOpen(true)}
             >
-              <Menu size={15} />
-              <span>Boshqa</span>
+              <Menu size={16} />
             </button>
-            <span className="text-faint nowrap hide-sm" style={{ fontSize: 12.5 }}>
+            <span className="text-faint nowrap hide-sm fs-12_5">
               {user?.user.display_name ?? ""}
             </span>
             <button
@@ -195,19 +208,24 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
         </header>
-        <main className="page">{children}</main>
+
+        <main className="page" id="main" tabIndex={-1}>
+          {children}
+          <footer className="app-footer no-print">
+            <span>© 2026 Navbahor mahallasi</span>
+            <span>Ma’lumot himoyalangan</span>
+            <span>Versiya {user?.version ?? "1.0"}</span>
+            <Link href="/admin">Qo‘llab-quvvatlash</Link>
+          </footer>
+        </main>
       </div>
 
       <nav className="bottombar" aria-label="Asosiy navigatsiya">
         {MOBILE_MAIN.map((item) => {
           const Icon = item.icon;
+          const active = isActive(pathname, item.href);
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={isActive(pathname, item.href) ? "active" : ""}
-              aria-current={isActive(pathname, item.href) ? "page" : undefined}
-            >
+            <Link key={item.href} href={item.href} className={active ? "active" : ""} aria-current={active ? "page" : undefined}>
               <span className="ico" aria-hidden="true">
                 <Icon size={19} strokeWidth={1.9} />
               </span>
@@ -215,42 +233,59 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </Link>
           );
         })}
-        <button
-          className=""
-          style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}
-          onClick={() => setMoreOpen(true)}
-          aria-label="Boshqa bo‘limlar"
+        {/* P1-3: “Boshqa” — haqiqiy Link (bo‘limlar katalogi), faol holati va aria-current bilan */}
+        <Link
+          href="/bo-limlar"
+          className={pathname === "/bo-limlar" ? "active" : ""}
+          aria-current={pathname === "/bo-limlar" ? "page" : undefined}
+          aria-label="Boshqa bo‘limlar — barcha bo‘limlar katalogi"
         >
           <span className="ico" aria-hidden="true">
             <Menu size={19} strokeWidth={1.9} />
           </span>
           Boshqa
-        </button>
+        </Link>
       </nav>
 
-      <Drawer open={moreOpen} onClose={() => setMoreOpen(false)} title="Boshqa bo‘limlar">
-        <div className="nav" style={{ display: "grid", gap: 2 }}>
-          {restOfRoutes.map((item) => {
+      <Drawer open={moreOpen} onClose={() => setMoreOpen(false)} title="Barcha bo‘limlar">
+        <div className="stack-sm mb">
+          <div className="search-field w-full">
+            <Search size={15} className="search-ico" />
+            <input
+              className="input"
+              placeholder="Bo‘lim nomini yozing…"
+              value={drawerQuery}
+              onChange={(e) => setDrawerQuery(e.target.value)}
+              aria-label="Bo‘limlarni filtrlash"
+            />
+          </div>
+        </div>
+        <nav className="nav" aria-label="Barcha bo‘limlar">
+          {filteredRest.map((item) => {
             const Icon = item.icon;
             const active = isActive(pathname, item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                style={{
-                  display: "flex", alignItems: "center", gap: 11, padding: "11px 12px",
-                  borderRadius: "var(--radius-sm)", fontWeight: 600, fontSize: 14,
-                  background: active ? "var(--brand-soft)" : "transparent",
-                  color: active ? "var(--brand-strong)" : "var(--color-text-secondary)",
-                }}
+                className={active ? "active" : ""}
+                aria-current={active ? "page" : undefined}
               >
-                <Icon size={18} strokeWidth={1.9} />
+                <span className="ico" aria-hidden="true">
+                  <Icon size={18} strokeWidth={1.9} />
+                </span>
                 {item.label}
               </Link>
             );
           })}
-        </div>
+          {filteredRest.length === 0 && <p className="text-faint fs-13_5">Mos bo‘lim topilmadi.</p>}
+        </nav>
+        <Link className="btn secondary mt" href="/bo-limlar" onClick={() => setMoreOpen(false)}>
+          Barcha bo‘limlar katalogi
+        </Link>
       </Drawer>
+
+      <CommandPalette />
     </div>
   );
 }

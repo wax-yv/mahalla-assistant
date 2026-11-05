@@ -9,4 +9,10 @@ export {
   CalendarClock, CircleAlert, LoaderCircle, SlidersHorizontal, ArrowRight,
   FileSpreadsheet, Filter, CheckCircle2, Play, Menu, Send, MapPin, Phone,
   ShieldCheck, Clock, TrendingUp, Database, Sparkles, ArrowUpDown, Eye, EyeOff, Ban, Undo2, FileDown,
+  /* Premium qo‘shimchalar (audit bo‘lim 7) */
+  Files, ChartColumn, ClipboardCheck, MessagesSquare, Square, Bell, Command,
+  ChevronUp, CircleUser, BookOpen, Landmark, ListFilter, Rows3, Table2,
+  CircleCheck, CircleDashed, UserCog, LifeBuoy, MessageCircleQuestion,
+  TrendingDown, Building2, Target, Receipt, Wallet, FileCheck2, Quote,
+  LogIn, LogInIcon,
 } from "lucide-react";

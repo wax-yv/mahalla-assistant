@@ -1,11 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  AlertTriangle, CheckCircle2, Download, FileSpreadsheet, FileText, Trash2, Upload,
-} from "@/components/ui/icons";
-import { Badge, Empty, PageHead } from "@/components/ui";
-import { ConfirmDialog, Drawer, ErrorState, SkeletonList, useToast } from "@/components/ui/overlays";
+import { CheckCircle2, Download, FileSpreadsheet, FileText, Trash2, Upload } from "@/components/ui/icons";
+import { Badge, Empty, PageHead, Pager } from "@/components/ui";
+import { ConfirmDialog, ErrorState, SkeletonList, useToast } from "@/components/ui/overlays";
 import { Field } from "@/components/ui/inputs";
 import { api, type Paged } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
@@ -20,13 +18,17 @@ type Analysis = {
 };
 
 const FIELD_LABELS: Record<string, string> = {
-  external_id: "Tashqi ID", full_name: "F.I.Sh. (majburiy)", gender: "Jinsi", birth_date: "Tug'ilgan sana",
-  phone: "Telefon", mahalla: "Mahalla", street: "Ko'cha", house_number: "Uy raqami",
-  family_external_id: "Oila ID", family_role: "Oiladagi o'rni", education: "Ma'lumoti",
+  external_id: "Tashqi ID", full_name: "F.I.Sh. (majburiy)", gender: "Jinsi", birth_date: "Tug‘ilgan sana",
+  phone: "Telefon", mahalla: "Mahalla", street: "Ko‘cha", house_number: "Uy raqami",
+  family_external_id: "Oila ID", family_role: "Oiladagi o‘rni", education: "Ma’lumoti",
   employment_status: "Bandligi", profession: "Kasbi", social_status: "Ijtimoiy holati",
   needs: "Ehtiyoji", notes: "Izoh",
 };
 const MODULES = ["citizens", "families", "houses", "tasks", "cases"];
+
+const MODULE_LABELS: Record<string, string> = {
+  citizens: "Fuqarolar", families: "Oilalar", houses: "Uylar", tasks: "Vazifalar", cases: "Murojaatlar",
+};
 
 function stepperIndex(analysis: Analysis | null, uploading: boolean): number {
   if (uploading) return 1;
@@ -41,7 +43,7 @@ function Stepper({ step }: { step: number }) {
   return (
     <div className="stepper" aria-label="Import bosqichi">
       {steps.map((label, index) => (
-        <span key={label} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+        <span key={label} className="row-sm">
           <span className={`step ${index < step ? "done" : index === step ? "current" : ""}`}>
             {index < step ? <CheckCircle2 size={13} /> : <span className="num">{index + 1}</span>}
             {label}
@@ -136,7 +138,7 @@ export default function DocumentsPage() {
         `/documents/imports/${analysis.batch.id}/commit`,
         { idempotency_key: `ui-${analysis.batch.id}` }
       );
-      setNote(`Import yakunlandi: ${result.created} yangi, ${result.updated} yangilandi, ${result.skipped} o'tkazib yuborildi.`);
+      setNote(`Import yakunlandi: ${result.created} yangi, ${result.updated} yangilandi, ${result.skipped} o‘tkazib yuborildi.`);
       setAnalysis(null);
       setCommitOpen(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -165,7 +167,12 @@ export default function DocumentsPage() {
   }
 
   async function exportModule(module: string, format: string) {
-    await api.file(`/exports/${module}?format=${format}`, `${module}.${format}`);
+    try {
+      await api.file(`/exports/${module}?format=${format}`, `${module}.${format}`);
+      toast.show("success", `${MODULE_LABELS[module] ?? module} eksporti yuklab olindi.`);
+    } catch (err) {
+      toast.show("error", err instanceof Error ? err.message : "Eksport amalga oshmadi.");
+    }
   }
 
   async function deleteDoc() {
@@ -173,11 +180,11 @@ export default function DocumentsPage() {
     setDeleting(true);
     try {
       await api.del(`/documents/${deleteTarget.id}`);
-      toast.show("success", `${deleteTarget.original_name} o'chirildi.`);
+      toast.show("success", `${deleteTarget.original_name} o‘chirildi.`);
       setDeleteTarget(null);
       load();
     } catch (err) {
-      toast.show("error", err instanceof Error ? err.message : "O'chirish amalga oshmadi.");
+      toast.show("error", err instanceof Error ? err.message : "O‘chirish amalga oshmadi.");
     } finally {
       setDeleting(false);
     }
@@ -192,7 +199,7 @@ export default function DocumentsPage() {
     <>
       <PageHead
         kicker="Hujjatlar"
-        title="Hujjatlar va ma'lumot almashinuvi"
+        title="Hujjatlar va ma’lumot almashinuvi"
         lede="Excel, CSV, Word va PDF fayllarini yuklang — ustunlar aniqlanadi, xatolar hisoboti beriladi, tasdiqingiz bilan bazaga yoziladi."
       />
       {error && <div className="alert danger" role="alert">{error}</div>}
@@ -219,7 +226,7 @@ export default function DocumentsPage() {
               if (file) { setFileName(file.name); void uploadFile(file); }
             }}
           >
-            <Upload size={22} style={{ color: "var(--color-text-muted)" }} />
+            <Upload size={22} className="text-faint" />
             <span className="dz-title">{fileName || "Faylni bu yerga tashlang yoki bosing"}</span>
             <span className="dz-sub">XLSX · CSV · DOCX · PDF — maksimal 4 MB</span>
           </div>
@@ -227,21 +234,23 @@ export default function DocumentsPage() {
             ref={fileRef}
             type="file"
             accept=".xlsx,.csv,.docx,.pdf"
-            style={{ display: "none" }}
+            className="file-hidden"
             aria-label="Fayl tanlash"
             onChange={(e) => {
               const file = e.target.files?.[0];
               if (file) { setFileName(file.name); void uploadFile(file); }
             }}
           />
-          {busy && uploading && <p className="loading" style={{ padding: "14px 0 0" }}>Tahlil qilinmoqda…</p>}
+          {busy && uploading && <p className="loading">Tahlil qilinmoqda…</p>}
         </div>
         <div className="card card-pad">
           <h3 className="mb">Eksport</h3>
-          <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
+          <div className="export-grid">
             {MODULES.map((module) => (
-              <div key={module} style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                <button className="btn sm" onClick={() => void exportModule(module, "xlsx")}><FileSpreadsheet size={14} /> {module} .xlsx</button>
+              <div key={module} className="export-row">
+                <button className="btn sm" onClick={() => void exportModule(module, "xlsx")}>
+                  <FileSpreadsheet size={14} /> {MODULE_LABELS[module] ?? module} .xlsx
+                </button>
                 <button className="btn sm" onClick={() => void exportModule(module, "csv")}>.csv</button>
               </div>
             ))}
@@ -254,18 +263,18 @@ export default function DocumentsPage() {
           <div className="card-head">
             <h3>Import tahlili</h3>
             <Badge tone={analysis.can_commit ? "ok" : "warn"}>
-              {analysis.can_commit ? "Tasdiqlash mumkin" : `Commit mumkin emas — xatolar: ${analysis.batch.error_count}`}
+              {analysis.can_commit ? "Tasdiqlash mumkin" : `Bazaga yozib bo‘lmaydi — xatolar: ${analysis.batch.error_count}`}
             </Badge>
           </div>
           <div className="card-pad">
             <div className="field mb">
-              <label>Ustun mapping'i — tahrirlab qayta tahlil qilishingiz mumkin</label>
+              <label>Ustun mapping’i — tahrirlab, qayta tahlil qilishingiz mumkin</label>
               <div className="grid grid-2">
                 {Object.keys(FIELD_LABELS).map((field) => (
-                  <div key={field} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ minWidth: 150, fontSize: 13 }} className="text-soft">{FIELD_LABELS[field]}</span>
+                  <div key={field} className="mapping-row">
+                    <span className="mapping-label text-soft">{FIELD_LABELS[field]}</span>
                     <select
-                      className="select" style={{ flex: 1 }}
+                      className="select"
                       value={editableMapping[field] ?? ""}
                       onChange={(event) =>
                         setEditableMapping((prev) => {
@@ -282,14 +291,14 @@ export default function DocumentsPage() {
                   </div>
                 ))}
               </div>
-              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <div className="mapping-actions">
                 <button className="btn sm" disabled={busy} onClick={() => void reanalyze()}>Qayta tahlil qilish</button>
               </div>
             </div>
             {(analysis.available_sheets?.length ?? 0) > 1 && (
               <Field label={`Excel varaq — faylda ${analysis.available_sheets!.length} ta varaq`} htmlFor="sheet-select">
                 <select
-                  id="sheet-select" className="select" style={{ maxWidth: 280 }}
+                  id="sheet-select" className="select maxw-280"
                   value={selectedSheet || analysis.sheet || ""}
                   onChange={(event) => { setSelectedSheet(event.target.value); void reanalyze(event.target.value); }}
                 >
@@ -307,9 +316,9 @@ export default function DocumentsPage() {
 
             {analysis.preview_rows.length > 0 && (
               <>
-                <h3 style={{ marginBottom: 10 }}>Preview (birinchi {Math.min(10, analysis.preview_rows.length)} qator)</h3>
+                <h3 className="mb-sm">Preview (birinchi {Math.min(10, analysis.preview_rows.length)} qator)</h3>
                 <div className="table-wrap mb">
-                  <table className="data" style={{ minWidth: 480 }}>
+                  <table className="data min-480">
                     <thead>
                       <tr>{Object.keys(analysis.preview_rows[0]).slice(0, 8).map((key) => <th key={key}>{key}</th>)}</tr>
                     </thead>
@@ -317,7 +326,7 @@ export default function DocumentsPage() {
                       {analysis.preview_rows.slice(0, 10).map((row, rowIndex) => (
                         <tr key={rowIndex}>
                           {Object.keys(analysis.preview_rows[0]).slice(0, 8).map((key) => (
-                            <td key={key}>{String(row[key] ?? "—").slice(0, 40) || <span className="text-faint">—</span>}</td>
+                            <td key={key} data-label={key}>{String(row[key] ?? "—").slice(0, 40) || <span className="text-faint">—</span>}</td>
                           ))}
                         </tr>
                       ))}
@@ -354,30 +363,30 @@ export default function DocumentsPage() {
                     <tbody>
                       {filteredIssues.slice(0, 12).map((row) => (
                         <tr key={row.id}>
-                          <td className="num">{row.row_number}</td>
-                          <td>
+                          <td className="num" data-label="Qator">{row.row_number}</td>
+                          <td data-label="Tur">
                             <Badge tone={row.severity === "error" ? "danger" : "warn"}>
                               {row.severity === "error" ? "Xato" : "Ogohlantirish"}
                             </Badge>
                           </td>
-                          <td className="mono">{row.code}</td>
-                          <td>{row.message}{row.column ? ` (${row.column})` : ""}</td>
+                          <td className="mono" data-label="Kod">{row.code}</td>
+                          <td data-label="Xabar">{row.message}{row.column ? ` (${row.column})` : ""}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-                {filteredIssues.length > 12 && <p className="text-faint" style={{ fontSize: 12.5 }}>va yana {filteredIssues.length - 12} ta muammo…</p>}
+                {filteredIssues.length > 12 && <p className="text-faint fs-12_5">va yana {filteredIssues.length - 12} ta muammo…</p>}
               </>
             )}
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div className="row-wrap-lg">
               <button className="btn primary" disabled={!analysis.can_commit || busy} onClick={() => setCommitOpen(true)}>
                 Bazaga yozish (tasdiqlash)
               </button>
               {!analysis.can_commit && (
-                <span className="text-faint" style={{ fontSize: 12.5, alignSelf: "center" }}>
-                  Sabab: {analysis.batch.error_count} ta xato — ularni to'g'irlang yoki faylni qayta yuklang.
+                <span className="text-faint fs-12_5">
+                  Sabab: {analysis.batch.error_count} ta xato — ularni to‘g‘rilang yoki faylni qayta yuklang.
                 </span>
               )}
               <button className="btn danger" disabled={busy} onClick={() => void rollback()}>Importni bekor qilish</button>
@@ -390,42 +399,34 @@ export default function DocumentsPage() {
       {docs && (
         <div className="card">
           <div className="card-head"><h3>Yuklangan hujjatlar</h3></div>
-          <div className="table-wrap" style={{ border: "none", borderRadius: 0 }}>
+          <div className="table-wrap flush">
             <table className="data">
               <thead><tr><th>Nomi</th><th>Tur</th><th>Hajm</th><th>Holat</th><th>Yuklandi</th><th aria-label="Amallar" /></tr></thead>
               <tbody>
                 {docs.items.map((doc) => (
                   <tr key={doc.id}>
-                    <td><FileText size={14} style={{ display: "inline", marginRight: 6, verticalAlign: "-2px" }} />{doc.original_name}</td>
-                    <td className="mono">{doc.kind}</td>
-                    <td className="num">{(doc.size / 1024).toFixed(1)} KB</td>
-                    <td><Badge tone={doc.status === "archived" ? "muted" : "ok"}>{doc.status}</Badge></td>
-                    <td className="nowrap">{fmtDateTime(doc.created_at)}</td>
-                    <td className="nowrap">
+                    <td data-label="Nomi"><FileText size={14} className="ico-inline-sm" />{doc.original_name}</td>
+                    <td className="mono" data-label="Tur">{doc.kind}</td>
+                    <td className="num" data-label="Hajm">{(doc.size / 1024).toFixed(1)} KB</td>
+                    <td data-label="Holat"><Badge tone={doc.status === "archived" ? "muted" : "ok"}>{doc.status === "archived" ? "Arxivlangan" : doc.status}</Badge></td>
+                    <td className="nowrap" data-label="Yuklandi">{fmtDateTime(doc.created_at)}</td>
+                    <td className="nowrap" data-label="Amallar">
                       <a className="icon-btn" href={`/api/v1/documents/${doc.id}/download`} aria-label={`${doc.original_name} yuklab olish`} title="Yuklab olish">
                         <Download size={15} />
                       </a>
-                      <button className="icon-btn danger" aria-label={`${doc.original_name} o'chirish`} title="O'chirish" onClick={() => setDeleteTarget(doc)}>
+                      <button className="icon-btn danger" aria-label={`${doc.original_name} o‘chirish`} title="O‘chirish" onClick={() => setDeleteTarget(doc)}>
                         <Trash2 size={15} />
                       </button>
                     </td>
                   </tr>
                 ))}
                 {docs.items.length === 0 && (
-                  <tr><td colSpan={6}><Empty title="Hujjat yo'q" note="Birinchi faylni yuklab, aholi bazasini yangilang." icon={<FileText size={18} />} /></td></tr>
+                  <tr><td colSpan={6}><Empty title="Hujjat yo‘q" note="Birinchi faylni yuklab, aholi bazasini yangilang." art="document" /></td></tr>
                 )}
               </tbody>
             </table>
           </div>
-          {docs.meta.total_pages > 1 && (
-            <div className="pager">
-              <span className="num">{docs.meta.total} ta hujjat · {docs.meta.page}/{docs.meta.total_pages}</span>
-              <span style={{ display: "flex", gap: 8 }}>
-                <button className="btn sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>‹</button>
-                <button className="btn sm" disabled={page >= docs.meta.total_pages} onClick={() => setPage(page + 1)}>›</button>
-              </span>
-            </div>
-          )}
+          <Pager meta={docs.meta} onPage={setPage} />
         </div>
       )}
 
@@ -434,7 +435,7 @@ export default function DocumentsPage() {
         onClose={() => setCommitOpen(false)}
         onConfirm={() => void commit()}
         title="Importni tasdiqlash"
-        message={`Tahlil natijasidagi ma'lumotlar bazaga yoziladi (yaroqli qatorlar). Importni keyinchalik bekor qilish imkoni bor. Davom etamizmi?`}
+        message="Tahlil natijasidagi ma’lumotlar bazaga yoziladi (yaroqli qatorlar). Importni keyinchalik bekor qilish imkoni bor. Davom etamizmi?"
         confirmLabel="Bazaga yozish"
         danger={false}
         busy={committing}
@@ -443,9 +444,9 @@ export default function DocumentsPage() {
         open={Boolean(deleteTarget)}
         onClose={() => setDeleteTarget(null)}
         onConfirm={() => void deleteDoc()}
-        title="Hujjatni o'chirish"
-        message={`«${deleteTarget?.original_name}» fayli o'chiriladi. Bu amalni qaytarib bo'lmaydi. Davom etamizmi?`}
-        confirmLabel="O'chirish"
+        title="Hujjatni o‘chirish"
+        message={`«${deleteTarget?.original_name}» fayli o‘chiriladi. Bu amalni qaytarib bo‘lmaydi. Davom etamizmi?`}
+        confirmLabel="O‘chirish"
         busy={deleting}
       />
     </>

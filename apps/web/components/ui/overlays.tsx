@@ -1,30 +1,98 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 import { AlertTriangle, Check, Info, X } from "lucide-react";
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Focus-trap + return-focus (audit P1-7).
+ * Modal/Drawer ochilganda fokus birinchi fokuslanadigan elementga,
+ * yopilganda esa avvalgi faol elementga qaytadi.
+ */
+function useFocusTrap(open: boolean, onClose: () => void, ref: RefObject<HTMLElement | null>) {
+  const previousRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    previousRef.current = document.activeElement as HTMLElement | null;
+
+    const node = ref.current;
+    const focusables = () =>
+      Array.from(node?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []).filter(
+        (el) => el.offsetParent !== null || el === document.activeElement
+      );
+
+    const timer = window.setTimeout(() => {
+      const list = focusables();
+      (list[0] ?? node)?.focus();
+    }, 0);
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const list = focusables();
+      if (list.length === 0) {
+        e.preventDefault();
+        node?.focus();
+        return;
+      }
+      const first = list[0];
+      const last = list[list.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && (active === first || !node?.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("keydown", onKey, true);
+      previousRef.current?.focus?.();
+    };
+  }, [open, onClose, ref]);
+}
 
 /* ---------------- Modal ---------------- */
 export function Modal({
-  open, onClose, title, children, footer, width,
+  open, onClose, title, children, footer, wide,
 }: {
-  open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode; width?: number;
+  open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode; wide?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useFocusTrap(open, onClose, ref);
+
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
-    ref.current?.querySelector<HTMLElement>("button, input, select, textarea")?.focus();
-    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
-  }, [open, onClose]);
+    return () => { document.body.style.overflow = ""; };
+  }, [open]);
+
   if (!open) return null;
   return (
     <>
       <div className="overlay" onClick={onClose} />
-      <div className="modal" role="dialog" aria-modal="true" aria-label={title} ref={ref} style={width ? { width: `min(${width}px, calc(100vw - 24px))` } : undefined}>
+      <div
+        className={`modal${wide ? " modal-wide" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        ref={ref}
+        tabIndex={-1}
+      >
         <div className="modal-head">
-          <h3>{title}</h3>
+          <h3 id={titleId}>{title}</h3>
           <button className="icon-btn" onClick={onClose} aria-label="Yopish"><X size={17} /></button>
         </div>
         <div className="modal-body">{children}</div>
@@ -41,21 +109,29 @@ export function Drawer({
   open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode; wide?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useFocusTrap(open, onClose, ref);
+
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
-    ref.current?.querySelector<HTMLElement>("button, input, select, textarea")?.focus();
-    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
-  }, [open, onClose]);
+    return () => { document.body.style.overflow = ""; };
+  }, [open]);
+
   if (!open) return null;
   return (
     <>
       <div className="overlay" onClick={onClose} />
-      <div className="drawer" role="dialog" aria-modal="true" aria-label={title} ref={ref} style={wide ? { width: "min(680px, 100vw)" } : undefined}>
+      <div
+        className={`drawer${wide ? " drawer-wide" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        ref={ref}
+        tabIndex={-1}
+      >
         <div className="drawer-head">
-          <h3>{title}</h3>
+          <h3 id={titleId}>{title}</h3>
           <button className="icon-btn" onClick={onClose} aria-label="Yopish"><X size={17} /></button>
         </div>
         <div className="drawer-body">{children}</div>
@@ -86,11 +162,11 @@ export function ConfirmDialog({
         </>
       }
     >
-      <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-        <span style={{ color: danger ? "var(--color-danger)" : "var(--color-warning)", marginTop: 2, flexShrink: 0 }}>
+      <div className="row-top">
+        <span className={danger ? "text-danger-ico" : "text-warn-ico"}>
           <AlertTriangle size={20} />
         </span>
-        <p style={{ fontSize: 14 }}>{message}</p>
+        <p className="fs-14">{message}</p>
       </div>
     </Modal>
   );
@@ -102,11 +178,35 @@ const ToastCtx = createContext<{ show: (kind: Toast["kind"], text: string) => vo
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<Toast[]>([]);
+  const timers = useRef<Map<number, number>>(new Map());
+
+  const clearTimer = useCallback((id: number) => {
+    const timer = timers.current.get(id);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      timers.current.delete(id);
+    }
+  }, []);
+
   const show = useCallback((kind: Toast["kind"], text: string) => {
     const id = Date.now() + Math.random();
     setItems((prev) => [...prev.slice(-3), { id, kind, text }]);
-    setTimeout(() => setItems((prev) => prev.filter((t) => t.id !== id)), kind === "error" ? 7000 : 3500);
+    const timer = window.setTimeout(() => {
+      setItems((prev) => prev.filter((t) => t.id !== id));
+      timers.current.delete(id);
+    }, kind === "error" ? 7000 : 3500);
+    timers.current.set(id, timer);
   }, []);
+
+  // P2-1: barcha timerlarni tozalash (unmount)
+  useEffect(() => {
+    const map = timers.current;
+    return () => {
+      map.forEach((timer) => window.clearTimeout(timer));
+      map.clear();
+    };
+  }, []);
+
   return (
     <ToastCtx.Provider value={{ show }}>
       {children}
@@ -114,8 +214,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {items.map((t) => (
           <div key={t.id} className={`toast ${t.kind}`}>
             {t.kind === "success" ? <Check size={16} /> : t.kind === "error" ? <AlertTriangle size={16} /> : <Info size={16} />}
-            <span style={{ flex: 1 }}>{t.text}</span>
-            <button className="icon-btn" onClick={() => setItems((prev) => prev.filter((x) => x.id !== t.id))} aria-label="Yopish">
+            <span className="toast-text">{t.text}</span>
+            <button
+              className="icon-btn"
+              onClick={() => {
+                clearTimer(t.id);
+                setItems((prev) => prev.filter((x) => x.id !== t.id));
+              }}
+              aria-label="Yopish"
+            >
               <X size={14} />
             </button>
           </div>
@@ -129,34 +236,102 @@ export function useToast() {
   return useContext(ToastCtx);
 }
 
-/* ---------------- States ---------------- */
-export function SkeletonBlock({ h = 14, w = "100%" }: { h?: number; w?: number | string }) {
-  return <div className="skeleton" style={{ height: h, width: w }} />;
+/* ---------------- States (7.5 — layout-mos skeletlar) ---------------- */
+export function SkeletonBlock({ h = 14, w = "100%", className = "" }: { h?: number; w?: number | string; className?: string }) {
+  return <div className={`skeleton ${className}`} style={{ height: h, width: w }} />;
 }
 
-export function SkeletonList({ rows = 4, height = 52 }: { rows?: number; height?: number }) {
+export function SkeletonList({ rows = 4 }: { rows?: number }) {
   return (
     <div className="card" aria-hidden="true">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} style={{ padding: "14px 18px", borderBottom: i < rows - 1 ? "1px solid var(--color-border)" : undefined }}>
+        <div key={i} className="skel-row">
           <SkeletonBlock h={13} w="38%" />
-          <div style={{ height: 6 }} />
+          <div className="skel-gap" />
           <SkeletonBlock h={11} w="62%" />
         </div>
       ))}
-      <div style={{ height: height * 0 }} />
     </div>
   );
 }
 
-export function ErrorState({ title = "Xatolik yuz berdi", note, onRetry }: { title?: string; note?: string; onRetry?: () => void }) {
+/** Dashboard skeleti — haqiqiy layout bilan bir xil balandlik (CLS ≈ 0) */
+export function SkeletonDashboard() {
+  return (
+    <div aria-hidden="true">
+      <div className="grid grid-4 mb">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div className="card stat" key={i}>
+            <div className="skel-stat">
+              <SkeletonBlock h={44} w={44} className="skel-round" />
+              <div className="skel-gap" />
+              <SkeletonBlock h={11} w="55%" />
+              <div className="skel-gap" />
+              <SkeletonBlock h={26} w="40%" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="split s2 mb">
+        <SkeletonList rows={4} />
+        <SkeletonList rows={3} />
+      </div>
+      <div className="split s2">
+        <SkeletonList rows={5} />
+        <SkeletonList rows={5} />
+      </div>
+    </div>
+  );
+}
+
+/** Jadval skeleti */
+export function SkeletonTable({ rows = 6, cols = 5 }: { rows?: number; cols?: number }) {
+  return (
+    <div className="card" aria-hidden="true">
+      <div className="skel-row">
+        <SkeletonBlock h={12} w="30%" />
+      </div>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="skel-row row-sm">
+          {Array.from({ length: cols }).map((__, j) => (
+            <SkeletonBlock key={j} h={12} w={j === 0 ? "28%" : "14%"} />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Chat skeleti */
+export function SkeletonChat() {
+  return (
+    <div className="card card-pad skel-chat" aria-hidden="true">
+      <SkeletonBlock h={46} w="55%" className="skel-bubble" />
+      <SkeletonBlock h={72} w="80%" className="skel-bubble" />
+      <SkeletonBlock h={46} w="45%" className="skel-bubble" />
+    </div>
+  );
+}
+
+export function ErrorState({
+  title = "Yuklab bo‘lmadi",
+  note,
+  onRetry,
+}: {
+  title?: string;
+  note?: string;
+  onRetry?: () => void;
+}) {
   return (
     <div className="card card-pad empty">
-      <div className="icon" style={{ color: "var(--color-danger)", background: "var(--danger-soft)" }}><AlertTriangle size={20} /></div>
+      <div className="icon text-danger-ico bg-danger-soft"><AlertTriangle size={20} /></div>
       <h3>{title}</h3>
       {note && <p>{note}</p>}
+      <p className="text-faint fs-12_5 mt-xs">
+        Internet aloqasini tekshirib, qayta urinishni bosing. Muammo davom etsa, boshqa sahifadan kirib ko‘ring.
+      </p>
       {onRetry && (
-        <div style={{ marginTop: 14 }}>
+        <div className="mt">
           <button className="btn" onClick={onRetry}>Qayta urinish</button>
         </div>
       )}

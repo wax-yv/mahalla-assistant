@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
-import { Eye, EyeOff, LoaderCircle, ShieldCheck } from "@/components/ui/icons";
+import { AlertTriangle, Eye, EyeOff, LoaderCircle, ShieldCheck } from "@/components/ui/icons";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { getMe, login } from "@/lib/auth";
@@ -44,9 +44,9 @@ export default function LoginPage() {
             kredit-subsidiya dasturlari — barchasi bir tizimda.
           </p>
           <div className="points">
-            <div><ShieldCheck size={17} style={{ flexShrink: 0, marginTop: 2 }} /><span>AI agentlar o‘zbek lotin tilida manbali javob beradi; har bir yozuv amali tasdiqingiz bilan bajariladi.</span></div>
-            <div><ShieldCheck size={17} style={{ flexShrink: 0, marginTop: 2 }} /><span>Qonunchilik bo‘limi Lex.uz dan jonli sinxronlanadi va manbali javob qaytaradi.</span></div>
-            <div><ShieldCheck size={17} style={{ flexShrink: 0, marginTop: 2 }} /><span>Hisobotlar SQL ko‘rsatkichlaridan avtomatik shakllanadi, draft tasdiq bilan rasmiylashadi.</span></div>
+            <div><ShieldCheck size={17} className="pt-ico" /><span>AI agentlar o‘zbek lotin tilida manbali javob beradi; har bir yozuv amali tasdiqingiz bilan bajariladi.</span></div>
+            <div><ShieldCheck size={17} className="pt-ico" /><span>Qonunchilik bo‘limi Lex.uz dan jonli sinxronlanadi va manbali javob qaytaradi.</span></div>
+            <div><ShieldCheck size={17} className="pt-ico" /><span>Hisobotlar bazadagi ko‘rsatkichlardan avtomatik shakllanadi, draft tasdiq bilan rasmiylashadi.</span></div>
           </div>
         </div>
         <div className="foot-note">Xorazm viloyati, Urganch shahri, Navbahor mahallasi</div>
@@ -55,14 +55,14 @@ export default function LoginPage() {
         <div className="auth-box">
           <div className="logo-row">
             <Logo />
-            <span style={{ flex: 1 }} />
+            <span className="grow" />
             <ThemeToggle />
           </div>
           <h1>Tizimga kirish</h1>
           <p className="sub">Login va parolingizni kiriting.</p>
           {error && (
             <div className="alert danger" role="alert">
-              <ShieldCheck size={16} />
+              <AlertTriangle size={16} />
               <span>{error}</span>
             </div>
           )}
@@ -82,12 +82,11 @@ export default function LoginPage() {
             </div>
             <div className="field">
               <label htmlFor="password">Parol</label>
-              <div style={{ position: "relative" }}>
+              <div className="pw-wrap">
                 <input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  className="input"
-                  style={{ paddingRight: 44 }}
+                  className="input input-pr-44"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   autoComplete="current-password"
@@ -96,8 +95,7 @@ export default function LoginPage() {
                 />
                 <button
                   type="button"
-                  className="icon-btn"
-                  style={{ position: "absolute", right: 6, top: 5 }}
+                  className="icon-btn pw-toggle"
                   onClick={() => setShowPassword((v) => !v)}
                   aria-label={showPassword ? "Parolni yashirish" : "Parolni ko‘rsatish"}
                   title={showPassword ? "Parolni yashirish" : "Parolni ko‘rsatish"}
@@ -106,7 +104,7 @@ export default function LoginPage() {
                 </button>
               </div>
             </div>
-            <button className="btn primary lg" style={{ width: "100%" }} disabled={busy || !username.trim() || !password}>
+            <button className="btn primary lg w-full" disabled={busy || !username.trim() || !password}>
               {busy ? (
                 <>
                   <LoaderCircle size={16} className="spin" /> Kirilmoqda…
@@ -116,6 +114,7 @@ export default function LoginPage() {
               )}
             </button>
           </form>
+          <p className="auth-hint">Kirish ma’lumotlari administrator tomonidan beriladi.</p>
         </div>
       </div>
     </div>

@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, Inbox, MapPin, Phone, Trash2, UserRound } from "@/components/ui/icons";
+import { ChevronRight, Inbox, Phone, Trash2, UserRound } from "@/components/ui/icons";
 import { Badge, Empty, PageHead } from "@/components/ui";
 import { ConfirmDialog, Drawer, ErrorState, SkeletonList, useToast } from "@/components/ui/overlays";
 import { api } from "@/lib/api";
@@ -12,6 +12,7 @@ import { CitizenForm, type CitizenFormData } from "@/components/citizens/Citizen
 
 type Detail = {
   id: string; full_name: string; gender: string; birth_date: string | null; age: number | null;
+  version: number;
   phone: string; family_role: string; education: string; employment_status: string; profession: string;
   social_status: string; needs: string[]; notes: string; data_source: string; last_verified_at: string | null;
   address: { address_label?: string | null; mahalla?: string | null } | null;
@@ -25,6 +26,7 @@ type Detail = {
 
 export default function CitizenDetailPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const toast = useToast();
   const [data, setData] = useState<Detail | null>(null);
   const [error, setError] = useState("");
@@ -45,6 +47,7 @@ export default function CitizenDetailPage() {
   function toForm(d: Detail): Partial<CitizenFormData> {
     return {
       id: d.id, full_name: d.full_name, gender: d.gender as "Erkak" | "Ayol",
+      version: d.version,
       birth_date: d.birth_date ?? "", phone: d.phone ?? "", family_id: d.family?.id ?? "",
       family_role: d.family_role, education: d.education, employment_status: d.employment_status,
       profession: d.profession, social_status: d.social_status, needs: (d.needs ?? []).join(", "),
@@ -57,27 +60,24 @@ export default function CitizenDetailPage() {
     try {
       await api.del(`/citizens/${params.id}`);
       toast.show("success", "Fuqaro arxivlandi.");
-      routerPush();
+      router.push("/citizens");
     } catch (err) {
       toast.show("error", err instanceof Error ? err.message : "Amal bajarilmadi.");
       setBusy(false);
     }
   }
-  function routerPush() {
-    window.location.href = "/citizens";
-  }
 
   if (error) return <ErrorState note={error} onRetry={load} />;
   if (!data) return <SkeletonList rows={5} />;
 
-  const st = data.social_status && data.social_status !== "Yo'q" && data.social_status !== "—";
+  const st = data.social_status && data.social_status !== "Yo‘q" && data.social_status !== "—";
 
   return (
     <>
-      <nav aria-label="Breadcrumb" className="text-faint" style={{ fontSize: 13, marginBottom: 10, display: "flex", gap: 6, alignItems: "center" }}>
+      <nav aria-label="Yo‘l" className="crumbs">
         <Link className="link" href="/citizens">Fuqarolar</Link>
-        <ChevronRight size={13} />
-        <span style={{ color: "var(--color-text)" }}>{data.full_name}</span>
+        <ChevronRight size={13} aria-hidden="true" />
+        <span className="text-strong">{data.full_name}</span>
       </nav>
       <PageHead
         kicker={`Fuqaro · ${data.id}`}
@@ -85,7 +85,7 @@ export default function CitizenDetailPage() {
         lede={`${data.address?.mahalla ?? ""}${data.address?.address_label ? ` · ${data.address.address_label}` : ""}`}
         actions={
           <>
-            <Link className="btn ghost" href="/citizens">← Ro'yxat</Link>
+            <Link className="btn ghost" href="/citizens">← Ro‘yxat</Link>
             <button className="btn" onClick={() => setEditOpen(true)}>
               <UserRound size={15} /> Tahrirlash
             </button>
@@ -98,34 +98,34 @@ export default function CitizenDetailPage() {
 
       <div className="split s2r mb">
         <div className="card card-pad">
-          <h3 className="mb">Shaxsiy ma'lumotlar</h3>
+          <h3 className="mb">Shaxsiy ma’lumotlar</h3>
           <dl className="kv">
             <dt>Jinsi</dt><dd>{data.gender}</dd>
-            <dt>Tug'ilgan sana</dt><dd>{fmtDate(data.birth_date)}{data.age !== null ? ` · ${data.age} yosh` : ""}</dd>
+            <dt>Tug‘ilgan sana</dt><dd>{fmtDate(data.birth_date)}{data.age !== null ? ` · ${data.age} yosh` : ""}</dd>
             <dt>Telefon</dt>
             <dd>
               {data.phone ? (
                 <a className="rowlink" href={`tel:${data.phone.replace(/\s/g, "")}`}>
-                  <Phone size={13} style={{ display: "inline", marginRight: 4, verticalAlign: "-1.5px" }} />
+                  <Phone size={13} className="ico-inline-sm" />
                   {data.phone}
                 </a>
               ) : <span className="text-faint">—</span>}
             </dd>
             <dt>Manzil</dt><dd>{data.address?.address_label ?? "—"}</dd>
-            <dt>Oiladagi o'rni</dt><dd>{data.family_role}</dd>
-            <dt>Ma'lumoti</dt><dd>{data.education}</dd>
-            <dt>Bandlik</dt><dd>{data.employment_status}{data.profession && data.profession !== "Yo'q" && data.profession !== "—" ? ` · ${data.profession}` : ""}</dd>
+            <dt>Oiladagi o‘rni</dt><dd>{data.family_role}</dd>
+            <dt>Ma’lumoti</dt><dd>{data.education}</dd>
+            <dt>Bandlik</dt><dd>{data.employment_status}{data.profession && data.profession !== "Yo‘q" && data.profession !== "—" ? ` · ${data.profession}` : ""}</dd>
             <dt>Ijtimoiy holat</dt>
             <dd>{st ? <Badge tone="warn">{data.social_status}</Badge> : "—"}</dd>
             {(data.needs ?? []).length > 0 && (
               <>
                 <dt>Ehtiyoji</dt>
-                <dd style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                <dd className="chip-row">
                   {data.needs.map((need) => <Badge key={need} tone="info">{need}</Badge>)}
                 </dd>
               </>
             )}
-            <dt>Manba</dt><dd className="mono" style={{ fontSize: 12.5 }}>{data.data_source || "—"}</dd>
+            <dt>Manba</dt><dd className="mono fs-12_5">{data.data_source || "—"}</dd>
             <dt>Oxirgi tekshiruv</dt><dd>{fmtDateTime(data.last_verified_at)}</dd>
             {data.notes && (<><dt>Izoh</dt><dd>{data.notes}</dd></>)}
           </dl>
@@ -134,23 +134,23 @@ export default function CitizenDetailPage() {
         <div>
           {data.family && (
             <div className="card card-pad mb">
-              <div className="card-head" style={{ padding: 0, border: "none", marginBottom: 10 }}>
+              <div className="card-head card-head-flush">
                 <h3>Oila</h3>
                 <Link className="link" href={`/families?focus=${data.family.id}`}>Oila sahifasi →</Link>
               </div>
               <dl className="kv">
-                <dt>Oila</dt><dd className="mono" style={{ fontSize: 12.5 }}>{data.family.id}</dd>
-                <dt>Boshlig'i</dt><dd>{data.family.family_head_name || "—"}</dd>
+                <dt>Oila</dt><dd className="mono fs-12_5">{data.family.id}</dd>
+                <dt>Boshlig‘i</dt><dd>{data.family.family_head_name || "—"}</dd>
                 <dt>Turi</dt><dd>{data.family.family_type}</dd>
-                <dt>A'zolar</dt><dd className="num">{data.family.member_count} nafar</dd>
+                <dt>A’zolar</dt><dd className="num">{data.family.member_count} nafar</dd>
                 <dt>Manzil</dt><dd>{data.family.address?.address_label ?? "—"}</dd>
               </dl>
             </div>
           )}
           <div className="card card-pad">
-            <h3 className="mb">Ma'lumot sifati</h3>
+            <h3 className="mb">Ma’lumot sifati</h3>
             <div className="progress mb"><i style={{ width: `${data.data_quality.score}%` }} /></div>
-            <p className="text-soft" style={{ fontSize: 13.5 }}>
+            <p className="text-soft fs-13_5">
               Sifat: <b>{data.data_quality.score}%</b>
               {data.data_quality.missing_fields.length > 0 && <> · yetishmaydi: {data.data_quality.missing_fields.join(", ")}</>}
             </p>
@@ -161,7 +161,7 @@ export default function CitizenDetailPage() {
       <div className="split s2">
         <div className="card">
           <div className="card-head"><h3>Murojaatlar va vazifalar</h3></div>
-          <div className="table-wrap" style={{ border: "none", borderRadius: 0 }}>
+          <div className="table-wrap flush">
             <table className="data">
               <thead><tr><th>Nomi</th><th>Tur</th><th>Holat</th></tr></thead>
               <tbody>
@@ -169,9 +169,9 @@ export default function CitizenDetailPage() {
                   const s = statusBadge(CASE_STATUS, row.status);
                   return (
                     <tr key={row.id}>
-                      <td><Link className="rowlink" href={`/cases/${row.id}`}>{row.title}</Link></td>
-                      <td className="text-faint nowrap">Murojaat · {fmtDate(row.opened_at)}</td>
-                      <td><Badge tone={s.tone}>{s.label}</Badge></td>
+                      <td data-label="Nomi"><Link className="rowlink" href={`/cases/${row.id}`}>{row.title}</Link></td>
+                      <td className="text-faint nowrap" data-label="Tur">Murojaat · {fmtDate(row.opened_at)}</td>
+                      <td data-label="Holat"><Badge tone={s.tone}>{s.label}</Badge></td>
                     </tr>
                   );
                 })}
@@ -179,14 +179,14 @@ export default function CitizenDetailPage() {
                   const s = statusBadge(TASK_STATUS, row.status);
                   return (
                     <tr key={row.id}>
-                      <td>{row.title}</td>
-                      <td className="text-faint nowrap">Vazifa · {fmtDate(row.due_date)}</td>
-                      <td><Badge tone={s.tone}>{s.label}</Badge></td>
+                      <td data-label="Nomi">{row.title}</td>
+                      <td className="text-faint nowrap" data-label="Tur">Vazifa · {fmtDate(row.due_date)}</td>
+                      <td data-label="Holat"><Badge tone={s.tone}>{s.label}</Badge></td>
                     </tr>
                   );
                 })}
                 {data.cases.length === 0 && data.tasks.length === 0 && (
-                  <tr><td colSpan={3}><Empty title="Murojaat va vazifa yo'q" icon={<Inbox size={17} />} /></td></tr>
+                  <tr><td colSpan={3}><Empty title="Murojaat va vazifa yo‘q" note="Bu fuqaro uchun hali ish ochilmagan." art="inbox" /></td></tr>
                 )}
               </tbody>
             </table>
@@ -198,7 +198,7 @@ export default function CitizenDetailPage() {
             <div className="timeline">
               {data.timeline.slice(0, 12).map((item) => (
                 <div className="tl-item" key={item.id}>
-                  <span className="tl-dot" />
+                  <span className="tl-dot" aria-hidden="true" />
                   <div className="tl-body">
                     <h4>{item.title}</h4>
                     <div className="when">{item.kind} · {fmtDateTime(item.occurred_at)}</div>
@@ -206,7 +206,7 @@ export default function CitizenDetailPage() {
                   </div>
                 </div>
               ))}
-              {data.timeline.length === 0 && <Empty title="Tarix bo'sh" icon={<MapPin size={17} />} />}
+              {data.timeline.length === 0 && <Empty title="Tarix bo‘sh" note="Harakatlar tarixi hali shakllanmagan." art="document" />}
             </div>
           </div>
         </div>
@@ -220,7 +220,7 @@ export default function CitizenDetailPage() {
         onClose={() => setArchiveOpen(false)}
         onConfirm={() => void archive()}
         title="Fuqaroni arxivlash"
-        message={`«${data.full_name}» arxivlanadi: ro'yxatlarda ko'rinmaydi, ma'lumoti saqlanadi. Davom etamizmi?`}
+        message={`«${data.full_name}» arxivlanadi: ro‘yxatlarda ko‘rinmaydi, ma’lumotlari saqlanadi. Davom etamizmi?`}
         confirmLabel="Arxivlash"
         busy={busy}
       />

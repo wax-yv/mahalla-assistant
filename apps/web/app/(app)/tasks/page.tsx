@@ -2,11 +2,10 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
-import { ClipboardList, Plus } from "@/components/ui/icons";
-import { Badge, Empty, PageHead } from "@/components/ui";
+import { Plus } from "@/components/ui/icons";
+import { Badge, Empty, PageHead, Pager } from "@/components/ui";
 import { Drawer, ErrorState, SkeletonList, useToast } from "@/components/ui/overlays";
-import { Field } from "@/components/ui/inputs";
-import { SearchSelect } from "@/components/ui/inputs";
+import { Field, SearchSelect } from "@/components/ui/inputs";
 import { api, type Paged } from "@/lib/api";
 import { PRIORITY, TASK_STATUS, fmtDate, statusBadge } from "@/lib/format";
 
@@ -17,7 +16,7 @@ type TaskRow = {
 };
 type Option = { value: string; label: string; sub?: string };
 
-const CATEGORIES = ["Bandlik", "Ijtimoiy yordam", "Kredit va subsidiya", "Ta'lim", "Tibbiy yordam", "Uy-joy", "Hujjatlar", "Oila munosabatlari", "Boshqa"];
+const CATEGORIES = ["Bandlik", "Ijtimoiy yordam", "Kredit va subsidiya", "Ta’lim", "Tibbiy yordam", "Uy-joy", "Hujjatlar", "Oila munosabatlari", "Boshqa"];
 const PRIORITIES = [
   { value: "low", label: "Past" }, { value: "normal", label: "Oddiy" },
   { value: "high", label: "Yuqori" }, { value: "urgent", label: "Shoshilinch" },
@@ -101,7 +100,7 @@ function TasksInner() {
   }
 
   async function create() {
-    if (form.title.trim().length < 3) { setCreateError("Vazifa nomi kamida 3 belgi."); return; }
+    if (form.title.trim().length < 3) { setCreateError("Vazifa nomi kamida 3 belgi bo‘lishi kerak."); return; }
     setBusy(true);
     setCreateError("");
     try {
@@ -130,7 +129,7 @@ function TasksInner() {
       <PageHead
         kicker="Vazifalar"
         title="Ish rejasi va nazorat"
-        lede="Muddati va ustuvorligi bo'yicha saralangan vazifalar. Bajarilgan vazifa ish yozuvi bilan tasdiqlanadi."
+        lede="Muddati va ustuvorligi bo‘yicha saralangan vazifalar. Bajarilgan vazifa ish yozuvi bilan tasdiqlanadi."
         actions={<button className="btn primary" onClick={openCreate}><Plus size={16} /> Yangi vazifa</button>}
       />
       <div className="toolbar">
@@ -143,7 +142,7 @@ function TasksInner() {
         </select>
         <select className="select" value={timeframe} onChange={(e) => setParam({ timeframe: e.target.value || null, page: null })} aria-label="Muddat filtri">
           <option value="">Muddat — barchasi</option>
-          <option value="overdue">Muddati o'tgan</option>
+          <option value="overdue">Muddati o‘tgan</option>
           <option value="today">Bugun</option>
           <option value="week">Shu hafta</option>
         </select>
@@ -163,18 +162,18 @@ function TasksInner() {
                   const pr = statusBadge(PRIORITY, task.priority);
                   return (
                     <tr key={task.id}>
-                      <td>
-                        <b style={{ fontWeight: 600 }}>{task.title}</b>
+                      <td data-label="Vazifa">
+                        <b className="fw-600">{task.title}</b>
                         {task.description && <div className="cell-sub">{task.description.slice(0, 90)}</div>}
                       </td>
-                      <td>{task.citizen_name ?? "—"}</td>
-                      <td className="nowrap">
+                      <td data-label="Fuqaro">{task.citizen_name ?? "—"}</td>
+                      <td className="nowrap" data-label="Muddat">
                         {fmtDate(task.due_date)}
-                        {task.is_overdue && <div><Badge tone="danger">Kechikkan</Badge></div>}
+                        {task.is_overdue && <div className="mt-xs"><Badge tone="danger">Kechikkan</Badge></div>}
                       </td>
-                      <td><Badge tone={st.tone}>{st.label}</Badge></td>
-                      <td><Badge tone={pr.tone}>{pr.label}</Badge></td>
-                      <td>
+                      <td data-label="Holat"><Badge tone={st.tone}>{st.label}</Badge></td>
+                      <td data-label="Ustuvorlik"><Badge tone={pr.tone}>{pr.label}</Badge></td>
+                      <td data-label="Amallar">
                         {!["completed", "cancelled"].includes(task.status) && (
                           <button className="btn sm" onClick={() => setCompleting(task)}>Bajarildi</button>
                         )}
@@ -183,20 +182,12 @@ function TasksInner() {
                   );
                 })}
                 {data.items.length === 0 && (
-                  <tr><td colSpan={6}><Empty title="Vazifa topilmadi" icon={<ClipboardList size={17} />} note="Filtrni o'zgartiring yoki yangi vazifa yarating." /></td></tr>
+                  <tr><td colSpan={6}><Empty title="Vazifa topilmadi" note="Filtrni o‘zgartiring yoki yangi vazifa yarating." art="task" /></td></tr>
                 )}
               </tbody>
             </table>
           </div>
-          {data.meta.total_pages > 1 && (
-            <div className="pager">
-              <span className="num">{data.meta.total} ta vazifa · {data.meta.page}/{data.meta.total_pages}</span>
-              <span style={{ display: "flex", gap: 8 }}>
-                <button className="btn sm" disabled={page <= 1} onClick={() => setParam({ page: String(page - 1) })}>‹ Oldingi</button>
-                <button className="btn sm" disabled={page >= data.meta.total_pages} onClick={() => setParam({ page: String(page + 1) })}>Keyingi ›</button>
-              </span>
-            </div>
-          )}
+          <Pager meta={data.meta} onPage={(p) => setParam({ page: String(p) })} />
         </>
       )}
 
@@ -215,8 +206,8 @@ function TasksInner() {
       >
         {completing && (
           <>
-            <p style={{ fontWeight: 600, marginBottom: 6 }}>{completing.title}</p>
-            <p className="text-soft" style={{ fontSize: 13, marginBottom: 14 }}>
+            <p className="fw-600 mb-sm">{completing.title}</p>
+            <p className="text-soft fs-13 mb">
               Tasdiqlash bilan ish yozuvi avtomatik yaratiladi. Dalil izohi majburiy.
             </p>
             <Field label="Dalil izohi" required htmlFor="ev-note" hint="Nima qilindi, natija qanday tasdiqlandi">
@@ -262,7 +253,7 @@ function TasksInner() {
           <SearchSelect id="tf-citizen" value={form.citizen_id} onChange={(v) => setForm({ ...form, citizen_id: v })}
             options={citizenOptions} placeholder="Tanlanmagan" searchPlaceholder="F.I.Sh. yozing…" clearable />
         </Field>
-        <Field label="Mas'ul (ixtiyoriy)" htmlFor="tf-assignee">
+        <Field label="Mas’ul (ixtiyoriy)" htmlFor="tf-assignee">
           <input id="tf-assignee" className="input" value={form.assignee} onChange={(e) => setForm({ ...form, assignee: e.target.value })} />
         </Field>
         <Field label="Tavsif" htmlFor="tf-desc">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, LoaderCircle, Search, X } from "lucide-react";
 
 /* ---------- FormField (label + error + hint) ---------- */
@@ -25,11 +25,11 @@ export function Field({
   );
 }
 
-/* ---------- SearchSelect (qidiruvli tanlash — mavjud API bilan) ---------- */
+/* ---------- SearchSelect (qidiruvli tanlash — WAI-ARIA combobox) ---------- */
 export type Option = { value: string; label: string; sub?: string };
 
 export function SearchSelect({
-  value, onChange, options, placeholder = "Tanlang…", searchPlaceholder = "Qidirish…", loading = false, emptyText = "Topilmadi", clearable = false, disabled = false, id,
+  value, onChange, options, placeholder = "Tanlang…", searchPlaceholder = "Qidirish…", loading = false, emptyText = "Hech narsa topilmadi", clearable = false, disabled = false, id,
 }: {
   value: string; onChange: (value: string) => void; options: Option[];
   placeholder?: string; searchPlaceholder?: string; loading?: boolean; emptyText?: string;
@@ -39,6 +39,10 @@ export function SearchSelect({
   const [query, setQuery] = useState("");
   const [hl, setHl] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const baseId = useId();
+  const listId = `${baseId}-list`;
+  const optionId = (i: number) => `${baseId}-opt-${i}`;
   const selected = options.find((o) => o.value === value);
 
   useEffect(() => {
@@ -58,27 +62,45 @@ export function SearchSelect({
     );
   }, [options, query]);
 
+  // Har doim birinchi variant tanlangan bo‘lsin
+  useEffect(() => {
+    setHl((h) => Math.min(h, Math.max(0, filtered.length - 1)));
+  }, [filtered.length]);
+
+  // Faol variant ko‘rinishga tushsin
+  useEffect(() => {
+    if (!open) return;
+    listRef.current?.querySelector<HTMLElement>(`#${CSS.escape(optionId(hl))}`)?.scrollIntoView({ block: "nearest" });
+  }, [hl, open, filtered.length]);
+
+  function commit(index: number) {
+    const item = filtered[index];
+    if (!item) return;
+    onChange(item.value);
+    setOpen(false);
+    setQuery("");
+  }
+
   return (
-    <div ref={boxRef} style={{ position: "relative" }}>
+    <div ref={boxRef} className="ss">
       <button
         id={id}
         type="button"
-        className="select"
-        style={{ display: "flex", alignItems: "center", gap: 8, textAlign: "left", justifyContent: "space-between" }}
+        className="select select-pl"
         onClick={() => !disabled && setOpen((v) => !v)}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={open ? listId : undefined}
         disabled={disabled}
       >
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: selected ? "inherit" : "var(--color-text-muted)" }}>
+        <span className={selected ? "" : "select-placeholder"}>
           {selected ? selected.label : placeholder}
         </span>
-        {loading ? <LoaderCircle size={15} className="spin" /> : <ChevronDown size={15} style={{ flexShrink: 0 }} />}
+        {loading ? <LoaderCircle size={15} className="spin" /> : <ChevronDown size={15} className="shrink0" />}
       </button>
       {selected && clearable && !disabled && (
         <button
-          className="icon-btn"
-          style={{ position: "absolute", right: 30, top: 5 }}
+          className="icon-btn ss-clear"
           aria-label="Tozalash"
           onClick={() => { onChange(""); setQuery(""); }}
         >
@@ -86,39 +108,49 @@ export function SearchSelect({
         </button>
       )}
       {open && (
-        <div role="listbox" style={{ position: "absolute", zIndex: "var(--z-dropdown)", top: "calc(100% + 6px)", left: 0, right: 0, background: "var(--color-surface)", border: "1px solid var(--color-border-strong)", borderRadius: "var(--radius-sm)", boxShadow: "var(--shadow-lg)", overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", borderBottom: "1px solid var(--color-border)" }}>
-            <Search size={15} style={{ color: "var(--color-text-muted)", flexShrink: 0 }} />
+        <div className="ss-panel">
+          <div className="ss-search">
+            <Search size={15} className="shrink0 text-faint" />
             <input
               autoFocus
               value={query}
+              role="combobox"
+              aria-expanded="true"
+              aria-controls={listId}
+              aria-autocomplete="list"
+              aria-activedescendant={filtered.length ? optionId(hl) : undefined}
+              aria-label={searchPlaceholder}
               onChange={(e) => { setQuery(e.target.value); setHl(0); }}
               onKeyDown={(e) => {
                 if (e.key === "ArrowDown") { e.preventDefault(); setHl((h) => Math.min(h + 1, filtered.length - 1)); }
                 if (e.key === "ArrowUp") { e.preventDefault(); setHl((h) => Math.max(0, h - 1)); }
-                if (e.key === "Enter" && filtered[hl]) { e.preventDefault(); onChange(filtered[hl].value); setOpen(false); }
-                if (e.key === "Escape") setOpen(false);
+                if (e.key === "Home" && filtered.length) { e.preventDefault(); setHl(0); }
+                if (e.key === "End" && filtered.length) { e.preventDefault(); setHl(filtered.length - 1); }
+                if (e.key === "Enter" && filtered[hl]) { e.preventDefault(); commit(hl); }
+                if (e.key === "Escape") { e.stopPropagation(); setOpen(false); }
+                if (e.key === "Tab") setOpen(false);
               }}
               placeholder={searchPlaceholder}
-              style={{ border: "none", background: "none", color: "inherit", font: "inherit", outline: "none", width: "100%" }}
             />
           </div>
-          <div style={{ maxHeight: 240, overflowY: "auto" }}>
-            {filtered.length === 0 && <div style={{ padding: "12px 14px", fontSize: 13, color: "var(--color-text-muted)" }}>{loading ? "Yuklanmoqda…" : emptyText}</div>}
+          <div className="ss-list" ref={listRef} id={listId} role="listbox" aria-label={searchPlaceholder}>
+            {filtered.length === 0 && (
+              <div className="ss-empty">{loading ? "Ma’lumotlar yuklanmoqda, iltimos kunting…" : emptyText}</div>
+            )}
             {filtered.map((o, i) => (
               <button
                 key={o.value}
+                id={optionId(i)}
                 type="button"
                 role="option"
                 aria-selected={o.value === value}
-                className={`slash-item ${i === hl ? "hl" : ""}`}
-                style={{ width: "100%" }}
-                onClick={() => { onChange(o.value); setOpen(false); setQuery(""); }}
+                className={`slash-item ss-option${i === hl ? " hl" : ""}`}
+                onClick={() => commit(i)}
                 onMouseEnter={() => setHl(i)}
               >
-                <span style={{ display: "grid" }}>
-                  <b style={{ fontWeight: 600 }}>{o.label}</b>
-                  {o.sub && <span style={{ fontSize: 12, color: "var(--color-text-muted)" }}>{o.sub}</span>}
+                <span className="ss-option-main">
+                  <b className="fw-600">{o.label}</b>
+                  {o.sub && <span className="fs-12 text-faint">{o.sub}</span>}
                 </span>
               </button>
             ))}

@@ -8,15 +8,46 @@ const inter = Inter({
   display: "swap",
 });
 
+const TITLE = "Mahalla Assistant — Navbahor mahallasi";
+const DESCRIPTION =
+  "Xorazm viloyati, Urganch shahri, Navbahor mahallasi uchun raqamli yordamchi: fuqarolar bazasi, murojaatlar, hisobotlar, qonunchilik va AI agentlar.";
+
 export const metadata: Metadata = {
-  title: "Mahalla Assistant — Navbahor mahallasi",
-  description:
-    "Xorazm viloyati, Urganch shahri, Navbahor mahallasi uchun raqamli yordamchi: fuqarolar bazasi, murojaatlar, hisobotlar, qonunchilik va AI agentlar.",
+  title: TITLE,
+  description: DESCRIPTION,
+  applicationName: "Mahalla Assistant",
+  manifest: "/manifest.webmanifest",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icon.svg", type: "image/svg+xml" }],
+  },
+  openGraph: {
+    type: "website",
+    locale: "uz_UZ",
+    siteName: "Mahalla Assistant",
+    title: TITLE,
+    description: DESCRIPTION,
+    url: "/",
+  },
+  twitter: {
+    card: "summary",
+    title: TITLE,
+    description: DESCRIPTION,
+  },
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+  },
+  referrer: "strict-origin-when-cross-origin",
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
+  maximumScale: 5,
+  viewportFit: "cover",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#F5F6F3" },
     { media: "(prefers-color-scheme: dark)", color: "#101714" },

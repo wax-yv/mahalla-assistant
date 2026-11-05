@@ -47,7 +47,7 @@ export const TASK_STATUS: Record<string, { label: string; tone: string }> = {
 
 export const PRIORITY: Record<string, { label: string; tone: string }> = {
   low: { label: "Past", tone: "muted" },
-  normal: { label: "Oddiy", tone: "muted" },
+  normal: { label: "Oddiy", tone: "info" },
   high: { label: "Yuqori", tone: "warn" },
   urgent: { label: "Shoshilinch", tone: "danger" },
 };

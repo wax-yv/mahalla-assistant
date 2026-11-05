@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Check, RefreshCw, X } from "@/components/ui/icons";
-import { Badge, Empty, PageHead, Stat } from "@/components/ui";
+import { RefreshCw } from "@/components/ui/icons";
+import { Badge, Empty, PageHead, StatCard } from "@/components/ui";
 import { ErrorState, SkeletonList } from "@/components/ui/overlays";
 import { api } from "@/lib/api";
 import { fmtDateTime } from "@/lib/format";
@@ -53,31 +53,31 @@ export default function AgentsPage() {
       <PageHead
         kicker="AI tizimi"
         title="Agentlar monitoringi"
-        lede="Orkestrator so'rovni tahlil qiladi va kerakli agentlarga yo'naltiradi (bir so'rovda 3 tagacha). Yozuv amallar faqat tasdiq bilan bajariladi."
+        lede="Orkestrator so‘rovni tahlil qiladi va kerakli agentlarga yo‘naltiradi (bir so‘rovda 3 tagacha). Yozuv amallar faqat tasdiq bilan bajariladi."
         actions={
-          <button className="btn" onClick={load} disabled={reloading} aria-label="Yangilash">
+          <button className="btn" onClick={load} disabled={reloading} aria-label="Holatni yangilash">
             <RefreshCw size={15} className={reloading ? "spin" : ""} /> Yangilash
           </button>
         }
       />
       <div className="grid grid-4 mb">
-        <Stat label="Bugungi token" value={data.budget.total_tokens.toLocaleString("uz-UZ")} hint={`limit ${data.budget.budget.toLocaleString("uz-UZ")}`} />
-        <Stat label="So'rovlar" value={data.budget.requests} hint="bugun" />
-        <Stat label="Provayderlar" value={activeProviders.length} hint={activeProviders.map((p) => p.name).join(", ") || "ulangan yo'q"} />
-        <Stat label="Modellar" value={data.models.length} hint="fallback zanjiri" />
+        <StatCard label="Bugungi token" value={data.budget.total_tokens.toLocaleString("uz-UZ")} hint={`Limit ${data.budget.budget.toLocaleString("uz-UZ")}`} tone="teal" />
+        <StatCard label="So‘rovlar" value={data.budget.requests} hint="bugun" tone="sky" />
+        <StatCard label="Provayderlar" value={activeProviders.length} hint={activeProviders.map((p) => p.name).join(", ") || "ulangan yo‘q"} tone="coral" />
+        <StatCard label="Modellar" value={data.models.length} hint="fallback zanjiri" tone="plum" />
       </div>
 
       <div className="split s2 mb">
         <div className="card card-pad">
           <h3 className="mb">Token budjeti</h3>
           <div className="progress mb"><i style={{ width: `${budgetPct}%` }} /></div>
-          <p className="text-soft" style={{ fontSize: 13.5 }}>
+          <p className="text-soft fs-13_5">
             Sarf: <b className="num">{data.budget.total_tokens.toLocaleString("uz-UZ")}</b> /{" "}
             <b className="num">{data.budget.budget.toLocaleString("uz-UZ")}</b> token ({budgetPct}%)
             {data.budget.total_tokens > data.budget.budget && " — limit oshgan!"}
           </p>
-          <p className="text-faint mt" style={{ fontSize: 12.5 }}>
-            So'rovlar: {data.budget.requests} · Qolgan: {Math.max(0, data.budget.remaining).toLocaleString("uz-UZ")}
+          <p className="text-faint mt fs-12_5">
+            So‘rovlar: {data.budget.requests} · Qolgan: {Math.max(0, data.budget.remaining).toLocaleString("uz-UZ")}
           </p>
         </div>
 
@@ -86,17 +86,17 @@ export default function AgentsPage() {
           <div className="timeline">
             {data.providers.map((provider) => (
               <div className="tl-item" key={provider.name}>
-                <span className="tl-dot" style={{ borderColor: provider.ok ? "var(--color-success)" : "var(--color-danger)" }} />
+                <span className={`tl-dot ${provider.ok ? "tone-ok" : "tone-danger"}`} aria-hidden="true" />
                 <div className="tl-body">
                   <h4>{provider.name}</h4>
-                  <div className="desc" style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <div className="desc row-wrap">
                     <Badge tone={provider.ok ? "ok" : "danger"}>{provider.ok ? "Ulangan" : "Xatolik"}</Badge>
-                    <span className="mono" style={{ fontSize: 12 }}>{provider.detail}</span>
+                    <span className="mono fs-12">{provider.detail}</span>
                   </div>
                 </div>
               </div>
             ))}
-            {data.providers.length === 0 && <Empty title="Provayder sozlanmagan" />}
+            {data.providers.length === 0 && <Empty title="Provayder sozlanmagan" note="AI sozlamalarida provayder tanlang." />}
           </div>
         </div>
       </div>
@@ -113,18 +113,18 @@ export default function AgentsPage() {
               return (
                 <div className="row chain-row" key={model.id}>
                   <span className="badge muted num">{index + 1}</span>
-                  <span style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0 }}>
-                    <b style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{model.label || model.id}</b>
+                  <span className="row-sm min0">
+                    <b className="fw-600 truncate">{model.label || model.id}</b>
                     {active && <Badge tone="brand">faol</Badge>}
                   </span>
                   <span className="text-faint nowrap">{model.provider}</span>
-                  <span className="text-faint num nowrap" style={{ textAlign: "right" }}>{model.context ? `${Math.round(model.context / 1000)}K` : "—"}</span>
+                  <span className="text-faint num nowrap right">{model.context ? `${Math.round(model.context / 1000)}K` : "—"}</span>
                 </div>
               );
             })}
           </div>
-          <p className="text-faint mt" style={{ fontSize: 12.5 }}>
-            Faol modelni Sozlamalar → AI sozlamalaridan tanlash mumkin. Tanlangan modeldan so'ng zanjir avtomatik davom etadi.
+          <p className="text-faint mt fs-12_5">
+            Faol modelni Sozlamalar → AI sozlamalaridan tanlash mumkin. Tanlangan modeldan so‘ng zanjir avtomatik davom etadi.
           </p>
         </div>
       </div>
@@ -134,17 +134,17 @@ export default function AgentsPage() {
           const st = STATUS_MAP[agent.last_status] ?? { label: agent.last_status, tone: "muted" };
           return (
             <div className="card card-pad" key={agent.name}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+              <div className="row-between-top">
                 <h3>{agent.label}</h3>
                 <Badge tone={st.tone}>{st.label}</Badge>
               </div>
-              <p className="text-soft mt" style={{ minHeight: 40, fontSize: 13.5 }}>{agent.description}</p>
+              <p className="text-soft mt fs-13_5">{agent.description}</p>
               <dl className="kv mt">
                 <dt>Oxirgi ishlash</dt>
                 <dd>{agent.last_run_at ? fmtDateTime(agent.last_run_at) : "—"}{agent.latency_ms ? ` · ${agent.latency_ms} ms` : ""}</dd>
                 <dt>Muvaffaqiyat</dt><dd className="num">{agent.success_rate}% <span className="text-faint">(oxirgi 50)</span></dd>
                 <dt>Bugungi token</dt><dd className="num">{agent.tokens_today.toLocaleString("uz-UZ")}</dd>
-                <dt>Model</dt><dd className="mono" style={{ fontSize: 12 }}>{agent.model || "—"}</dd>
+                <dt>Model</dt><dd className="mono fs-12">{agent.model || "—"}</dd>
               </dl>
             </div>
           );

@@ -7,32 +7,63 @@ import { Badge } from "@/components/ui";
 const DRAFT_LABELS: Record<string, string> = {
   create_task: "Vazifa yaratish",
   create_case: "Murojaat ochish",
-  create_worklog: "Ish yozuvini qo'shish",
+  create_worklog: "Ish yozuvini qo‘shish",
   generate_report: "Hisobot yaratish",
   sync_legislation: "Qonunchilikni sinxronlash",
   save_preference: "Tanlovni saqlash",
   commit_import: "Importni bazaga yozish",
 };
 
+/**
+ * P0-9: texnik kalitlar (idempotency_key, batch_id, conversation_id, program_id)
+ * foydalanuvchiga ko‘rsatilmaydi — ular faqat “Texnik tafsilot” ichida qoladi.
+ */
+const HIDDEN_FIELDS = new Set(["idempotency_key", "batch_id", "conversation_id", "program_id", "request_id", "trace_id"]);
+
 const FIELD_LABELS: Record<string, string> = {
   title: "Nomi", description: "Tavsif", category: "Toifa", priority: "Ustuvorlik",
   due_date: "Muddat", citizen_id: "Fuqaro", target_date: "Nazorat muddati",
   type: "Turi", period_start: "Davr boshi", period_end: "Davr tugashi",
-  query: "So'rov", url: "Havola", limit: "Soni", organization: "Tashkilot",
-  program_id: "Dastur", program_name: "Dastur nomi", batch_id: "Import partiyasi",
-  idempotency_key: "Idempotency kalit", conversation_id: "Suhbat",
+  query: "So‘rov", url: "Havola", limit: "Soni", organization: "Tashkilot",
+  program_name: "Dastur nomi", evidence_note: "Dalil izohi", assignee: "Mas‘ul",
+  amount: "Summa", interest_rate: "Stavka", term_months: "Muddat (oy)",
 };
+
+const PRIORITY_LABELS: Record<string, string> = {
+  low: "Past", normal: "Oddiy", high: "Yuqori", urgent: "Shoshilinch",
+};
+
+/** Enum qiymatlarini tabiiy o‘zbekcha yozishga o‘giradi */
+const ENUM_LABELS: Record<string, string> = {
+  uchrashuv: "Uchrashuv", telefon: "Telefon", tavsiya: "Tavsiya", hujjat: "Hujjat",
+  "bajarilgan ish": "Bajarilgan ish", natija: "Natija", vazifa: "Vazifa", murojaat: "Murojaat",
+  credit: "Kredit", subsidy: "Subsidiya", benefit: "Ijtimoiy yordam", grant: "Grant",
+  daily: "Kunlik", weekly: "Haftalik", monthly: "Oylik", quarterly: "Choraklik", annual: "Yillik",
+  new: "Yangi", in_progress: "Jarayonda", waiting: "Kutilmoqda", completed: "Bajarildi",
+  cancelled: "Bekor qilingan", open: "Yangi", resolved: "Hal qilindi", closed: "Yopilgan",
+  Ishlaydi: "Ishlaydi", Ishsiz: "Ishsiz", Tadbirkor: "Tadbirkor", Pensioner: "Pensioner",
+  "O'qiydi": "O‘qiydi", Ishlamaydi: "Ishlamaydi",
+};
+
+function humanizeEnum(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return ENUM_LABELS[value] ?? ENUM_LABELS[value.toLowerCase()] ?? null;
+}
 
 function humanize(key: string, value: unknown): { label: string; text: string } | null {
   if (value === undefined || value === null || value === "") return null;
+  if (HIDDEN_FIELDS.has(key)) return null;
   const label = FIELD_LABELS[key] ?? key;
   let text: string;
   if (key === "priority" && typeof value === "string") {
-    text = ({ low: "Past", normal: "Oddiy", high: "Yuqori", urgent: "Shoshilinch" } as Record<string, string>)[value] ?? value;
+    text = PRIORITY_LABELS[value] ?? value;
   } else if (typeof value === "boolean") {
-    text = value ? "Ha" : "Yo'q";
+    text = value ? "Ha" : "Yo‘q";
+  } else if (Array.isArray(value)) {
+    text = value.map((v) => humanizeEnum(v) ?? String(v)).join(", ");
   } else {
-    text = String(value);
+    const mapped = humanizeEnum(value);
+    text = mapped ?? String(value);
   }
   return { label, text };
 }
@@ -56,11 +87,11 @@ export function DraftActionCard({
           {DRAFT_LABELS[draft.action_type] ?? draft.action_type}
         </span>
         {draft.status === "pending" ? (
-          <Badge tone="warn">Tasdiq kutmoqda</Badge>
+          <Badge tone="warn" pulse>Tasdiq kutilmoqda</Badge>
         ) : draft.status === "approved" ? (
           <Badge tone="ok">Bajarildi</Badge>
         ) : draft.status === "failed" ? (
-          <Badge tone="danger">Xatolik</Badge>
+          <Badge tone="danger">Xatolik yuz berdi</Badge>
         ) : (
           <Badge tone="muted">Rad etilgan</Badge>
         )}
@@ -75,22 +106,22 @@ export function DraftActionCard({
           ))}
         </dl>
       )}
-      {draft.error && <p style={{ fontSize: 13, color: "var(--color-danger)", marginBottom: 8 }}>Xatolik: {draft.error}</p>}
+      {draft.error && <p className="fs-13 text-danger-ico mb-sm">Xatolik: {draft.error}</p>}
       {draft.status === "pending" ? (
-        <div style={{ display: "flex", gap: 8 }}>
+        <div className="row-sm">
           <button className="btn sm primary" onClick={() => onDecide(draft, true)}>
             <Check size={14} /> Tasdiqlash
           </button>
           <button className="btn sm danger" onClick={() => onDecide(draft, false)}>
             <X size={14} /> Rad etish
           </button>
-          <button className="btn sm ghost" onClick={() => setShowRaw((v) => !v)}>
+          <button className="btn sm ghost" onClick={() => setShowRaw((v) => !v)} aria-expanded={showRaw}>
             {showRaw ? "Tafsilotni yopish" : "Texnik tafsilot"}
           </button>
         </div>
       ) : null}
       {showRaw && (
-        <pre className="mono" style={{ marginTop: 10, background: "var(--color-surface-3)", padding: 10, borderRadius: 8, overflowX: "auto", fontSize: 11.5 }}>
+        <pre className="mono code-block">
           {JSON.stringify(draft.payload, null, 2)}
         </pre>
       )}
@@ -98,4 +129,4 @@ export function DraftActionCard({
   );
 }
 
-type DraftActionCardDraft = { id: string; action_type: string; payload: Record<string, unknown>; status: string; error?: string };
+export type DraftActionCardDraft = { id: string; action_type: string; payload: Record<string, unknown>; status: string; error?: string };

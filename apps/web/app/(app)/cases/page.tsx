@@ -3,11 +3,10 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
-import { Inbox, Plus, Search } from "@/components/ui/icons";
-import { Badge, Empty, PageHead } from "@/components/ui";
+import { Plus, Search } from "@/components/ui/icons";
+import { Badge, Empty, PageHead, Pager } from "@/components/ui";
 import { Drawer, ErrorState, SkeletonList, useToast } from "@/components/ui/overlays";
-import { Field } from "@/components/ui/inputs";
-import { SearchSelect } from "@/components/ui/inputs";
+import { Field, SearchSelect } from "@/components/ui/inputs";
 import { api, type Paged } from "@/lib/api";
 import { CASE_STATUS, PRIORITY, fmtDate, statusBadge } from "@/lib/format";
 
@@ -17,7 +16,7 @@ type CaseRow = {
 };
 type Option = { value: string; label: string; sub?: string };
 
-const CATEGORIES = ["Bandlik", "Ijtimoiy yordam", "Kredit va subsidiya", "Ta'lim", "Tibbiy yordam", "Uy-joy", "Hujjatlar", "Oila munosabatlari", "Boshqa"];
+const CATEGORIES = ["Bandlik", "Ijtimoiy yordam", "Kredit va subsidiya", "Ta’lim", "Tibbiy yordam", "Uy-joy", "Hujjatlar", "Oila munosabatlari", "Boshqa"];
 const PRIORITIES = [
   { value: "low", label: "Past" }, { value: "normal", label: "Oddiy" },
   { value: "high", label: "Yuqori" }, { value: "urgent", label: "Shoshilinch" },
@@ -87,7 +86,7 @@ function CasesInner() {
   }
 
   async function submit() {
-    if (form.title.trim().length < 3) { setFormError("Murojaat nomi kamida 3 belgi."); return; }
+    if (form.title.trim().length < 3) { setFormError("Murojaat nomi kamida 3 belgi bo‘lishi kerak."); return; }
     setBusy(true);
     setFormError("");
     try {
@@ -99,7 +98,7 @@ function CasesInner() {
         citizen_id: form.citizen_id || undefined,
         target_date: form.target_date || undefined,
       });
-      toast.show("success", "Murojaat ro'yxatga olindi.");
+      toast.show("success", "Murojaat ro‘yxatga olindi.");
       setFormOpen(false);
       setForm({ title: "", category: "Ijtimoiy yordam", description: "", priority: "normal", citizen_id: "", target_date: "" });
       load();
@@ -115,7 +114,7 @@ function CasesInner() {
       <PageHead
         kicker="Murojaatlar"
         title="Fuqarolar murojaatlari"
-        lede="Har bir murojaat holati, ustuvorligi va bog'langan vazifalar bilan nazorat qilinadi."
+        lede="Har bir murojaat holati, ustuvorligi va bog‘langan vazifalar bilan nazorat qilinadi."
         actions={<button className="btn primary" onClick={openForm}><Plus size={16} /> Yangi murojaat</button>}
       />
       <div className="toolbar">
@@ -123,13 +122,14 @@ function CasesInner() {
           <option value="">Holat — barchasi</option>
           {Object.entries(CASE_STATUS).map(([key, val]) => <option key={key} value={key}>{val.label}</option>)}
         </select>
-        <div style={{ position: "relative", flex: 1, minWidth: 200, maxWidth: 340 }}>
-          <Search size={15} style={{ position: "absolute", left: 12, top: 13, color: "var(--color-text-muted)" }} />
-          <input className="input" style={{ paddingLeft: 36 }} placeholder="Qidiruv…" value={q}
-            onChange={(e) => setParam({ q: e.target.value || null, page: null })} aria-label="Qidiruv" />
+        <div className="search-field">
+          <Search className="search-ico" size={15} />
+          <input className="input" placeholder="Qidiruv…" value={q}
+            onChange={(e) => setParam({ q: e.target.value || null, page: null })} aria-label="Murojaatlar bo‘yicha qidiruv" />
         </div>
       </div>
       {loading && !data && <SkeletonList rows={6} />}
+      {error && !loading && <ErrorState note={error} onRetry={load} />}
       {data && !loading && (
         <>
           <div className="table-wrap">
@@ -143,31 +143,23 @@ function CasesInner() {
                   const pr = statusBadge(PRIORITY, row.priority);
                   return (
                     <tr key={row.id}>
-                      <td><Link className="rowlink" href={`/cases/${row.id}`}>{row.title}</Link></td>
-                      <td>{row.citizen_name ?? "—"}</td>
-                      <td>{row.category}</td>
-                      <td><Badge tone={st.tone}>{st.label}</Badge></td>
-                      <td><Badge tone={pr.tone}>{pr.label}</Badge></td>
-                      <td className="nowrap">{fmtDate(row.opened_at)}</td>
-                      <td className="num">{row.task_count}</td>
+                      <td data-label="Murojaat"><Link className="rowlink" href={`/cases/${row.id}`}>{row.title}</Link></td>
+                      <td data-label="Fuqaro">{row.citizen_name ?? "—"}</td>
+                      <td data-label="Toifa">{row.category}</td>
+                      <td data-label="Holat"><Badge tone={st.tone}>{st.label}</Badge></td>
+                      <td data-label="Ustuvorlik"><Badge tone={pr.tone}>{pr.label}</Badge></td>
+                      <td className="nowrap" data-label="Ochildi">{fmtDate(row.opened_at)}</td>
+                      <td className="num" data-label="Vazifalar">{row.task_count}</td>
                     </tr>
                   );
                 })}
                 {data.items.length === 0 && (
-                  <tr><td colSpan={7}><Empty title="Murojaat topilmadi" icon={<Inbox size={17} />} /></td></tr>
+                  <tr><td colSpan={7}><Empty title="Murojaat topilmadi" note="Ro‘yxat bo‘sh — birinchi murojaatni yaratib ko‘ring." art="document" /></td></tr>
                 )}
               </tbody>
             </table>
           </div>
-          {data.meta.total_pages > 1 && (
-            <div className="pager">
-              <span className="num">{data.meta.total} ta murojaat · {data.meta.page}/{data.meta.total_pages}</span>
-              <span style={{ display: "flex", gap: 8 }}>
-                <button className="btn sm" disabled={page <= 1} onClick={() => setParam({ page: String(page - 1) })}>‹ Oldingi</button>
-                <button className="btn sm" disabled={page >= data.meta.total_pages} onClick={() => setParam({ page: String(page + 1) })}>Keyingi ›</button>
-              </span>
-            </div>
-          )}
+          <Pager meta={data.meta} onPage={(p) => setParam({ page: String(p) })} />
         </>
       )}
 
@@ -179,7 +171,7 @@ function CasesInner() {
           <>
             <button className="btn ghost" onClick={() => setFormOpen(false)} disabled={busy}>Bekor qilish</button>
             <button className="btn primary" onClick={() => void submit()} disabled={busy || form.title.trim().length < 3}>
-              {busy ? "Saqlanmoqda…" : "Murojaatni ro'yxatga olish"}
+              {busy ? "Saqlanmoqda…" : "Murojaatni ro‘yxatga olish"}
             </button>
           </>
         }

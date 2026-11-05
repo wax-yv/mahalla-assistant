@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
-import { Filter, Phone, Plus, Search, Users, X } from "@/components/ui/icons";
-import { Badge, Empty, PageHead } from "@/components/ui";
+import { Ban, Filter, Phone, Plus, Search, Users, X } from "@/components/ui/icons";
+import { Badge, Empty, PageHead, Pager } from "@/components/ui";
 import { ConfirmDialog, Drawer, ErrorState, SkeletonList, useToast } from "@/components/ui/overlays";
 import { api, type Paged } from "@/lib/api";
 import { age } from "@/lib/format";
@@ -17,8 +17,8 @@ type Citizen = {
   address: { address_label?: string | null } | null;
 };
 
-const EMPLOYMENT = ["Ishlaydi", "Ishsiz", "Tadbirkor", "Pensioner", "O'qiydi", "Ishlamaydi"];
-const SOCIAL = ["Temir daftar", "Ko'p bolali oila", "Yoshlar daftari", "Ayollar daftari", "Kam ta'minlangan oila", "Nogironligi bor (I guruh)", "Nogironligi bor (II guruh)", "Nogironligi bor (III guruh)"];
+const EMPLOYMENT = ["Ishlaydi", "Ishsiz", "Tadbirkor", "Pensioner", "O‘qiydi", "Ishlamaydi"];
+const SOCIAL = ["Temir daftar", "Ko‘p bolali oila", "Yoshlar daftari", "Ayollar daftari", "Kam ta’minlangan oila", "Nogironligi bor (I guruh)", "Nogironligi bor (II guruh)", "Nogironligi bor (III guruh)"];
 
 function CitizensInner() {
   const router = useRouter();
@@ -26,7 +26,6 @@ function CitizensInner() {
   const toast = useToast();
   const [data, setData] = useState<Paged<Citizen> | null>(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const q = searchParams.get("q") ?? "";
@@ -68,7 +67,11 @@ function CitizensInner() {
     return () => clearTimeout(timer);
   }, [load]);
 
-  const activeFilters = [q && { key: "q", label: `Qidiruv: ${q}` }, employment && { key: "employment_status", label: employment }, social && { key: "social_status", label: social }].filter(Boolean) as Array<{ key: string; label: string }>;
+  const activeFilters = [
+    q && { key: "q", label: `Qidiruv: ${q}` },
+    employment && { key: "employment_status", label: employment },
+    social && { key: "social_status", label: social },
+  ].filter(Boolean) as Array<{ key: string; label: string }>;
 
   async function archive() {
     if (!archiveTarget) return;
@@ -90,7 +93,7 @@ function CitizensInner() {
       <PageHead
         kicker="Fuqarolar bazasi"
         title="Fuqarolar"
-        lede="Navbahor mahallasi aholisi. Qidiruv familiya, ism yoki telefon raqami bo'yicha ishlaydi."
+        lede="Navbahor mahallasi aholisi. Qidiruv familiya, ism yoki telefon raqami bo‘yicha ishlaydi."
         actions={
           <button className="btn primary" onClick={() => setFormOpen(true)}>
             <Plus size={16} /> Yangi fuqaro
@@ -99,19 +102,17 @@ function CitizensInner() {
       />
 
       <div className="toolbar">
-        <div style={{ position: "relative", flex: 1, minWidth: 220, maxWidth: 360 }}>
-          <Search size={15} style={{ position: "absolute", left: 12, top: 13, color: "var(--color-text-muted)" }} />
+        <div className="search-field">
+          <Search className="search-ico" size={15} />
           <input
             className="input"
-            style={{ paddingLeft: 36, paddingRight: 36 }}
             placeholder="F.I.Sh. yoki telefon…"
             value={q}
             onChange={(e) => setParam({ q: e.target.value || null, page: null })}
             aria-label="Fuqaro qidirish"
           />
-          {busy && <span style={{ position: "absolute", right: 12, top: 13 }} aria-hidden="true" />}
           {q && (
-            <button className="icon-btn" style={{ position: "absolute", right: 5, top: 5 }} onClick={() => setParam({ q: null })} aria-label="Qidiruvni tozalash">
+            <button className="icon-btn search-clear" onClick={() => setParam({ q: null })} aria-label="Qidiruvni tozalash">
               <X size={14} />
             </button>
           )}
@@ -134,7 +135,7 @@ function CitizensInner() {
       {activeFilters.length > 0 && (
         <div className="chips">
           {activeFilters.map((f) => (
-            <span key={f.key} className="chip active" style={{ cursor: "default" }}>
+            <span key={f.key} className="chip chip-static active">
               <Filter size={12} /> {f.label}
             </span>
           ))}
@@ -146,8 +147,8 @@ function CitizensInner() {
 
       {data && !loading && (
         <>
-          <p className="text-faint mb" style={{ fontSize: 12.5 }}>
-            Jami <b className="num" style={{ color: "var(--color-text)" }}>{data.meta.total}</b> fuqaro · {data.meta.page}/{data.meta.total_pages || 1} sahifa
+          <p className="text-faint mb fs-12_5">
+            Jami <b className="num text-strong">{data.meta.total}</b> fuqaro · {data.meta.page}/{data.meta.total_pages || 1} sahifa
           </p>
           <div className="table-wrap">
             <table className="data">
@@ -159,63 +160,58 @@ function CitizensInner() {
                   <th>Manzil</th>
                   <th>Bandlik</th>
                   <th>Ijtimoiy holat</th>
-                  <th><span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}><Users size={12} /> Ehtiyoj</span></th>
+                  <th><span className="chip-inline"><Users size={12} /> Ehtiyoj</span></th>
                   <th aria-label="Amallar" />
                 </tr>
               </thead>
               <tbody>
                 {data.items.map((citizen) => (
                   <tr key={citizen.id}>
-                    <td>
+                    <td data-label="Fuqaro">
                       <Link className="rowlink" href={`/citizens/${citizen.id}`}>{citizen.full_name}</Link>
                       <div className="cell-sub mono">{citizen.id}</div>
                     </td>
-                    <td className="num nowrap">{age(citizen.birth_date)}</td>
-                    <td className="nowrap">
+                    <td className="num nowrap" data-label="Yosh">{age(citizen.birth_date)}</td>
+                    <td className="nowrap" data-label="Telefon">
                       {citizen.phone ? (
-                        <a className="rowlink" href={`tel:${citizen.phone.replace(/\s/g, "")}`} style={{ fontWeight: 500 }} onClick={(e) => e.stopPropagation()}>
-                          <Phone size={12} style={{ display: "inline", marginRight: 4, verticalAlign: "-1px" }} />
+                        <a className="link" href={`tel:${citizen.phone.replace(/\s/g, "")}`} onClick={(e) => e.stopPropagation()}>
+                          <Phone size={12} className="ico-inline-sm" />
                           {citizen.phone}
                         </a>
                       ) : <span className="text-faint">—</span>}
                     </td>
-                    <td>{citizen.address?.address_label ?? <span className="text-faint">—</span>}</td>
-                    <td className="nowrap">{citizen.employment_status}</td>
-                    <td>
-                      {citizen.social_status && citizen.social_status !== "Yo'q" && citizen.social_status !== "—"
+                    <td data-label="Manzil">{citizen.address?.address_label ?? <span className="text-faint">—</span>}</td>
+                    <td className="nowrap" data-label="Bandlik">{citizen.employment_status}</td>
+                    <td data-label="Ijtimoiy holat">
+                      {citizen.social_status && citizen.social_status !== "Yo‘q" && citizen.social_status !== "—"
                         ? <Badge tone="warn">{citizen.social_status}</Badge>
                         : <span className="text-faint">—</span>}
                     </td>
-                    <td>
+                    <td data-label="Ehtiyoj">
                       {citizen.needs.length > 0 ? (
-                        <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+                        <span className="chip-row">
                           {citizen.needs.slice(0, 2).map((need) => <Badge key={need} tone="info">{need}</Badge>)}
                           {citizen.needs.length > 2 && <Badge tone="muted">+{citizen.needs.length - 2}</Badge>}
                         </span>
                       ) : <span className="text-faint">—</span>}
                     </td>
-                    <td className="nowrap">
+                    <td className="nowrap" data-label="Amallar">
                       <Link className="icon-btn" href={`/citizens/${citizen.id}`} aria-label={`${citizen.full_name} — profil`} title="Profil">
                         <Users size={15} />
                       </Link>
+                      <button className="icon-btn danger" onClick={() => setArchiveTarget(citizen)} aria-label={`${citizen.full_name} — arxivlash`} title="Arxivlash">
+                        <Ban size={15} />
+                      </button>
                     </td>
                   </tr>
                 ))}
                 {data.items.length === 0 && (
-                  <tr><td colSpan={8}><Empty title="Mos fuqaro topilmadi" note="Qidiruv yoki filtrlarni o'zgartirib ko'ring." icon={<Search size={18} />} /></td></tr>
+                  <tr><td colSpan={8}><Empty title="Mos fuqaro topilmadi" note="Qidiruv yoki filtrlarni o‘zgartirib, qayta urinib ko‘ring." art="search" /></td></tr>
                 )}
               </tbody>
             </table>
           </div>
-          {data.meta.total_pages > 1 && (
-            <div className="pager">
-              <span className="num">{data.meta.total} ta yozuv · {data.meta.page}/{data.meta.total_pages} sahifa</span>
-              <span style={{ display: "flex", gap: 8 }}>
-                <button className="btn sm" disabled={page <= 1} onClick={() => setParam({ page: String(page - 1) })}>‹ Oldingi</button>
-                <button className="btn sm" disabled={page >= data.meta.total_pages} onClick={() => setParam({ page: String(page + 1) })}>Keyingi ›</button>
-              </span>
-            </div>
-          )}
+          <Pager meta={data.meta} onPage={(p) => setParam({ page: String(p) })} />
         </>
       )}
 
@@ -228,7 +224,7 @@ function CitizensInner() {
         onClose={() => setArchiveTarget(null)}
         onConfirm={() => void archive()}
         title="Fuqaroni arxivlash"
-        message={`«${archiveTarget?.full_name}» arxivlanadi: ro'yxatlarda ko'rinmaydi, ma'lumoti saqlanadi. Davom etamizmi?`}
+        message={`«${archiveTarget?.full_name}» arxivlanadi: ro‘yxatlarda ko‘rinmaydi, ma’lumotlari bazada saqlanadi. Davom etamizmi?`}
         confirmLabel="Arxivlash"
         busy={archiving}
       />

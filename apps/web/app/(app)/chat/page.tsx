@@ -3,9 +3,8 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Copy, Mic, Send, Sparkles } from "@/components/ui/icons";
-import { Badge } from "@/components/ui";
-import { Drawer } from "@/components/ui/overlays";
+import { AlertTriangle, Check, Copy, Mic, Send, Sparkles, Square, X } from "@/components/ui/icons";
+import { Drawer, ConfirmDialog } from "@/components/ui/overlays";
 import { DraftActionCard } from "@/components/ui/DraftActionCard";
 import { api } from "@/lib/api";
 
@@ -20,13 +19,13 @@ const AGENT_LABELS: Record<string, string> = {
 };
 
 const COMMANDS: Array<{ cmd: string; hint: string; build: (arg: string) => string }> = [
-  { cmd: "/bugun", hint: "Bugungi vazifalar", build: () => "Bugun qaysi vazifalarga e'tibor berishim kerak?" },
-  { cmd: "/kechikkan", hint: "Muddati o'tgan vazifalar", build: () => "Muddatidan oshgan vazifalar va shoshilinch murojaatlarni ko'rsat" },
+  { cmd: "/bugun", hint: "Bugungi vazifalar", build: () => "Bugun qaysi vazifalarga e’tibor berishim kerak?" },
+  { cmd: "/kechikkan", hint: "Muddati o‘tgan vazifalar", build: () => "Muddatidan oshgan vazifalar va shoshilinch murojaatlarni ko‘rsat" },
   { cmd: "/vazifa", hint: "Vazifa loyihasi — /vazifa <matn>", build: (arg) => `vazifa yarat: ${arg || "Yangi topshiriq"}` },
   { cmd: "/hisobot", hint: "Hisobot — /hisobot [kunlik|haftalik|oylik]", build: (arg) => `${arg || "shu oy"} hisobot tayyorla` },
-  { cmd: "/fuqaro", hint: "Fuqaro qidirish — /fuqaro <F.I.Sh.>", build: (arg) => `${arg} haqida ma'lumot ber` },
+  { cmd: "/fuqaro", hint: "Fuqaro qidirish — /fuqaro <F.I.Sh.>", build: (arg) => `${arg} haqida ma’lumot ber` },
   { cmd: "/son", hint: "Aniq statistika — /son nogironligi bor fuqarolar", build: (arg) => arg || "Bazadagi fuqarolar soni nechta?" },
-  { cmd: "/qonun", hint: "Qonunchilik — /qonun <savol>", build: (arg) => `qonun bo'yicha: ${arg}` },
+  { cmd: "/qonun", hint: "Qonunchilik — /qonun <savol>", build: (arg) => `qonun bo‘yicha: ${arg}` },
   { cmd: "/kredit", hint: "Kredit-subsidiya — /kredit <bank>", build: (arg) => (arg ? `${arg} krediti shartlari qanday?` : "Kredit olishni xohlayman") },
   { cmd: "/import", hint: "Import holati va xatoliklar", build: () => "Yuklagan faylimdagi xatoliklarni tahlil qilib ber" },
   { cmd: "/agentlar", hint: "Agentlar holati", build: () => "Agentlar holati qanday?" },
@@ -48,10 +47,13 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [warning, setWarning] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
   const [busySeconds, setBusySeconds] = useState(0);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<RecognitionLike | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -87,13 +89,14 @@ export default function ChatPage() {
     if (!message || busy) return;
     setBusy(true);
     setError("");
+    setWarning("");
     setInput("");
     setMessages((prev) => [...prev, { id: `local-${Date.now()}`, role: "user", content: message, created_at: new Date().toISOString() }]);
     try {
       const result = await api.post<{ conversation_id: string; message: Message; warnings: string[] }>("/agents/chat", { message, conversation_id: conversationId });
       setConversationId(result.conversation_id);
       setMessages((prev) => [...prev, result.message]);
-      if (result.warnings.length) setError(result.warnings.join(" "));
+      if (result.warnings?.length) setWarning(result.warnings.join(" "));
       loadConversations();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Assistent javob bermadi.");
@@ -111,16 +114,26 @@ export default function ChatPage() {
     }
   }
 
-  async function removeConversation(id: string) {
-    setConversations((prev) => prev.filter((item) => item.id !== id));
-    if (conversationId === id) { setConversationId(null); setMessages([]); }
-    try { await api.del(`/agents/conversations/${id}?purge=true`); } catch { loadConversations(); }
+  async function removeConversation() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.del(`/agents/conversations/${deleteTarget.id}?purge=true`);
+      setConversations((prev) => prev.filter((item) => item.id !== deleteTarget.id));
+      if (conversationId === deleteTarget.id) { setConversationId(null); setMessages([]); }
+      setDeleteTarget(null);
+    } catch {
+      setError("Suhbatni o‘chirish amalga oshmadi.");
+      loadConversations();
+    } finally {
+      setDeleting(false);
+    }
   }
 
   function toggleMic() {
     const w = window as unknown as { SpeechRecognition?: new () => RecognitionLike; webkitSpeechRecognition?: new () => RecognitionLike };
     const Recognition = w.SpeechRecognition || w.webkitSpeechRecognition;
-    if (!Recognition) { setError("Brauzeringiz ovozli kiritishni qo'llab-quvvatlamaydi (Chrome tavsiya etiladi)."); return; }
+    if (!Recognition) { setError("Brauzeringiz ovozli kiritishni qo‘llab-quvvatlamaydi (Chrome tavsiya etiladi)."); return; }
     if (listening) { recognitionRef.current?.stop(); setListening(false); return; }
     const recognition = new Recognition();
     recognition.lang = "uz-UZ";
@@ -134,7 +147,7 @@ export default function ChatPage() {
     recognition.onerror = (e) => {
       setListening(false);
       if (e.error === "not-allowed") setError("Mikrofon ruxsati berilmadi. Brauzer sozlamalaridan ruxsat bering.");
-      else if (e.error === "no-speech") setError("Ovoz aniqlanmadi — qayta urinib ko'ring.");
+      else if (e.error === "no-speech") setError("Ovoz aniqlanmadi — qayta urinib ko‘ring.");
     };
     recognition.onend = () => setListening(false);
     recognitionRef.current = recognition;
@@ -150,26 +163,27 @@ export default function ChatPage() {
 
   const slashQuery = input.startsWith("/") ? input.slice(1).toLowerCase() : null;
   const matchedCommands = slashQuery === null ? [] : COMMANDS.filter((c) => c.cmd.slice(1).startsWith(slashQuery.split(" ")[0]));
+
   const historyList = (
     <>
-      <button className="btn primary" style={{ width: "100%", marginBottom: 12 }} onClick={() => { setConversationId(null); setMessages([]); setHistoryOpen(false); }}>
+      <button className="btn primary w-full mb" onClick={() => { setConversationId(null); setMessages([]); setHistoryOpen(false); }}>
         <Sparkles size={15} /> Yangi suhbat
       </button>
       {conversations.map((conversation) => (
-        <div key={conversation.id} style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+        <div key={conversation.id} className="chat-history-item">
           <button
-            className="btn sm"
-            style={{ flex: 1, justifyContent: "flex-start", minWidth: 0, borderColor: conversationId === conversation.id ? "var(--brand)" : undefined, background: conversationId === conversation.id ? "var(--brand-soft)" : undefined }}
+            className={`btn sm chat-history-btn ${conversationId === conversation.id ? "active" : ""}`}
             onClick={() => { loadConversation(conversation.id); setHistoryOpen(false); }}
+            aria-current={conversationId === conversation.id ? "true" : undefined}
           >
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{conversation.title}</span>
+            <span className="truncate">{conversation.title}</span>
           </button>
-          <button className="icon-btn danger" aria-label={`${conversation.title} suhbatini o'chirish`} title="O'chirish" onClick={() => void removeConversation(conversation.id)}>
-            <span className="text-faint">✕</span>
+          <button className="icon-btn danger" aria-label={`${conversation.title} suhbatini o‘chirish`} title="O‘chirish" onClick={() => setDeleteTarget(conversation)}>
+            <X size={14} />
           </button>
         </div>
       ))}
-      {conversations.length === 0 && <p className="text-faint">Hozircha suhbat yo'q.</p>}
+      {conversations.length === 0 && <p className="text-faint">Hozircha suhbat yo‘q.</p>}
     </>
   );
 
@@ -180,26 +194,42 @@ export default function ChatPage() {
           <div className="kicker">AI assistent · 5 agent + orkestrator</div>
           <h1>Suhbat</h1>
           <p className="lede">
-            Xabar maydoniga <code>/</code> yozib tayyor buyruqlarni ko'ring, 🎙 bilan gapiring. Javoblar manbali,
-            yozuv amallari tasdiqingiz bilan bajariladi.
+            Xabar maydoniga <code>/</code> yozib tayyor buyruqlarni ko‘ring, <Mic size={13} /> tugmasi bilan gapiring.
+            Javoblar manbali, yozuv amallari tasdiqingiz bilan bajariladi.
           </p>
         </div>
         <button className="btn sm mobile-only" onClick={() => setHistoryOpen(true)}>Suhbatlar</button>
       </div>
-      {error && <div className="alert danger" role="alert">{error}</div>}
-      <div className="split s2r" style={{ alignItems: "start" }}>
-        <div className="card card-pad" style={{ maxHeight: 540, overflowY: "auto" }}>
+
+      {error && (
+        <div className="alert danger" role="alert">
+          <AlertTriangle size={16} />
+          <span>{error}</span>
+        </div>
+      )}
+      {warning && (
+        <div className="alert warn" role="status">
+          <AlertTriangle size={16} />
+          <span>{warning}</span>
+        </div>
+      )}
+
+      <div className="split s2r">
+        <div className="card card-pad chat-history-panel hide-mobile">
           {historyList}
         </div>
 
         <div className="card card-pad">
+          <span className="sr-only" aria-live="polite">
+            {copied ? "Javob nusxalandi" : ""}
+          </span>
           <div className="chat-wrap">
             <div className="chat-scroll" ref={scrollRef}>
               {messages.length === 0 && (
                 <div className="empty">
                   <div className="icon"><Sparkles size={18} /></div>
                   <h3>Assistentga savol bering</h3>
-                  <p>Xabar maydoniga <code>/</code> yozib tayyor buyruqlarni ko'ring — yoki mikrofon bilan gapiring.</p>
+                  <p>Xabar maydoniga <code>/</code> yozib tayyor buyruqlarni ko‘ring — yoki mikrofon bilan gapiring.</p>
                 </div>
               )}
               {messages.map((message) => (
@@ -207,8 +237,17 @@ export default function ChatPage() {
                   {message.role !== "user" && (
                     <div className="tag">
                       <span>{message.agent ? AGENT_LABELS[message.agent] ?? message.agent : "Assistent"}</span>
-                      <button className="chip" style={{ padding: "1px 8px", fontSize: 11 }} onClick={() => copyMessage(message)} aria-label="Javobni nusxalash">
-                        {copied === message.id ? "nusxalandi" : <Copy size={12} />}
+                      <button
+                        className="chip chat-copy"
+                        onClick={() => copyMessage(message)}
+                        aria-label={copied === message.id ? "Javob nusxalandi" : "Javobni nusxalash"}
+                        title={copied === message.id ? "Nusxalandi" : "Nusxalash"}
+                      >
+                        {copied === message.id ? (
+                          <Check size={12} className="chat-copy-ok" aria-hidden="true" />
+                        ) : (
+                          <Copy size={12} aria-hidden="true" />
+                        )}
                       </button>
                     </div>
                   )}
@@ -227,7 +266,7 @@ export default function ChatPage() {
                         <div key={index}>
                           <span className="src-title">[{index + 1}] {source.label}</span>
                           {source.article && source.article !== "umumiy qoida" ? ` — ${source.article}` : ""}
-                          {source.excerpt ? <div style={{ color: "var(--color-text-muted)", fontSize: 12 }}>{source.excerpt}</div> : null}
+                          {source.excerpt ? <div className="src-excerpt">{source.excerpt}</div> : null}
                           {source.url && (
                             <>
                               {" "}
@@ -246,12 +285,18 @@ export default function ChatPage() {
               {busy && (
                 <div className="msg bot">
                   <div className="tag"><span>Orkestrator</span></div>
-                  Kerakli agentlar ishga tushirilmoqda…
-                  {busySeconds >= 10 && (
-                    <div className="text-faint" style={{ marginTop: 6, fontSize: 12.5 }}>
-                      Ma'lumotlar bazasi va tashqi manbalar tekshirilmoqda — bu 1-2 daqiqa olishi mumkin.
-                    </div>
-                  )}
+                  <span className="typing-dots" aria-label="Assistent javob tayyorlamoqda">
+                    <i /><i /><i />
+                  </span>
+                  <span className="sr-only">Assistent javob tayyorlamoqda…</span>
+                  <div className="chat-busy-note">
+                    Kerakli agentlar ishga tushirilmoqda…
+                    {busySeconds >= 10 && (
+                      <div className="text-faint fs-12_5 mt-xs">
+                        Ma’lumotlar bazasi va tashqi manbalar tekshirilmoqda — bu 1–2 daqiqa olishi mumkin.
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -270,13 +315,13 @@ export default function ChatPage() {
               </div>
             )}
             <div className="chat-input">
-              <button className={`btn mic ${listening ? "listening" : ""}`} onClick={toggleMic} aria-label={listening ? "Ovozni to'xtatish" : "Ovozli kiritish"} title="Ovozli kiritish (uz-UZ)">
-                {listening ? "⏹" : <Mic size={17} />}
+              <button className={`btn mic ${listening ? "listening" : ""}`} onClick={toggleMic} aria-label={listening ? "Ovozni to‘xtatish" : "Ovozli kiritish"} title="Ovozli kiritish (uz-UZ)">
+                {listening ? <Square size={15} /> : <Mic size={17} />}
               </button>
               <textarea
                 ref={textareaRef}
                 className="textarea"
-                placeholder="Xabar yozing yoki / buyruqlarni ko'ring… (Enter — yuborish)"
+                placeholder="Xabar yozing yoki / buyruqlarni ko‘ring… (Enter — yuborish)"
                 value={input}
                 onChange={(event) => { setInput(event.target.value); setHl(0); }}
                 onKeyDown={(event) => {
@@ -296,7 +341,7 @@ export default function ChatPage() {
                   }
                 }}
               />
-              <button className="btn primary" style={{ height: 44 }} disabled={busy || input.trim().length === 0} onClick={() => void send(input)} aria-label="Yuborish">
+              <button className="btn primary chat-send" disabled={busy || input.trim().length === 0} onClick={() => void send(input)} aria-label="Yuborish">
                 <Send size={16} />
               </button>
             </div>
@@ -307,6 +352,17 @@ export default function ChatPage() {
       <Drawer open={historyOpen} onClose={() => setHistoryOpen(false)} title="Suhbatlar">
         {historyList}
       </Drawer>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => void removeConversation()}
+        title="Suhbatni o‘chirish"
+        message={`«${deleteTarget?.title ?? ""}» suhbati va uning barcha xabarlari butunlay o‘chiriladi. Bu amalni qaytarib bo‘lmaydi. Davom etamizmi?`}
+        confirmLabel="O‘chirish"
+        danger
+        busy={deleting}
+      />
     </>
   );
 }

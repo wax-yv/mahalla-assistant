@@ -7,6 +7,8 @@ import { api } from "@/lib/api";
 
 export type CitizenFormData = {
   id?: string;
+  /** D-1: optimistic qulf uchun yozuv versiyasi (PATCH majburiy). */
+  version?: number;
   full_name: string;
   gender: "Erkak" | "Ayol";
   birth_date: string;
@@ -23,17 +25,17 @@ export type CitizenFormData = {
 
 export const EMPTY_CITIZEN: CitizenFormData = {
   full_name: "", gender: "Erkak", birth_date: "", phone: "", family_id: "",
-  family_role: "Farzand", education: "O'rta", employment_status: "Ishlamaydi",
-  profession: "Yo'q", social_status: "Yo'q", needs: "", notes: "",
+  family_role: "Farzand", education: "O‘rta", employment_status: "Ishlamaydi",
+  profession: "Yo‘q", social_status: "Yo‘q", needs: "", notes: "",
 };
 
-const EDUCATION = ["Boshlang'ich", "O'rta", "O'rta maxsus", "Oliy", "Yo'q"];
+const EDUCATION = ["Boshlang‘ich", "O‘rta", "O‘rta maxsus", "Oliy", "Yo‘q"];
 const EMPLOYMENT = ["Ishlaydi", "Ishsiz", "Tadbirkor", "Pensioner", "O'qiydi", "Ishlamaydi"];
-const ROLES = ["Ota", "Ona", "O'g'li", "Qizi", "Farzand", "Bobo", "Buvi", "Aka", "Uka", "Opa", "Singil", "Turmush o'rtoq"];
+const ROLES = ["Ota", "Ona", "O‘g‘li", "Qizi", "Farzand", "Bobo", "Buvi", "Aka", "Uka", "Opa", "Singil", "Turmush o‘rtoq"];
 const SOCIAL = [
-  "Yo'q", "Temir daftar", "Ko'p bolali oila", "Yoshlar daftari", "Ayollar daftari",
-  "Kam ta'minlangan oila", "Nogironligi bor (I guruh)", "Nogironligi bor (II guruh)",
-  "Nogironligi bor (III guruh)", "Mehnat faxriysi", "Ijtimoiy himoyaga muhtoj", "To'liq bo'lmagan oila",
+  "Yo‘q", "Temir daftar", "Ko‘p bolali oila", "Yoshlar daftari", "Ayollar daftari",
+  "Kam ta’minlangan oila", "Nogironligi bor (I guruh)", "Nogironligi bor (II guruh)",
+  "Nogironligi bor (III guruh)", "Mehnat faxriysi", "Ijtimoiy himoyaga muhtoj", "To‘liq bo‘lmagan oila",
 ];
 
 export function CitizenForm({
@@ -54,13 +56,18 @@ export function CitizenForm({
   }, [initial, open]);
 
   function validate(): string | null {
-    if (form.full_name.trim().length < 3) return "F.I.Sh. kamida 3 belgidan iborat bo'lishi kerak.";
+    if (form.full_name.trim().length < 3) return "F.I.Sh. kamida 3 belgidan iborat bo‘lishi kerak.";
     return null;
   }
 
   async function submit() {
     const problem = validate();
     if (problem) { setError(problem); return; }
+    /* D-1: tahrirlashda versiya majburiy — aks holda backend 422 qaytaradi. */
+    if (isEdit && typeof initial?.version !== "number") {
+      setError("Yozuv versiyasi topilmadi. Sahifani yangilab qayta urinib ko‘ring.");
+      return;
+    }
     setBusy(true);
     setError("");
     const payload = {
@@ -72,16 +79,17 @@ export function CitizenForm({
       family_role: form.family_role,
       education: form.education,
       employment_status: form.employment_status,
-      profession: form.profession || "Yo'q",
-      social_status: form.social_status || "Yo'q",
+      profession: form.profession || "Yo‘q",
+      social_status: form.social_status || "Yo‘q",
       needs: form.needs.split(",").map((n) => n.trim()).filter(Boolean),
       notes: form.notes,
+      ...(isEdit ? { version: initial!.version as number } : {}),
     };
     try {
       const saved = isEdit
         ? await api.patch<{ id: string }>(`/citizens/${initial!.id}`, payload)
         : await api.post<{ id: string }>("/citizens", payload);
-      toast.show("success", isEdit ? "Fuqaro ma'lumoti yangilandi." : "Yangi fuqaro qo'shildi.");
+      toast.show("success", isEdit ? "Fuqaro ma’lumotlari yangilandi." : "Yangi fuqaro qo‘shildi.");
       onSaved(saved.id);
       onClose();
     } catch (err) {
@@ -103,13 +111,13 @@ export function CitizenForm({
             <option>Erkak</option><option>Ayol</option>
           </select>
         </Field>
-        <Field label="Tug'ilgan sana" htmlFor="cf-birth">
+        <Field label="Tug‘ilgan sana" htmlFor="cf-birth">
           <input id="cf-birth" type="date" className="input" value={form.birth_date} onChange={(e) => set({ birth_date: e.target.value })} />
         </Field>
         <Field label="Telefon" hint="+998 XX XXX XX XX" htmlFor="cf-phone">
           <input id="cf-phone" className="input" value={form.phone} onChange={(e) => set({ phone: e.target.value })} placeholder="+998" />
         </Field>
-        <Field label="Oiladagi o'rni" htmlFor="cf-role">
+        <Field label="Oiladagi o‘rni" htmlFor="cf-role">
           <select id="cf-role" className="select" value={form.family_role} onChange={(e) => set({ family_role: e.target.value })}>
             {ROLES.map((r) => <option key={r}>{r}</option>)}
           </select>
@@ -117,7 +125,7 @@ export function CitizenForm({
         <Field label="Oila ID (ixtiyoriy)" htmlFor="cf-family">
           <input id="cf-family" className="input mono" value={form.family_id} onChange={(e) => set({ family_id: e.target.value })} placeholder="OIL-0001" />
         </Field>
-        <Field label="Ma'lumoti" htmlFor="cf-edu">
+        <Field label="Ma’lumoti" htmlFor="cf-edu">
           <select id="cf-edu" className="select" value={form.education} onChange={(e) => set({ education: e.target.value })}>
             {EDUCATION.map((r) => <option key={r}>{r}</option>)}
           </select>
@@ -142,10 +150,10 @@ export function CitizenForm({
       <Field label="Izoh" htmlFor="cf-notes">
         <textarea id="cf-notes" className="textarea" rows={2} value={form.notes} onChange={(e) => set({ notes: e.target.value })} />
       </Field>
-      <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+      <div className="row-end mt">
         <button className="btn ghost" onClick={onClose} disabled={busy}>Bekor qilish</button>
         <button className="btn primary" onClick={() => void submit()} disabled={busy}>
-          {busy ? "Saqlanmoqda…" : isEdit ? "O'zgarishlarni saqlash" : "Fuqaroni qo'shish"}
+          {busy ? "Saqlanmoqda…" : isEdit ? "O‘zgarishlarni saqlash" : "Fuqaroni qo‘shish"}
         </button>
       </div>
     </>

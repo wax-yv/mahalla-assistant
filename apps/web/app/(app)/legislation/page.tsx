@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Badge, Empty, ErrorNote, Loading, PageHead } from "@/components/ui";
+import { AlertTriangle, Info, Scale } from "@/components/ui/icons";
+import { Badge, Empty, ErrorNote, PageHead } from "@/components/ui";
 import { api } from "@/lib/api";
-import { fmtDate, fmtDateTime } from "@/lib/format";
+import { fmtDateTime } from "@/lib/format";
 
 type DocRow = {
   id: string;
@@ -42,7 +43,7 @@ export default function LegislationPage() {
   }, [load]);
 
   const search = useCallback(() => {
-    if (q.trim().length < 2) return;
+    if (q.trim().length < 2) { setHits(null); return; }
     api
       .get<{ items: SearchHit[] }>(`/legislation/search?q=${encodeURIComponent(q)}`)
       .then((data) => setHits(data.items))
@@ -79,8 +80,8 @@ export default function LegislationPage() {
     setError("");
     setAnswer(null);
     try {
-      // J-13: so'rov ichida avtomatik sinxron yo'q — hujjat "Lex.uz dan
-      // yuklash" tugmasi orqali aniq yuklanadi.
+      // So‘rov ichida avtomatik sinxron yo‘q — hujjat «Lex.uz dan yuklash»
+      // tugmasi orqali aniq yuklanadi.
       setAnswer(await api.post("/legislation/ask", { question, use_ai: true, sync_if_empty: false }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Savolga javob olinmadi.");
@@ -101,18 +102,24 @@ export default function LegislationPage() {
         }
         actions={
           <button className="btn primary" disabled={busy} onClick={sync}>
-            Lex.uz dan yuklash
+            <Scale size={15} /> Lex.uz dan yuklash
           </button>
         }
       />
       {error && <ErrorNote message={error} />}
-      {note && <div className="alert info">ℹ️ {note}</div>}
+      {note && (
+        <div className="alert info" role="status">
+          <Info size={16} />
+          <span>{note}</span>
+        </div>
+      )}
 
       <div className="card card-pad mb">
         <h3 className="mb">Savol-javob (manbali)</h3>
         <div className="field">
-          <label>Savolingiz</label>
+          <label htmlFor="leg-question">Savolingiz</label>
           <textarea
+            id="leg-question"
             className="textarea"
             rows={2}
             value={question}
@@ -125,9 +132,9 @@ export default function LegislationPage() {
         </button>
         {answer && (
           <div className="mt">
-            <div style={{ whiteSpace: "pre-wrap", fontSize: 14.5, lineHeight: 1.7 }}>{answer.answer}</div>
+            <div className="narrative pre-wrap">{answer.answer}</div>
             {answer.sources.length > 0 && (
-              <div className="sources mt">
+              <div className="src-list mt">
                 {answer.sources.map((source) => (
                   <div key={source.index}>
                     [{source.index}] {source.title} — {source.article || "umumiy qoida"}{" "}
@@ -140,7 +147,8 @@ export default function LegislationPage() {
             )}
             {answer.warnings.map((warning) => (
               <div key={warning} className="alert warn mt">
-                ⚠️ {warning}
+                <AlertTriangle size={16} />
+                <span>{warning}</span>
               </div>
             ))}
           </div>
@@ -149,7 +157,7 @@ export default function LegislationPage() {
 
       <div className="card card-pad mb">
         <h3 className="mb">Hujjatlar ichidan qidirish</h3>
-        <input className="input" placeholder="Kalit so‘z…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input className="input" placeholder="Kalit so‘z…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Qonunchilik hujjatlarida qidirish" />
       </div>
 
       {hits && hits.length > 0 && (
@@ -161,7 +169,7 @@ export default function LegislationPage() {
             <div className="timeline">
               {hits.map((hit) => (
                 <div className="tl-item" key={`${hit.document.id}-${hit.chunk.id}`}>
-                  <span className="tl-dot" />
+                  <span className="tl-dot" aria-hidden="true" />
                   <div className="tl-body">
                     <h4>
                       {hit.document.title} {hit.chunk.article && <Badge tone="brand">{hit.chunk.article}</Badge>}
@@ -194,14 +202,14 @@ export default function LegislationPage() {
             <tbody>
               {docs.map((doc) => (
                 <tr key={doc.id}>
-                  <td>{doc.title.slice(0, 90)}{doc.title.length > 90 ? "…" : ""}</td>
-                  <td className="mono">{doc.number || "—"}</td>
-                  <td>{doc.doc_type || "—"}</td>
-                  <td>
+                  <td data-label="Hujjat">{doc.title.slice(0, 90)}{doc.title.length > 90 ? "…" : ""}</td>
+                  <td className="mono" data-label="Raqami">{doc.number || "—"}</td>
+                  <td data-label="Tur">{doc.doc_type || "—"}</td>
+                  <td data-label="Holat">
                     <Badge tone={doc.legal_status === "amaldagi" ? "ok" : "muted"}>{doc.legal_status}</Badge>
                   </td>
-                  <td>{doc.chunk_count ?? "—"}</td>
-                  <td>
+                  <td data-label="Parça">{doc.chunk_count ?? "—"}</td>
+                  <td data-label="Manba">
                     <a className="link" href={doc.source_url} target="_blank" rel="noreferrer">
                       Lex.uz ↗
                     </a>
@@ -211,7 +219,7 @@ export default function LegislationPage() {
               {docs.length === 0 && (
                 <tr>
                   <td colSpan={6}>
-                    <Empty title="Hujjat yo‘q" icon="§" note="Kalit so‘z bilan Lex.uz dan yuklab oling." />
+                    <Empty title="Hujjat yo‘q" note="Kalit so‘z bilan Lex.uz dan yuklab oling." art="document" />
                   </td>
                 </tr>
               )}

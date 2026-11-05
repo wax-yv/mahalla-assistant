@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Check, Download, Plus } from "@/components/ui/icons";
-import { Badge, Empty, PageHead } from "@/components/ui";
+import { Badge, Empty, PageHead, Pager } from "@/components/ui";
 import { ConfirmDialog, Drawer, ErrorState, SkeletonList, useToast } from "@/components/ui/overlays";
 import { api, type Paged } from "@/lib/api";
 import { fmtDate } from "@/lib/format";
@@ -71,14 +73,23 @@ export default function ReportsPage() {
     }
   }
 
+  async function exportReport(report: ReportRow, format: "docx" | "pdf") {
+    try {
+      await api.file(`/reports/${report.id}/export?format=${format}`, `${report.title}.${format}`);
+      toast.show("success", `${format.toUpperCase()} fayl yuklab olindi.`);
+    } catch (err) {
+      toast.show("error", err instanceof Error ? err.message : "Yuklab olish amalga oshmadi.");
+    }
+  }
+
   return (
     <>
       <PageHead
         kicker="Hisobotlar"
         title="Hisobotlar markazi"
-        lede="Kunlik, haftalik va oylik hisobotlar SQL ko'rsatkichlari asosida shakllanadi. AI xulosa qismini yozadi, raqamlar bazadan olinadi."
+        lede="Kunlik, haftalik va oylik hisobotlar bazadagi ko‘rsatkichlar asosida shakllanadi. AI xulosa qismini yozadi, raqamlar bazadan olinadi."
         actions={
-          <span style={{ display: "flex", gap: 8 }}>
+          <div className="row-sm">
             <select className="select" value={type} onChange={(e) => setType(e.target.value)} aria-label="Hisobot turi">
               <option value="daily">Kunlik</option>
               <option value="weekly">Haftalik</option>
@@ -87,54 +98,46 @@ export default function ReportsPage() {
             <button className="btn primary" disabled={busy} onClick={() => void generate()}>
               <Plus size={16} /> Hisobot tayyorlash
             </button>
-          </span>
+          </div>
         }
       />
-      {error && <div className="alert danger" role="alert">{error}</div>}
-      {note && <div className="alert success" role="alert">{note}</div>}
+      {error && <ErrorState note={error} onRetry={load} />}
+      {note && <div className="alert success" role="status">{note}</div>}
       {!data && !error && <SkeletonList rows={4} />}
       {data && (
         <div className="card">
-          <div className="table-wrap" style={{ border: "none", borderRadius: 0 }}>
+          <div className="table-wrap flush">
             <table className="data">
               <thead><tr><th>Hisobot</th><th>Tur</th><th>Davr</th><th>Holat</th><th>Amallar</th></tr></thead>
               <tbody>
                 {data.items.map((report) => (
                   <tr key={report.id}>
-                    <td><b style={{ fontWeight: 600 }}>{report.title}</b></td>
-                    <td>{TYPE_LABELS[report.type] ?? report.type}</td>
-                    <td className="nowrap">{fmtDate(report.period_start)} — {fmtDate(report.period_end)}</td>
-                    <td>
+                    <td data-label="Hisobot"><b className="fw-600">{report.title}</b></td>
+                    <td data-label="Tur">{TYPE_LABELS[report.type] ?? report.type}</td>
+                    <td className="nowrap" data-label="Davr">{fmtDate(report.period_start)} — {fmtDate(report.period_end)}</td>
+                    <td data-label="Holat">
                       <Badge tone={report.status === "approved" ? "ok" : "warn"}>
                         {report.status === "approved" ? "Tasdiqlangan" : "Draft"}
                       </Badge>
                     </td>
-                    <td className="nowrap">
-                      <button className="btn sm" onClick={() => setOpen(report)}>Ko'rish</button>{" "}
-                      <button className="btn sm" onClick={() => void api.file(`/reports/${report.id}/export?format=docx`, `${report.title}.docx`)} aria-label="Word yuklab olish">
+                    <td className="nowrap row-wrap" data-label="Amallar">
+                      <button className="btn sm" onClick={() => setOpen(report)}>Ko‘rish</button>
+                      <button className="btn sm" onClick={() => void exportReport(report, "docx")} aria-label="Word formatida yuklab olish">
                         <Download size={13} /> Word
-                      </button>{" "}
-                      <button className="btn sm" onClick={() => void api.file(`/reports/${report.id}/export?format=pdf`, `${report.title}.pdf`)} aria-label="PDF yuklab olish">
+                      </button>
+                      <button className="btn sm" onClick={() => void exportReport(report, "pdf")} aria-label="PDF formatida yuklab olish">
                         <Download size={13} /> PDF
                       </button>
                     </td>
                   </tr>
                 ))}
                 {data.items.length === 0 && (
-                  <tr><td colSpan={5}><Empty title="Hisobot yo'q" note="«Hisobot tayyorlash» tugmasi bilan birinchisini yarating." /></td></tr>
+                  <tr><td colSpan={5}><Empty title="Hisobot yo‘q" note="«Hisobot tayyorlash» tugmasi bilan birinchisini yarating." art="chart" /></td></tr>
                 )}
               </tbody>
             </table>
           </div>
-          {data.meta.total_pages > 1 && (
-            <div className="pager">
-              <span className="num">{data.meta.total} ta hisobot · {data.meta.page}/{data.meta.total_pages}</span>
-              <span style={{ display: "flex", gap: 8 }}>
-                <button className="btn sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>‹</button>
-                <button className="btn sm" disabled={page >= data.meta.total_pages} onClick={() => setPage(page + 1)}>›</button>
-              </span>
-            </div>
-          )}
+          <Pager meta={data.meta} onPage={setPage} />
         </div>
       )}
 
@@ -161,7 +164,16 @@ export default function ReportsPage() {
               <span>{TYPE_LABELS[open.type] ?? open.type}</span>
               <span>{fmtDate(open.period_start)} — {fmtDate(open.period_end)}</span>
             </div>
-            <div style={{ fontSize: 14.5, lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{open.narrative || open.summary}</div>
+            <div className="narrative">
+              <div className="md">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{ a: (props) => <a {...props} target="_blank" rel="noreferrer noopener" /> }}
+                >
+                  {open.narrative || open.summary}
+                </ReactMarkdown>
+              </div>
+            </div>
           </>
         )}
       </Drawer>
