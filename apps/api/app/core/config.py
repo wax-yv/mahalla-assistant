@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     nvidia_nim_base_url: str = "https://integrate.api.nvidia.com/v1"
     ai_default_provider: str = "nvidia"
     ai_request_timeout: int = 55
+    # J-1: umumiy zanjir vaqti chegarasi (Vercel funksiyasi 60 s).
+    # Bitta so'rov ichida barcha modellar ketma-ket ishga tushmasligi kerak.
+    ai_chain_deadline_seconds: int = 45
+    ai_attempt_timeout_seconds: int = 15
+    ai_max_attempts: int = 4
     ai_daily_token_budget: int = 300_000
     ai_max_output_tokens: int = 1600
     ai_temperature: float = 0.15

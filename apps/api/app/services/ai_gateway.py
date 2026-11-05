@@ -194,6 +194,54 @@ def order_models(models: list[dict[str, Any]], primary: str) -> list[dict[str, A
     return chosen + rest
 
 
+def _record_usage(
+    *,
+    provider: str,
+    model: str,
+    agent: str,
+    workflow_id: str | None,
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    total_tokens: int = 0,
+    latency_ms: int = 0,
+    status: str = "success",
+) -> None:
+    """Token sarfini **alohida sessiyada** yozadi va commit qiladi (J-3).
+
+    Chaqiruvchining tranzaksiyasi rollback bo'lsa ham sarflangan tokenlar
+    saqlanib qoladi — kunlik byudjet nazorati ishlaydi.
+    """
+    from app.core.db import SessionLocal
+
+    def _write(session, link: str | None) -> None:
+        session.add(
+            AIUsage(
+                provider=provider,
+                model=model,
+                agent=agent,
+                workflow_id=link,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                latency_ms=latency_ms,
+                status=status,
+            )
+        )
+        session.commit()
+
+    try:
+        with SessionLocal() as session:
+            _write(session, workflow_id)
+    except Exception:
+        # Workflow hali commit qilinmagan bo'lishi mumkin (FK xatosi) —
+        # sarfni link-siz yozib qo'yamiz, asosiy javob buzilmasin.
+        try:
+            with SessionLocal() as session:
+                _write(session, None)
+        except Exception:
+            pass
+
+
 def chat_completion(
     db: Session,
     *,
@@ -219,10 +267,19 @@ def chat_completion(
         candidates = head + tail
     if not candidates:
         raise service_unavailable("AI provayderlari sozlanmagan.")
+
+    # J-1: umumiy vaqt chegarasi — 12 model × 55 s = 660 s bo'lishi mumkin emas.
+    max_attempts = max(1, settings.ai_max_attempts)
+    candidates = candidates[:max_attempts]
+    deadline = time.monotonic() + max(5, settings.ai_chain_deadline_seconds)
     attempts: list[dict[str, Any]] = []
     last_error = "Model javob bermadi."
     started_all = time.perf_counter()
     for index, candidate in enumerate(candidates):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            last_error = "AI so'rov vaqti chegarasi tugadi."
+            break
         url, headers = _endpoint(candidate["provider"])
         body: dict[str, Any] = {
             "model": candidate["id"],
@@ -233,9 +290,10 @@ def chat_completion(
         }
         if json_mode:
             body["response_format"] = {"type": "json_object"}
+        attempt_timeout = max(3.0, min(float(settings.ai_attempt_timeout_seconds), remaining))
         started = time.perf_counter()
         try:
-            with httpx.Client(timeout=settings.ai_request_timeout) as client:
+            with httpx.Client(timeout=attempt_timeout) as client:
                 response = client.post(url, headers=headers, json=body)
             elapsed = int((time.perf_counter() - started) * 1000)
             if response.status_code >= 400:
@@ -255,6 +313,15 @@ def chat_completion(
                     }
                 )
                 last_error = f"{candidate['id']}: {response.status_code} {detail}"[:300]
+                # J-3: muvaffaqiyatsiz urinish ham hisoblanadi
+                _record_usage(
+                    provider=candidate["provider"],
+                    model=candidate["id"],
+                    agent=agent,
+                    workflow_id=workflow_id,
+                    latency_ms=elapsed,
+                    status="error",
+                )
                 continue
             payload = response.json()
             message = (payload.get("choices") or [{}])[0].get("message") or {}
@@ -263,10 +330,39 @@ def chat_completion(
                 content = " ".join(
                     part.get("text", "") if isinstance(part, dict) else str(part) for part in content
                 )
-            content = (content or message.get("reasoning_content") or "").strip()
+            # J-2: `reasoning_content` javob sifatida qaytarilmaydi — bu modelning
+            # ichki mulohazasi, foydalanuvchiga javob bo'lib chiqmasligi kerak.
+            content = (content or "").strip()
             if not content:
                 attempts.append({"provider": candidate["provider"], "model": candidate["id"], "status": "empty"})
                 last_error = f"{candidate['id']}: bo'sh javob"
+                _record_usage(
+                    provider=candidate["provider"],
+                    model=candidate["id"],
+                    agent=agent,
+                    workflow_id=workflow_id,
+                    latency_ms=elapsed,
+                    status="empty",
+                )
+                continue
+            if json_mode and extract_json(content) is None:
+                # J-2: JSONMode'da JSON bo'lmagan javob keyingi modelga uzatiladi.
+                attempts.append(
+                    {
+                        "provider": candidate["provider"],
+                        "model": candidate["id"],
+                        "status": "invalid_json",
+                    }
+                )
+                last_error = f"{candidate['id']}: JSON formatida javob kelmadi"
+                _record_usage(
+                    provider=candidate["provider"],
+                    model=candidate["id"],
+                    agent=agent,
+                    workflow_id=workflow_id,
+                    latency_ms=elapsed,
+                    status="invalid_json",
+                )
                 continue
             usage = payload.get("usage") or {}
             prompt = int(usage.get("prompt_tokens") or 0)
@@ -284,20 +380,18 @@ def chat_completion(
                 + [{"provider": candidate["provider"], "model": candidate["id"], "status": 200, "latency_ms": elapsed}],
                 fallback_used=index > 0,
             )
-            db.add(
-                AIUsage(
-                    provider=result.provider,
-                    model=result.model,
-                    agent=agent,
-                    workflow_id=workflow_id,
-                    prompt_tokens=prompt,
-                    completion_tokens=completion,
-                    total_tokens=total,
-                    latency_ms=result.latency_ms,
-                    status="success",
-                )
+            # J-3: sarf alohida sessiyada yoziladi (rollback'dan qat'i nazar).
+            _record_usage(
+                provider=result.provider,
+                model=result.model,
+                agent=agent,
+                workflow_id=workflow_id,
+                prompt_tokens=prompt,
+                completion_tokens=completion,
+                total_tokens=total,
+                latency_ms=result.latency_ms,
+                status="success",
             )
-            db.flush()
             return result
         except httpx.TimeoutException:
             attempts.append(
@@ -305,10 +399,18 @@ def chat_completion(
                     "provider": candidate["provider"],
                     "model": candidate["id"],
                     "status": "timeout",
-                    "error": f"{settings.ai_request_timeout}s ichida javob yo'q",
+                    "error": f"{attempt_timeout:.0f}s ichida javob yo'q",
                 }
             )
             last_error = f"{candidate['id']}: timeout"
+            _record_usage(
+                provider=candidate["provider"],
+                model=candidate["id"],
+                agent=agent,
+                workflow_id=workflow_id,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                status="timeout",
+            )
         except Exception as error:
             attempts.append(
                 {
@@ -319,6 +421,14 @@ def chat_completion(
                 }
             )
             last_error = f"{candidate['id']}: {error}"[:300]
+            _record_usage(
+                provider=candidate["provider"],
+                model=candidate["id"],
+                agent=agent,
+                workflow_id=workflow_id,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                status="error",
+            )
     raise service_unavailable(f"Barcha AI modellari javob bermadi. Oxirgi xato: {last_error}")
 
 
