@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from sqlalchemy import func, select
+
+from app.core.db import SessionLocal
+from app.models import Citizen
+
 
 def test_health(client):
     response = client.get("/api/v1/health")
@@ -33,12 +38,25 @@ def test_protected_requires_session(client):
 
 
 def test_csrf_required_for_writes(auth):
+    """POST, PATCH va DELETE uchun CSRF tekshiruvi (N-13)."""
     client, _ = auth
-    response = client.post(
-        "/api/v1/tasks",
-        json={"title": "CSRF tekshiruvi vazifasi"},
-    )
-    assert response.status_code == 403
+    post = client.post("/api/v1/tasks", json={"title": "CSRF tekshiruvi vazifasi"})
+    assert post.status_code == 403
+    patch = client.patch("/api/v1/cases/YOQ-ID", json={"description": "x"})
+    assert patch.status_code == 403
+    delete_response = client.delete("/api/v1/documents/YOQ-ID")
+    assert delete_response.status_code == 403
+
+
+def test_unauthenticated_returns_401():
+    """Autentifikatsiyasiz so'rov — 401 (CSRF 403 emas) (N-13)."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app as fastapi_app
+
+    fresh = TestClient(fastapi_app)
+    response = fresh.get("/api/v1/citizens")
+    assert response.status_code == 401
 
 
 def test_citizens_list_and_filters(auth):
@@ -48,7 +66,9 @@ def test_citizens_list_and_filters(auth):
     )
     assert response.status_code == 200
     body = response.json()
-    assert body["meta"]["total"] >= 1000
+    # N-13: seed hajmiga bog'langan majburiy son emas — mantiqiy tekshiruv.
+    assert body["meta"]["total"] > 0
+    assert body["meta"]["total"] >= len(body["items"])
     assert len(body["items"]) == 5
     filtered = client.get(
         "/api/v1/citizens",
@@ -194,8 +214,16 @@ def test_data_stats_nogiron_counts(auth):
     assert "reporting" in body["agents_used"] or "data_stats" in body["intent"]
     content = body["message"]["content"]
     assert "Jami" in content
-    # lokal demo bazada: I=11, II=14, III=10 => jami 35
-    assert "35" in content
+    # N-13: aniq son seed'dan bog'liq — bazadan hisoblanadi (hardcoded 35 emas).
+    with SessionLocal() as db:
+        expected = int(
+            db.execute(
+                select(func.count()).select_from(Citizen).where(
+                    Citizen.social_status.like("%nogironligi bor%")
+                )
+            ).scalar_one()
+        )
+    assert str(expected) in content
     assert "ISM" not in content and "EMIS" not in content
 
 

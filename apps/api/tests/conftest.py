@@ -10,14 +10,13 @@ from app.models import RateLimit
 
 
 def clear_login_limit() -> None:
-    """Testlar uchun login hisoblagichini tozalash.
+    """Testlar uchun login hisoblagichini tozalash (N-13).
 
-    K-2 dan keyin muvaffaqiyatsiz urinishlar **alohida sessiyada commit** qilinadi
-    va muvaffaqiyatli login ularni 0 ga tushiradi. Shuning uchun bu yordamchi
-    faqat rate-limit sinovi uchun kerak — umumiy login oqimida kerak emas.
+    Faqat `login:*` kalitlari o'chiriladi — boshqa testlar yozgan
+    rate-limit yozuvlari (masalan, cron) buzilmasligi kerak.
     """
     with SessionLocal() as db:
-        db.execute(delete(RateLimit))
+        db.execute(delete(RateLimit).where(RateLimit.key.like("login:%")))
         db.commit()
 
 
