@@ -748,8 +748,10 @@ def seed_conversation(db: Session) -> None:
 
 
 def seed_admin(db: Session) -> None:
-    from app.core.config import settings
+    from app.core.config import assert_admin_password_allowed, settings
 
+    # K-6: ishlab chiqarishda standart parol bilan admin yaratilmasligi kerak.
+    assert_admin_password_allowed()
     username = (settings.admin_username or "wax").strip().lower()
     user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
     if user is None:

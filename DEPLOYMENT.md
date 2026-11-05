@@ -1,6 +1,6 @@
 # Vercel deploy — HOLAT: ✅ DEPLOY QILINGAN
 
-**LIVE:** https://mahalla-assistant.vercel.app (login `wax` / `waxs`)
+**LIVE:** https://mahalla-assistant.vercel.app (admin kirish — `ADMIN_USERNAME` / `ADMIN_PASSWORD` env orqali)
 **API:** https://mahalla-assistant-api.vercel.app · Baza: Neon Postgres (Vercel Marketplace, `mahalla-db`)
 **Repo:** https://github.com/wax-yv/mahalla-assistant
 
@@ -47,8 +47,8 @@ Bitta GitHub repo → **ikki Vercel loyihasi**. Jarayon ~10 daqiqa.
    | `AUTH_SECRET` | uzun tasodifiy satr (masalan `openssl rand -hex 32`) |
    | `SETUP_TOKEN` | uzun tasodifiy satr (birinchi sozlash uchun) |
    | `CRON_SECRET` | uzun tasodifiy satr |
-   | `ADMIN_USERNAME` | `wax` |
-   | `ADMIN_PASSWORD` | `waxs` |
+   | `ADMIN_USERNAME` | o'zingiz belgilagan admin logini |
+   | `ADMIN_PASSWORD` | o'zingiz belgilagan kuchli parol (bo'sh/default bo'lmasligi kerak) |
    | `OPENROUTER_API_KEY` | OpenRouter kaliti (`sk-or-...`) |
    | `NVIDIA_NIM_API_KEY` | NVIDIA kaliti (`nvapi-...`) |
    | `FRONTEND_URL` | keyin 3-qadamda olingan web URL (masalan `https://mahalla-assistant.vercel.app`) |
@@ -65,7 +65,7 @@ curl -X POST https://<api-url>/api/v1/setup \
   -H "X-Setup-Token: <SETUP_TOKEN qiymati>"
 ```
 
-Bu 37 jadvalni yaratadi va 1 mahalla, 12 ko'cha, 202 uy, 285 oila, 1258 fuqaro, demo murojaat/vazifalar, 8 dastur, 6 qonunchilik snapshot, admin `wax/waxs` ni yuklaydi. Tekshirish:
+Bu 37 jadvalni yaratadi va 1 mahalla, 12 ko'cha, 202 uy, 285 oila, 1258 fuqaro, demo murojaat/vazifalar, 8 dastur, 6 qonunchilik snapshot, admin hisobini (`ADMIN_USERNAME`/`ADMIN_PASSWORD`) yuklaydi. Tekshirish:
 
 ```bash
 curl https://<api-url>/api/v1/setup/status
@@ -86,7 +86,7 @@ curl https://<api-url>/api/v1/setup/status
    |---|---|
    | `API_ORIGIN` | 2-qadamdagi API URL (masalan `https://mahalla-assistant-api.vercel.app`) |
 
-5. **Deploy**. Tayyor — `https://<web-url>` da ochiladi, login `wax` / `waxs`.
+5. **Deploy**. Tayyor — `https://<web-url>` da ochiladi. Admin kirish ma'lumotlari API loyihasidagi `ADMIN_USERNAME`/`ADMIN_PASSWORD` env o'zgaruvchilarida (o'zingiz belgilagan).
 
 ## 4. Yakuniy sozlash
 

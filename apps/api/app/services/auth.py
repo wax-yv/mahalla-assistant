@@ -221,6 +221,10 @@ def revoke_session(db: Session, session: SessionModel, actor_id: str | None = No
 
 
 def ensure_admin(db: Session) -> User:
+    # K-6: ishlab chiqarishda standart parol bilan admin yaratilmasligi kerak.
+    from app.core.config import assert_admin_password_allowed
+
+    assert_admin_password_allowed()
     username = (settings.admin_username or "wax").strip().lower()
     user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
     if user is None:

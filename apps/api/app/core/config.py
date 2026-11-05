@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -122,3 +125,35 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
+
+# K-6: standart demo kredensial (dokumentlarda chop etilmaydi).
+DEFAULT_ADMIN_USERNAME = "wax"
+DEFAULT_ADMIN_PASSWORD = "waxs"
+
+
+def admin_password_value() -> str:
+    """Admin parolining amaldagi qiymati (bo'sh bo'lsa — standart demo qiymati)."""
+    return (settings.admin_password or DEFAULT_ADMIN_PASSWORD).strip()
+
+
+def assert_admin_password_allowed() -> None:
+    """K-6: ishlab chiqarishda standart parol bilan admin yaratilmasligi kerak.
+
+    `DEMO_MODE=true` bo'lgan demo deployment'ida ogohlantirish bilan davom
+    etadi (demo kirish saqlanadi). Haqiqiy ishlab chiqarishda
+    (`DEMO_MODE=false`) standart/bo'sh parol bilan admin yaratilmaydi.
+    """
+    password = admin_password_value()
+    if not settings.is_production:
+        return
+    if settings.demo_mode:
+        logger.warning(
+            "DEMO_MODE=true: admin paroli standart demo qiymatida. "
+            "Ishlab chiqarishda DEMO_MODE=false va kuchli ADMIN_PASSWORD qo'ying."
+        )
+        return
+    if password in {"", DEFAULT_ADMIN_PASSWORD, "change-me"}:
+        raise RuntimeError(
+            "Production'da ADMIN_PASSWORD env ixtiyoriy emas — "
+            "standart parol bilan admin yaratilmaydi."
+        )

@@ -2,7 +2,7 @@
 
 Xorazm viloyati, Urganch shahri, **Navbahor mahallasi** uchun rasmiy ish yuritish va AI assistent tizimi. Mahalla raisi yordamchisi va ijtimoiy xodimlar uchun: fuqarolar bazasi, murojaatlar, vazifalar nazorati, hisobotlar, Lex.uz qonunchiligi, kredit-subsidiya dasturlari va o'zbek tilida gaplashadigan AI agentlar.
 
-> **Demo kirish:** login `wax` · parol `waxs` (yagona administrator)
+> **Demo kirish:** bitta administrator. Login va parol `ADMIN_USERNAME` / `ADMIN_PASSWORD` muhit o'zgaruvchilaridan olinadi (standart qiymatlar `apps/api/app/core/config.py` ichida; `.env.local` bilan o'zgartirishingiz mumkin).
 
 ---
 
@@ -70,7 +70,7 @@ PYTHONPATH=apps/api uvicorn app.main:app --port 8000
 cd apps/web && pnpm install && pnpm dev
 ```
 
-Brauzerda `http://localhost:3000` → login `wax` / `waxs`.
+Brauzerda `http://localhost:3000` → admin login (yuqoridagi `ADMIN_USERNAME`/`ADMIN_PASSWORD`).
 
 ## Testlar
 
