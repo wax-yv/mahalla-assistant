@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.pagination import PageMeta, paginate
-from app.core.time import today_local
+from app.core.time import minus_years, today_local
 from app.models import AuditLog, Case, Citizen, Family, House, Mahalla, Street, Task
 from app.services.serializers import case_out, task_out
 
@@ -98,71 +98,103 @@ def _citizen_base():
 
 def summary(db: Session) -> dict:
     today = today_local()
-    total_citizens = int(
-        db.execute(select(func.count()).select_from(Citizen).where(Citizen.archived_at.is_(None))).scalar_one()
-    )
-    total_families = int(db.execute(select(func.count()).select_from(Family)).scalar_one())
-    total_houses = int(db.execute(select(func.count()).select_from(House)).scalar_one())
-    total_streets = int(db.execute(select(func.count()).select_from(Street)).scalar_one())
-    total_mahallas = int(db.execute(select(func.count()).select_from(Mahalla)).scalar_one())
+    # N-1: metrikalar 14+ alohida COUNT so'rovi emas, 3 ta agregatsiya
+    # so'rovi (fuqaro / tuzilma / operatsiya) orqali olinadi.
+    youth_cutoff = minus_years(today, 30)
+    updated_since = datetime.now(timezone.utc) - timedelta(days=1)
 
-    employed = int(
-        db.execute(
+    citizen_row = db.execute(
+        select(
+            func.count().label("total"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (Citizen.employment_status.in_(["Ishlaydi", "Tadbirkor", "Pensioner"]), 1),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("employed"),
+            func.coalesce(
+                func.sum(case((Citizen.employment_status == "Ishsiz", 1), else_=0)), 0
+            ).label("unemployed"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                Citizen.birth_date.is_not(None),
+                                Citizen.birth_date > youth_cutoff,
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("youth"),
+            func.coalesce(
+                func.sum(case((Citizen.social_status != "Yo'q", 1), else_=0)), 0
+            ).label("social"),
+            func.coalesce(
+                func.sum(case((_incomplete_condition(), 1), else_=0)), 0
+            ).label("incomplete"),
+            func.coalesce(
+                func.sum(case((Citizen.updated_at >= updated_since, 1), else_=0)), 0
+            ).label("updated_today"),
+            select(func.max(Citizen.updated_at)).scalar_subquery().label("last_sync"),
+        )
+        .select_from(Citizen)
+        .where(Citizen.archived_at.is_(None))
+    ).one()
+
+    structure_row = db.execute(
+        select(
+            select(func.count()).select_from(Family).scalar_subquery().label("families"),
+            select(func.count()).select_from(House).scalar_subquery().label("houses"),
+            select(func.count()).select_from(Street).scalar_subquery().label("streets"),
+            select(func.count()).select_from(Mahalla).scalar_subquery().label("mahallas"),
+        )
+    ).one()
+
+    ops_row = db.execute(
+        select(
             select(func.count())
-            .select_from(Citizen)
-            .where(
-                Citizen.archived_at.is_(None),
-                Citizen.employment_status.in_(["Ishlaydi", "Tadbirkor", "Pensioner"]),
-            )
-        ).scalar_one()
-    )
-    unemployed = int(
-        db.execute(
-            select(func.count())
-            .select_from(Citizen)
-            .where(Citizen.archived_at.is_(None), Citizen.employment_status == "Ishsiz")
-        ).scalar_one()
-    )
-    youth = int(
-        db.execute(
-            select(func.count())
-            .select_from(Citizen)
-            .where(
-                Citizen.archived_at.is_(None),
-                Citizen.birth_date.is_not(None),
-                Citizen.birth_date > today.replace(year=today.year - 30),
-            )
-        ).scalar_one()
-    )
-    open_cases = int(
-        db.execute(
-            select(func.count()).select_from(Case).where(Case.status.notin_(["closed", "cancelled"]))
-        ).scalar_one()
-    )
-    today_tasks = int(
-        db.execute(
+            .select_from(Case)
+            .where(Case.status.notin_(["closed", "cancelled"]))
+            .scalar_subquery()
+            .label("open_cases"),
             select(func.count())
             .select_from(Task)
             .where(Task.due_date == today, Task.status.notin_(["completed", "cancelled"]))
-        ).scalar_one()
-    )
-    completed_tasks = int(
-        db.execute(select(func.count()).select_from(Task).where(Task.status == "completed")).scalar_one()
-    )
-    overdue_tasks = int(
-        db.execute(
+            .scalar_subquery()
+            .label("today_tasks"),
+            select(func.count())
+            .select_from(Task)
+            .where(Task.status == "completed")
+            .scalar_subquery()
+            .label("completed_tasks"),
             select(func.count())
             .select_from(Task)
             .where(Task.due_date < today, Task.status.notin_(["completed", "cancelled"]))
-        ).scalar_one()
-    )
-    social_categories = int(
-        db.execute(
-            select(func.count())
-            .select_from(Citizen)
-            .where(Citizen.archived_at.is_(None), Citizen.social_status != "Yo'q")
-        ).scalar_one()
-    )
+            .scalar_subquery()
+            .label("overdue_tasks"),
+        )
+    ).one()
+
+    total_citizens = int(citizen_row.total)
+    total_families = int(structure_row.families)
+    total_houses = int(structure_row.houses)
+    total_streets = int(structure_row.streets)
+    total_mahallas = int(structure_row.mahallas)
+    employed = int(citizen_row.employed)
+    unemployed = int(citizen_row.unemployed)
+    youth = int(citizen_row.youth)
+    social_categories = int(citizen_row.social)
+    open_cases = int(ops_row.open_cases)
+    today_tasks = int(ops_row.today_tasks)
+    completed_tasks = int(ops_row.completed_tasks)
+    overdue_tasks = int(ops_row.overdue_tasks)
 
     metrics = [
         {"key": "citizens", "label": "Jami fuqarolar", "value": total_citizens, "hint": "Faol yozuvlar"},
@@ -179,9 +211,9 @@ def summary(db: Session) -> dict:
         {"key": "overdue_tasks", "label": "Kechikkan vazifalar", "value": overdue_tasks, "hint": "Muddat o'tgan"},
     ]
 
-    employment = _distribution(db, Citizen.employment_status)
-    social = _distribution(db, Citizen.social_status)
-    education = _distribution(db, Citizen.education)
+    employment = _distribution(db, Citizen.employment_status, total=total_citizens)
+    social = _distribution(db, Citizen.social_status, total=total_citizens)
+    education = _distribution(db, Citizen.education, total=total_citizens)
     needs = _needs_distribution(db)
     streets = _street_rows(db)
 
@@ -208,30 +240,15 @@ def summary(db: Session) -> dict:
     ).scalars().all()
     activity = recent_activity(db, limit=10)
 
-    incomplete = int(
-        db.execute(
-            select(func.count())
-            .select_from(Citizen)
-            .where(Citizen.archived_at.is_(None), _incomplete_condition())
-        ).scalar_one()
-    )
+    incomplete = int(citizen_row.incomplete)
     # N-2: raqam va ulush mos kelishi uchun arxivlanganlar chiqariladi.
-    updated_today = int(
-        db.execute(
-            select(func.count())
-            .select_from(Citizen)
-            .where(
-                Citizen.archived_at.is_(None),
-                Citizen.updated_at >= datetime.now(timezone.utc) - timedelta(days=1),
-            )
-        ).scalar_one()
-    )
+    updated_today = int(citizen_row.updated_today)
     data_quality = {
         "complete": total_citizens - incomplete,
         "incomplete": incomplete,
         "score": round((total_citizens - incomplete) / total_citizens * 100) if total_citizens else 0,
         "updated_today": updated_today,
-        "last_sync": db.execute(select(func.max(Citizen.updated_at))).scalar_one(),
+        "last_sync": citizen_row.last_sync,
     }
 
     return {
@@ -251,11 +268,14 @@ def summary(db: Session) -> dict:
     }
 
 
-def _distribution(db: Session, column, limit: int = 12) -> list[dict]:
+def _distribution(db: Session, column, limit: int = 12, total: int | None = None) -> list[dict]:
     """Taqsimot (N-2): foiz haqiqiy jami fuqaro bo'yicha hisoblanadi.
 
     Eski kodda `total` faqat **top-12** qatorlar yig'indisi edi — foizlar
     100% ga yetmasdi va ko'rsatkich boshqa qiymat bilan kelishardi.
+
+    N-1: jami (`total`) tashqaridan berilsa — qo'shimcha COUNT so'rovi
+    bajarilmaydi.
     """
     rows = db.execute(
         select(column, func.count())
@@ -265,11 +285,13 @@ def _distribution(db: Session, column, limit: int = 12) -> list[dict]:
         .order_by(func.count().desc())
         .limit(limit)
     ).all()
-    total = int(
-        db.execute(
-            select(func.count()).select_from(Citizen).where(Citizen.archived_at.is_(None))
-        ).scalar_one()
-    ) or 1
+    if total is None:
+        total = int(
+            db.execute(
+                select(func.count()).select_from(Citizen).where(Citizen.archived_at.is_(None))
+            ).scalar_one()
+        )
+    total = int(total) or 1
     return [
         {
             "label": row[0] or "Ko'rsatilmagan",

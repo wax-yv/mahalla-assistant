@@ -1423,40 +1423,47 @@ def list_conversations(
     user_id: str | None = None,
     is_admin: bool = False,
 ) -> list[dict[str, Any]]:
-    stmt = select(Conversation).where(Conversation.archived_at.is_(None))
+    """Suhbatlar ro'yxati — bitta so'rov (N-1).
+
+    Avval har suhbat uchun 2 ta so'rov (xabarlar soni + oxirgi xabar)
+    bajarilardi — 40 ta suhbat = 80 ta so'rov. Endi korrelyatsiyalangan
+    skal-subso'rovlar bilan bitta SQL da olinadi.
+    """
+    stmt = select(
+        Conversation.id,
+        Conversation.title,
+        Conversation.archived_at,
+        Conversation.created_at,
+        Conversation.updated_at,
+        select(func.count(ConversationMessage.id))
+        .where(ConversationMessage.conversation_id == Conversation.id)
+        .correlate(Conversation)
+        .scalar_subquery()
+        .label("message_count"),
+        select(ConversationMessage.content)
+        .where(ConversationMessage.conversation_id == Conversation.id)
+        .order_by(ConversationMessage.created_at.desc())
+        .limit(1)
+        .correlate(Conversation)
+        .scalar_subquery()
+        .label("last_message"),
+    ).where(Conversation.archived_at.is_(None))
     if not is_admin:
         # Faqat o'z suhbatlari (egasi aniqlanmaganlar faqat admin uchun).
         stmt = stmt.where(Conversation.user_id == user_id)
-    conversations = db.execute(
-        stmt.order_by(Conversation.updated_at.desc()).limit(limit)
-    ).scalars().all()
-    result = []
-    for conversation in conversations:
-        count = int(
-            db.execute(
-                select(func.count())
-                .select_from(ConversationMessage)
-                .where(ConversationMessage.conversation_id == conversation.id)
-            ).scalar_one()
-        )
-        last = db.execute(
-            select(ConversationMessage)
-            .where(ConversationMessage.conversation_id == conversation.id)
-            .order_by(ConversationMessage.created_at.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-        result.append(
-            {
-                "id": conversation.id,
-                "title": conversation.title,
-                "archived_at": conversation.archived_at,
-                "created_at": conversation.created_at,
-                "updated_at": conversation.updated_at,
-                "message_count": count,
-                "last_message": (last.content[:140] if last else None),
-            }
-        )
-    return result
+    rows = db.execute(stmt.order_by(Conversation.updated_at.desc()).limit(limit)).all()
+    return [
+        {
+            "id": row[0],
+            "title": row[1],
+            "archived_at": row[2],
+            "created_at": row[3],
+            "updated_at": row[4],
+            "message_count": int(row[5] or 0),
+            "last_message": (row[6][:140] if row[6] else None),
+        }
+        for row in rows
+    ]
 
 
 def get_conversation(
@@ -1914,36 +1921,64 @@ AGENT_DESCRIPTIONS = {
 
 
 def agent_status(db: Session) -> dict[str, Any]:
+    """Agent holati — 2 ta so'rov bilan (N-1).
+
+    Avval har agent uchun 3 ta so'rov (oxirgi, oxirgi 50 ta, tokenlar)
+    bajarilardi — ~18 ta so'rov har chatda. Endi oynaviy funksiya
+    (`row_number`) bilan oxirgi 50 ta yugurish bitta so'rovda olinadi.
+    """
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    agent_names = list(AGENT_LABELS.keys())
+
+    ranked = (
+        select(
+            AgentRun.agent.label("agent"),
+            AgentRun.provider.label("provider"),
+            AgentRun.model.label("model"),
+            AgentRun.started_at.label("started_at"),
+            AgentRun.status.label("status"),
+            AgentRun.latency_ms.label("latency_ms"),
+            func.row_number()
+            .over(partition_by=AgentRun.agent, order_by=AgentRun.started_at.desc())
+            .label("rn"),
+        )
+        .where(AgentRun.agent.in_(agent_names))
+        .subquery()
+    )
+    run_rows = db.execute(select(ranked).where(ranked.c.rn <= 50)).all()
+
+    token_rows = db.execute(
+        select(
+            AgentRun.agent,
+            func.coalesce(func.sum(AgentRun.token_input + AgentRun.token_output), 0),
+        )
+        .where(AgentRun.agent.in_(agent_names), AgentRun.started_at >= today_start)
+        .group_by(AgentRun.agent)
+    ).all()
+    tokens_by_agent = {row[0]: int(row[1] or 0) for row in token_rows}
+
+    runs_by_agent: dict[str, list] = {name: [] for name in agent_names}
+    for row in run_rows:
+        runs_by_agent.setdefault(row[0], []).append(row)
+
     agents = []
     for name, label in AGENT_LABELS.items():
-        last = db.execute(
-            select(AgentRun).where(AgentRun.agent == name).order_by(AgentRun.started_at.desc()).limit(1)
-        ).scalar_one_or_none()
-        recent = db.execute(
-            select(AgentRun).where(AgentRun.agent == name).order_by(AgentRun.started_at.desc()).limit(50)
-        ).scalars().all()
-        success = len([run for run in recent if run.status == "completed"])
-        tokens_today = int(
-            db.execute(
-                select(func.coalesce(func.sum(AgentRun.token_input + AgentRun.token_output), 0)).where(
-                    AgentRun.agent == name, AgentRun.started_at >= today_start
-                )
-            ).scalar_one()
-        )
+        runs = runs_by_agent.get(name) or []
+        last = runs[0] if runs else None
+        success = len([run for run in runs if run[4] == "completed"])
         agents.append(
             {
                 "name": name,
                 "label": label,
                 "description": AGENT_DESCRIPTIONS.get(name, ""),
                 "enabled": True,
-                "provider": last.provider if last else "",
-                "model": last.model if last else "",
-                "last_run_at": last.started_at if last else None,
-                "last_status": last.status if last else "idle",
-                "latency_ms": last.latency_ms if last else 0,
-                "tokens_today": tokens_today,
-                "success_rate": round(success / len(recent) * 100, 1) if recent else 0.0,
+                "provider": last[1] if last else "",
+                "model": last[2] if last else "",
+                "last_run_at": last[3] if last else None,
+                "last_status": last[4] if last else "idle",
+                "latency_ms": last[5] if last else 0,
+                "tokens_today": tokens_by_agent.get(name, 0),
+                "success_rate": round(success / len(runs) * 100, 1) if runs else 0.0,
                 "fallback_used": False,
                 "allowed_tools": [],
             }

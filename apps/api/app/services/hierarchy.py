@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.audit import model_snapshot, write_audit
@@ -26,82 +26,113 @@ def _family_eager():
     )
 
 
+def _mahalla_street_ids():
+    """Mahallaga tegishli ko'cha id'lari (korrelyatsiyalangan subso'rov)."""
+    return select(Street.id).where(Street.mahalla_id == Mahalla.id).correlate(Mahalla)
+
+
+def _mahalla_house_ids():
+    return select(House.id).where(House.street_id.in_(_mahalla_street_ids())).correlate(Mahalla)
+
+
+def _mahalla_family_ids():
+    return select(Family.id).where(Family.house_id.in_(_mahalla_house_ids())).correlate(Mahalla)
+
+
+def _street_house_ids():
+    return select(House.id).where(House.street_id == Street.id).correlate(Street)
+
+
+def _street_family_ids():
+    return select(Family.id).where(Family.house_id.in_(_street_house_ids())).correlate(Street)
+
+
 def list_mahallas(db: Session) -> list[dict]:
-    mahallas = db.execute(select(Mahalla).order_by(Mahalla.name)).scalars().all()
-    result = []
-    for mahalla in mahallas:
-        street_ids = db.execute(
-            select(Street.id).where(Street.mahalla_id == mahalla.id)
-        ).scalars().all()
-        house_ids = (
-            db.execute(select(House.id).where(House.street_id.in_(street_ids))).scalars().all()
-            if street_ids
-            else []
-        )
-        family_ids = (
-            db.execute(select(Family.id).where(Family.house_id.in_(house_ids))).scalars().all()
-            if house_ids
-            else []
-        )
-        citizen_count = (
-            db.execute(
-                select(func.count()).select_from(Citizen).where(
-                    Citizen.family_id.in_(family_ids), Citizen.archived_at.is_(None)
-                )
-            ).scalar_one()
-            if family_ids
-            else 0
-        )
-        result.append(
-            {
-                "id": mahalla.id,
-                "name": mahalla.name,
-                "district": mahalla.district,
-                "region": mahalla.region,
-                "street_count": len(street_ids),
-                "house_count": len(house_ids),
-                "family_count": len(family_ids),
-                "citizen_count": int(citizen_count),
-            }
-        )
-    return result
+    """Mahallalar ro'yxati — bitta so'rov (N-1).
+
+    Avval har mahalla uchun 4 ta alohida so'rov bajarilardi. Endi
+    hisoblar korrelyatsiyalangan skal-subso'rovlar bilan bitta SQL da
+    olinadi.
+    """
+    rows = db.execute(
+        select(
+            Mahalla.id,
+            Mahalla.name,
+            Mahalla.district,
+            Mahalla.region,
+            select(func.count(Street.id))
+            .where(Street.mahalla_id == Mahalla.id)
+            .correlate(Mahalla)
+            .scalar_subquery()
+            .label("street_count"),
+            select(func.count(House.id))
+            .where(House.street_id.in_(_mahalla_street_ids()))
+            .correlate(Mahalla)
+            .scalar_subquery()
+            .label("house_count"),
+            select(func.count(Family.id))
+            .where(Family.house_id.in_(_mahalla_house_ids()))
+            .correlate(Mahalla)
+            .scalar_subquery()
+            .label("family_count"),
+            select(func.count(Citizen.id))
+            .where(Citizen.family_id.in_(_mahalla_family_ids()), Citizen.archived_at.is_(None))
+            .correlate(Mahalla)
+            .scalar_subquery()
+            .label("citizen_count"),
+        ).order_by(Mahalla.name)
+    ).all()
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "district": row[2],
+            "region": row[3],
+            "street_count": int(row[4] or 0),
+            "house_count": int(row[5] or 0),
+            "family_count": int(row[6] or 0),
+            "citizen_count": int(row[7] or 0),
+        }
+        for row in rows
+    ]
 
 
 def list_streets(db: Session, mahalla_id: str | None = None) -> list[dict]:
-    stmt = select(Street).options(joinedload(Street.mahalla)).order_by(Street.name)
+    """Ko'chalar ro'yxati — bitta so'rov (N-1)."""
+    stmt = select(
+        Street.id,
+        Street.mahalla_id,
+        Street.name,
+        select(func.count(House.id))
+        .where(House.street_id == Street.id)
+        .correlate(Street)
+        .scalar_subquery()
+        .label("house_count"),
+        select(func.count(Family.id))
+        .where(Family.house_id.in_(_street_house_ids()))
+        .correlate(Street)
+        .scalar_subquery()
+        .label("family_count"),
+        select(func.count(Citizen.id))
+        .where(Citizen.family_id.in_(_street_family_ids()), Citizen.archived_at.is_(None))
+        .correlate(Street)
+        .scalar_subquery()
+        .label("citizen_count"),
+    ).order_by(Street.name)
     if mahalla_id:
         stmt = stmt.where(Street.mahalla_id == mahalla_id)
-    streets = db.execute(stmt).scalars().all()
-    result = []
-    for street in streets:
-        house_ids = db.execute(
-            select(House.id).where(House.street_id == street.id)
-        ).scalars().all()
-        family_ids = (
-            db.execute(select(Family.id).where(Family.house_id.in_(house_ids))).scalars().all()
-            if house_ids
-            else []
-        )
-        citizen_count = (
-            db.execute(
-                select(func.count()).select_from(Citizen).where(
-                    Citizen.family_id.in_(family_ids), Citizen.archived_at.is_(None)
-                )
-            ).scalar_one()
-            if family_ids
-            else 0
-        )
-        result.append(
-            {
-                "id": street.id,
-                "mahalla_id": street.mahalla_id,
-                "name": street.name,
-                "house_count": len(house_ids),
-                "family_count": len(family_ids),
-                "citizen_count": int(citizen_count),
-            }
-        )
-    return result
+    rows = db.execute(stmt).all()
+    return [
+        {
+            "id": row[0],
+            "mahalla_id": row[1],
+            "name": row[2],
+            "house_count": int(row[3] or 0),
+            "family_count": int(row[4] or 0),
+            "citizen_count": int(row[5] or 0),
+        }
+        for row in rows
+    ]
 
 
 def get_street(db: Session, street_id: str) -> dict:
@@ -113,34 +144,70 @@ def get_street(db: Session, street_id: str) -> dict:
     houses = db.execute(
         select(House).where(House.street_id == street_id).order_by(House.house_number)
     ).scalars().all()
+    counts = _house_counts(db, [house.id for house in houses])
     return {
         "id": street.id,
         "mahalla_id": street.mahalla_id,
         "name": street.name,
         "mahalla": {"id": street.mahalla.id, "name": street.mahalla.name},
-        "houses": [house_out(db, house) for house in houses],
+        "houses": [
+            house_out(
+                db,
+                house,
+                family_count=counts.get(house.id, (0, 0))[0],
+                citizen_count=counts.get(house.id, (0, 0))[1],
+            )
+            for house in houses
+        ],
     }
 
 
-def house_out(db: Session, house: House) -> dict:
-    family_ids = db.execute(
-        select(Family.id).where(Family.house_id == house.id)
-    ).scalars().all()
-    citizen_count = (
-        db.execute(
-            select(func.count()).select_from(Citizen).where(
-                Citizen.family_id.in_(family_ids), Citizen.archived_at.is_(None)
-            )
-        ).scalar_one()
-        if family_ids
-        else 0
-    )
+def _house_counts(db: Session, house_ids: list[str]) -> dict[str, tuple[int, int]]:
+    """Bir nechta uy uchun oila/fuqaro sonlarini bitta so'rovda (N-1).
+
+    Avval `house_out()` har uyga 2 ta so'rov yuborardi (50 ta uy = 100+).
+    """
+    if not house_ids:
+        return {}
+    rows = db.execute(
+        select(
+            House.id,
+            func.count(func.distinct(Family.id)),
+            func.count(func.distinct(Citizen.id)),
+        )
+        .select_from(House)
+        .outerjoin(Family, Family.house_id == House.id)
+        .outerjoin(
+            Citizen,
+            and_(Citizen.family_id == Family.id, Citizen.archived_at.is_(None)),
+        )
+        .where(House.id.in_(house_ids))
+        .group_by(House.id)
+    ).all()
+    return {row[0]: (int(row[1] or 0), int(row[2] or 0)) for row in rows}
+
+
+def house_out(
+    db: Session,
+    house: House,
+    family_count: int | None = None,
+    citizen_count: int | None = None,
+) -> dict:
+    """Uy ma'lumotini chiqaradi (N-1).
+
+    `family_count` / `citizen_count` berilsa — qo'shimcha so'rov
+    bajarilmaydi (ro'yxatda bir martada hisoblanadi).
+    """
+    if family_count is None or citizen_count is None:
+        counts = _house_counts(db, [house.id]).get(house.id, (0, 0))
+        family_count = counts[0] if family_count is None else family_count
+        citizen_count = counts[1] if citizen_count is None else citizen_count
     return {
         "id": house.id,
         "street_id": house.street_id,
         "house_number": house.house_number,
         "address_label": house.address_label,
-        "family_count": len(family_ids),
+        "family_count": int(family_count),
         "citizen_count": int(citizen_count),
     }
 
@@ -173,7 +240,16 @@ def list_houses(
             )
         )
     rows, meta = paginate(db, stmt, page, page_size)
-    return [house_out(db, row) for row in rows], meta
+    counts = _house_counts(db, [row.id for row in rows])
+    return [
+        house_out(
+            db,
+            row,
+            family_count=counts.get(row.id, (0, 0))[0],
+            citizen_count=counts.get(row.id, (0, 0))[1],
+        )
+        for row in rows
+    ], meta
 
 
 def get_house(db: Session, house_id: str) -> dict:

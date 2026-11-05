@@ -44,6 +44,18 @@ def age_from_birth(birth_date: date | None, on: date | None = None) -> int | Non
     return max(0, years)
 
 
+def minus_years(value: date, years: int) -> date:
+    """Sana yilini kamaytiradi — 29-fevral xatosini oldini oladi.
+
+    `date(2024, 2, 29).replace(year=1994)` -> `ValueError`. Bunday holatda
+    28-fevral ishlatiladi.
+    """
+    try:
+        return value.replace(year=value.year - years)
+    except ValueError:
+        return value.replace(year=value.year - years, day=28)
+
+
 def period_bounds(report_type: str, anchor: date | None = None) -> tuple[date, date]:
     anchor = anchor or today_local()
     if report_type == "daily":

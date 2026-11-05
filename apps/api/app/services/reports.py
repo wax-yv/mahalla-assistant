@@ -12,7 +12,7 @@ from app.core.audit import model_snapshot, write_audit
 from app.core.downloads import safe_cell, safe_filename_part
 from app.core.errors import forbidden, not_found, validation_error
 from app.core.pagination import paginate
-from app.core.time import period_bounds, today_local
+from app.core.time import minus_years, period_bounds, today_local
 from app.models import Case, Citizen, Family, House, Report, ReportRun, Street, Task, User, WorkLog
 from app.schemas import ReportGenerateRequest
 from app.services import ai_gateway
@@ -97,18 +97,6 @@ def _incomplete_condition():
     )
 
 
-def _minus_years(value: date, years: int) -> date:
-    """Yilni kamaytiradi — 29-fevral xatosini oldini oladi (N-3).
-
-    `date(2024, 2, 29).replace(year=1994)` -> `ValueError`. Bunday holatda
-    28-fevral ishlatiladi.
-    """
-    try:
-        return value.replace(year=value.year - years)
-    except ValueError:
-        return value.replace(year=value.year - years, day=28)
-
-
 def _scoped_totals(db: Session, base: list) -> dict[str, int]:
     """Filtrga mos oilalar / uylar / ko'chalar soni (N-3).
 
@@ -183,7 +171,7 @@ def compute_metrics(
     employed = count_citizens(Citizen.employment_status.in_(["Ishlaydi", "Tadbirkor", "Pensioner"]))
     unemployed = count_citizens(Citizen.employment_status == "Ishsiz")
     youth = count_citizens(
-        Citizen.birth_date.is_not(None), Citizen.birth_date > _minus_years(today, 30)
+        Citizen.birth_date.is_not(None), Citizen.birth_date > minus_years(today, 30)
     )
     social = count_citizens(Citizen.social_status != "Yo'q")
     start_dt = datetime.combine(period_start, datetime.min.time(), tzinfo=timezone.utc)
