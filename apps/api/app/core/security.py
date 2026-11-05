@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import hashlib
 import hmac
 import secrets
@@ -12,6 +13,16 @@ _hasher = PasswordHasher(time_cost=2, memory_cost=65536, parallelism=2)
 
 SESSION_COOKIE = "mahalla_session"
 CSRF_HEADER = "X-CSRF-Token"
+
+
+@functools.lru_cache(maxsize=1)
+def dummy_password_hash() -> str:
+    """Soxta xesh (D-4).
+
+    Foydalanuvchi topilmasa ham `verify_password` chaqiriladi — aks holda
+    javob vaqti username mavjudligini oshkor qiladi (timing attack).
+    """
+    return _hasher.hash("mahalla-assistant-dummy-password")
 
 
 def hash_password(password: str) -> str:

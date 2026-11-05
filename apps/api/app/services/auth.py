@@ -15,6 +15,7 @@ from app.core.db import SessionLocal
 from app.core.deps import client_ip
 from app.core.errors import APIError, too_many_requests, unauthenticated
 from app.core.security import (
+    dummy_password_hash,
     hash_password,
     hash_token,
     new_csrf_token,
@@ -215,7 +216,14 @@ def authenticate(db: Session, username: str, password: str, request: Request) ->
     user = db.execute(
         select(User).where(User.username == normalized)
     ).scalar_one_or_none()
-    if user is None or not user.is_active or not verify_password(user.password_hash, password):
+    # D-4: foydalanuvchi topilmasa ham xesh tekshiruvi bajariladi — aks
+    # holda javob vaqti username mavjudligini oshkor qiladi.
+    password_ok = (
+        verify_password(user.password_hash, password)
+        if user is not None
+        else verify_password(dummy_password_hash(), password)
+    )
+    if user is None or not user.is_active or not password_ok:
         # Navbatdagi o'qish tranzaksiyasini yopamiz (SQLite bloklanmasin),
         # keyin hisobni alohida sessiyada saqlaymiz.
         db.rollback()
