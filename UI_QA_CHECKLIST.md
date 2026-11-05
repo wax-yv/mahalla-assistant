@@ -37,3 +37,15 @@ Har band: ✓ (tekshirildi) · holat: production-qa tayyor
 - [x] `git diff master -- apps/api` = faqat tasdiqlangan Bosqich 4A
 - [x] `lib/api.ts` / `lib/auth.ts` = 0 diff
 - [x] Endpoint path/payload/response o'zgarmagan
+
+## Yakuniy QA — 2026-11-05 (backend audit 76/76 + UI/UX premium 33/33 + §7.1–7.8)
+
+- [x] Backend testlari: **456 passed** (`PYTHONPATH=apps/api pytest apps/api/tests -q`)
+- [x] `ruff check apps/api` — toza
+- [x] `npx tsc --noEmit` — 0 xato
+- [x] `npm run build` — 21 route, muvaffaqiyatli
+- [x] Inline `style={{` = 11 (haqiqiy dinamik), emoji = 0, `alert(` = 0
+- [x] Xavfsizlik sarlavhalari: CSP, X-Frame-Options: DENY, nosniff, Referrer-Policy, Permissions-Policy
+- [x] O-3 (CSP), O-4 (403 xato matni), D-9 (fayl yuklab olish) — `apps/web`
+- [x] D-1: PATCH so'rovlarida `version` majburiy (citizen/case/task/family) — frontend moslashtirildi
+- [x] N-12: dashboarddagi uy/ko'cha kartalari `?tab=` bilan to'g'ri bo'limga olib boradi
