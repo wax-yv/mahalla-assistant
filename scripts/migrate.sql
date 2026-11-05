@@ -38,3 +38,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_item_key_conversation
 -- ---------------------------------------------------------------------------
 ALTER TABLE backup_runs
     ADD COLUMN IF NOT EXISTS data BYTEA;
+
+-- ---------------------------------------------------------------------------
+-- O-16: Hisobot tasdiqlash ruxsati ("segregation of duties")
+--
+-- `reports.approve` ruxsati `admin` roli bilan avtomatik BERILMAYDI —
+-- u foydalanuvchi ro'yxatida aniq ko'rsatilishi shart. Shu sababli mavjud
+-- administrator hisobotlarga (ya'ni o'z yaratgan hisobotlarga ham)
+-- tasdiqlay olishi uchun ruxsat beriladi.
+--
+-- Skript idempotent: ruxsat mavjud bo'lsa, qayta qo'shilmaydi.
+-- ---------------------------------------------------------------------------
+UPDATE users
+SET permissions = COALESCE(permissions, '[]'::jsonb) || '["reports.approve"]'::jsonb
+WHERE role = 'admin'
+  AND NOT (COALESCE(permissions, '[]'::jsonb) ? 'reports.approve');

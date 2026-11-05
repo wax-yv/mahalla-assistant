@@ -90,7 +90,15 @@ def enforce_csrf(
         raise APIError(403, "CSRF_FAILED", "Xavfsizlik tekshiruvi muvaffaqiyatsiz. Sahifani yangilang.")
 
 
+# O-16: "segregation of duties" — bu permission'lar foydalanuvchi ro'yxatida
+# **aniq** ko'rsatilishi shart. `admin` roli ularni avtomatik bermaydi:
+# kim hisobotni yozsa, o'sha o'zini tasdiqlay olmasin.
+EXPLICIT_ONLY_PERMISSIONS: frozenset[str] = frozenset({"reports.approve"})
+
+
 def has_permission(user: User, permission: str) -> bool:
+    if permission in EXPLICIT_ONLY_PERMISSIONS:
+        return permission in (user.permissions or [])
     return user.role == "admin" or permission in (user.permissions or [])
 
 

@@ -55,7 +55,9 @@ def approve_report(
     payload: ReportApproveRequest,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_csrf_and_permission("reports.generate")),
+    # O-16: tasdiqlash — alohida ruxsat. Hisobotni yozgan xodim uni
+    # o'zi tasdiqlay olmaydi ("segregation of duties").
+    user: User = Depends(require_csrf_and_permission("reports.approve")),
 ):
     service.approve_report(
         db,

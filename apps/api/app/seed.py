@@ -760,7 +760,12 @@ def seed_admin(db: Session) -> None:
     user.display_name = "Mahalla administratori"
     user.password_hash = hash_password(settings.admin_password or "waxs")
     user.role = "admin"
-    user.permissions = []
+    # O-16: `reports.approve` ruxsati `admin` roli bilan avtomatik
+    # berilmaydi — uni aniq qo'shamiz (boshqa ruxsatlar saqlanadi).
+    permissions = list(user.permissions or [])
+    if "reports.approve" not in permissions:
+        permissions.append("reports.approve")
+    user.permissions = permissions
     user.is_active = True
     db.commit()
 

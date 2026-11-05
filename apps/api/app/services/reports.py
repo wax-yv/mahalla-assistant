@@ -10,10 +10,10 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import model_snapshot, write_audit
 from app.core.downloads import safe_cell
-from app.core.errors import not_found, validation_error
+from app.core.errors import forbidden, not_found, validation_error
 from app.core.pagination import paginate
 from app.core.time import period_bounds, today_local
-from app.models import Case, Citizen, Family, House, Report, ReportRun, Street, Task, WorkLog
+from app.models import Case, Citizen, Family, House, Report, ReportRun, Street, Task, User, WorkLog
 from app.schemas import ReportGenerateRequest
 from app.services import ai_gateway
 
@@ -404,6 +404,16 @@ def approve_report(db: Session, report_id: str, actor: str, note: str = "", requ
     report = get_report(db, report_id)
     if report.status == "approved":
         return report
+    # O-16: "segregation of duties" — muallif o'z hisobotini tasdiqlay
+    # olmaydi. Administrator — tizimda yakuniy mas'ul shaxs — o'z
+    # hisobotini tasdiqlashi mumkin.
+    if report.created_by and report.created_by == actor:
+        approver = db.get(User, actor)
+        if approver is None or approver.role != "admin":
+            raise forbidden(
+                "Hisobotni tasdiqlash uchun boshqa mas'ul xodim kerak: "
+                "muallif o'z hisobotini tasdiqlay olmaydi."
+            )
     before = model_snapshot(report)
     report.status = "approved"
     report.approved_by = actor

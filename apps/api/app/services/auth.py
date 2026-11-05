@@ -288,7 +288,9 @@ def ensure_admin(db: Session) -> User:
             display_name="Mahalla administratori",
             password_hash=hash_password(settings.admin_password or "waxs"),
             role="admin",
-            permissions=[],
+            # O-16: `reports.approve` — `admin` roli bilan avtomatik
+            # berilmaydi, uni aniq yozamiz.
+            permissions=["reports.approve"],
         )
         db.add(user)
         db.flush()
@@ -296,5 +298,11 @@ def ensure_admin(db: Session) -> User:
         # Keep the demo credential in sync with the documented login when the
         # admin password is changed via environment variables.
         user.password_hash = hash_password(settings.admin_password or "waxs")
+        db.flush()
+    # O-16: mavjud administrator ham `reports.approve` ruxsatini oladi.
+    permissions = list(user.permissions or [])
+    if "reports.approve" not in permissions:
+        permissions.append("reports.approve")
+        user.permissions = permissions
         db.flush()
     return user

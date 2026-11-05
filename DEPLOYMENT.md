@@ -112,7 +112,10 @@ curl https://<api-url>/api/v1/setup/status
   - **K-8** — `conversations.user_id` ustuni + indeks (suhbat egalik nazorati / IDOR himoyasi);
   - **J-6** — `citizens.data_source` uzunligi `VARCHAR(255)` ga kengaytirilgan;
   - **J-8** — `backup_runs.data` (BYTEA) — zaxira nusxa baytlari bazada saqlanadi;
-  - **N-10** — `memory_items (key, conversation_id)` bo'yicha unikal indeks.
+  - **N-10** — `memory_items (key, conversation_id)` bo'yicha unikal indeks;
+  - **O-16** — mavjud administratorlarga `reports.approve` ruxsati beriladi (hisobot tasdiqlash uchun `admin` roli yetarli emas — ruxsat aniq bo'lishi shart).
+
+  > **O-16 eslatmasi:** migratsiyani bajarmasangiz, administrator hisobotni tasdiqlay olmaydi (`403`). Skript `idempotent` — ruxsat mavjud bo'lsa, qayta qo'shilmaydi.
 
   > Eslatma: `create_all()` faqat jadvallarni yaratadi, mavjud jadvallarga ustun **qo'shmaydi**. Shu sababli migratsiyani skip qilish K-8 ni ishlashdan to'xtatadi (suhbat egaligi `user_id` siz saqlanmaydi).
 - **Cron:** `apps/api/vercel.json` da Vercel Cron sozlamasi bor — `GET /api/v1/cron/run-due` har kuni 04:00 UTC (09:00 Toshkent) chaqiriladi. Endpoint `Authorization: Bearer <CRON_SECRET>` sarlavhasini talab qiladi; `CRON_SECRET` env o'zgaruvchisi bo'lmasa yoki `change-me` bo'lsa endpoint **503** qaytaradi (o'chirilgan holat). Qo'lda sinash:

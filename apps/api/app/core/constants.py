@@ -16,6 +16,8 @@ PERMISSIONS: tuple[str, ...] = (
     "documents.export",
     "reports.read",
     "reports.generate",
+    # O-16: hisobot tasdiqlash — alohida ruxsat ("segregation of duties").
+    "reports.approve",
     "reports.export",
     "agents.use",
     "agents.configure",
