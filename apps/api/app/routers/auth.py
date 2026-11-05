@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.db import get_db
 from app.core.deps import enforce_csrf, get_current_session, get_current_user
-from app.core.security import SESSION_COOKIE, hash_token
+from app.core.security import SESSION_COOKIE
 from app.models import Session as SessionModel
 from app.models import User
 from app.schemas import LoginRequest, MeResponse, MessageResponse, UserOut

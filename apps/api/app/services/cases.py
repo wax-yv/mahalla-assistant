@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.audit import model_snapshot, write_audit
 from app.core.constants import CASE_TRANSITIONS, TASK_TRANSITIONS

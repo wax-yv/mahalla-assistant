@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import model_snapshot, write_audit
 from app.core.errors import not_found, validation_error
-from app.core.pagination import PageMeta, paginate
+from app.core.pagination import paginate
 from app.core.time import period_bounds, today_local
 from app.models import Case, Citizen, Family, House, Report, ReportRun, Street, Task, WorkLog
 from app.schemas import ReportGenerateRequest

@@ -12,7 +12,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import write_audit
-from app.core.config import settings
 from app.core.errors import bad_request, not_found, service_unavailable
 from app.models import (
     LegislationChunk,

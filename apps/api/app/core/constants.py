@@ -141,6 +141,7 @@ AGENT_NAMES = (
 
 INTENTS = (
     "citizen_lookup",
+    "greeting",
     "document",
     "reporting",
     "legislation",

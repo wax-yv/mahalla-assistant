@@ -173,7 +173,7 @@ def test_intent_data_stats_keywords():
         ("guruh nogironliki bor shaxslar nechta?", "data_stats"),
         ("ishsizlar nechta?", "data_stats"),
         ("Temir daftardagi fuqarolar soni", "data_stats"),
-        ("Salom!", "smalltalk"),
+        ("Salom!", "greeting"),
         ("Bugun qaysi vazifalar?", "plan_control"),
     ]
     for message, expected in cases:

@@ -30,11 +30,10 @@ from app.models import (
     ImportChange,
     ImportError,
     Mahalla,
-    Report,
     Street,
     Task,
 )
-from app.services.serializers import citizen_out, document_out, family_out, task_out
+from app.services.serializers import citizen_out, document_out
 
 ALLOWED_EXTENSIONS = {".xlsx", ".csv", ".docx", ".pdf"}
 MODULE_ALIASES: dict[str, list[str]] = {
@@ -771,9 +770,6 @@ def commit_batch(
     created: list[dict] = []
     changes = 0
     updates = 0
-    mahalla_cache: dict[str, Mahalla] = {}
-    street_cache: dict[tuple[str, str], Street] = {}
-    house_cache: dict[tuple[str, str], House] = {}
     family_cache: dict[tuple[str, str], Family] = {}
     for row in parsed:
         mahalla = _get_or_create(
@@ -1244,7 +1240,6 @@ def export_module(db: Session, module: str, fmt: str, filters: dict[str, Any]) -
         return buffer.getvalue(), name, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     if fmt == "docx":
         from docx import Document as DocxDocument
-        from docx.shared import Pt
 
         doc = DocxDocument()
         doc.add_heading("Mahalla Assistant — eksport", level=1)

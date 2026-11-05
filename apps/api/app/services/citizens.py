@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from typing import Any
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -10,14 +9,13 @@ from app.core.audit import model_snapshot, write_audit
 from app.core.errors import bad_request, conflict, not_found, validation_error
 from app.core.pagination import PageMeta, paginate
 from app.core.time import age_from_birth, today_local
-from app.models import AuditLog, Case, Citizen, Document, Family, House, Mahalla, Street, Task, WorkLog
+from app.models import AuditLog, Case, Citizen, Document, Family, House, Street, Task, WorkLog
 from app.schemas import CitizenCreate, CitizenUpdate
 from app.services.serializers import (
     address_for_citizen,
     case_out,
     citizen_out,
     document_out,
-    family_out,
     task_out,
     work_log_out,
 )

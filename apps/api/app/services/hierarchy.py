@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
@@ -11,7 +10,6 @@ from app.core.pagination import PageMeta, paginate
 from app.models import Case, Citizen, Family, House, Mahalla, Street, Task, WorkLog
 from app.schemas import FamilyCreate, FamilyUpdate
 from app.services.serializers import (
-    address_for_family,
     case_out,
     citizen_out,
     family_out,

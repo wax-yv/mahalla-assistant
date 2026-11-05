@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func, or_, select
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import write_audit
 from app.core.config import settings
-from app.core.errors import not_found, validation_error
+from app.core.errors import validation_error
 from app.core.pagination import PageMeta, paginate
 from app.models import (
     AIUsage,

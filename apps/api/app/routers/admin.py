@@ -2,15 +2,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.deps import require_csrf_and_permission, require_permission
-from app.core.errors import forbidden
-from app.models import Citizen, User
+from app.models import User
 from app.services import admin as service
 from app.services import scheduler
 

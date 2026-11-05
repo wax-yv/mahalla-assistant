@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import json
 import re
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func, or_, select
@@ -26,11 +25,8 @@ from app.models import (
     House,
     ImportBatch,
     ImportError as ImportErrorModel,
-    MemoryItem,
-    Program,
     Street,
     Task,
-    User,
     WorkLog,
 )
 from app.schemas import (
@@ -39,8 +35,16 @@ from app.schemas import (
     TaskCreate,
     WorkLogCreate,
 )
-from app.services import ai_gateway, cases, dashboard, documents, legislation, programs, reports
-from app.services.serializers import citizen_out, document_out, program_out, task_out
+from app.services import (
+    ai_gateway,
+    cases,
+    data_query,
+    documents,
+    legislation,
+    programs,
+    reports,
+)
+from app.services.serializers import citizen_out, program_out
 
 AGENT_LABELS = {
     "orchestrator": "Orchestrator",
@@ -52,7 +56,12 @@ AGENT_LABELS = {
 }
 
 INTENT_RULES: list[tuple[str, tuple[str, ...]]] = [
-    ("data_stats", ("nechta", "qancha", "soni", "necha nafar", "necha kishi", "nechta nafar", "umumiy son", "taqsimot", "aniq son", "nechchi")),
+    ("data_stats", (
+        "nechta", "qancha", "soni", "necha nafar", "necha kishi", "nechta nafar",
+        "umumiy son", "taqsimot", "aniq son", "nechchi", "ro'yxat", "ro'yxati",
+        "ro'yxatini", "ism-familiya", "ism familiya", "ismlar", "familiyalar",
+        "kimlar", "chiqarib ber", "fuqarolar ro'yxati", "kim bor",
+    )),
     ("legislation", ("qonun", "modda", "lex.uz", "lexuz", "farmon", "kodeks", "konstitutsiya", "huquqiy norma", "qonunchilik")),
     ("credit_subsidy", ("kredit", "subsidiya", "ipoteka", "grant", "bank", "moliyalashtirish", "foizsiz yordam", "dastur")),
     ("reporting", ("hisobot", "statistika", "ko'rsatkich", "tahlil", "necha foiz", "dinamika", "hisob-kitob")),
@@ -74,23 +83,76 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Oddiy salomlashish — deterministik javob beriladi (LLM chaqirilmaydi).
 GREETING_RE = re.compile(
-    r"\b(salom|assalomu|hayrli|salomlayman|hello|siz kim|kimsiz|kim siz|"
-    r"nima qila olasiz|nimaga qodirsiz|yordam bering|qanday ishlar)\b",
+    r"\b(salom|assalomu|assalomu alaykum|hayrli|salomlayman|hello|hi|good morning|good evening)\b",
     re.IGNORECASE,
+)
+
+# "Menga qanday yordam bera olasan?" — imkoniyatlar ro'yxati.
+CAPABILITY_RE = re.compile(
+    r"(\bqanday\s+yordam\b|\byordam\s+ber(a|eb)\s+olasan\b|\byordam\s+ber(a|eb)\s+olasisiz\b|"
+    r"\bnima\s+qila\s+olasan\b|\bnima\s+qila\s+olasisiz\b|\bnimaga\s+qodirsiz\b|"
+    r"\bqanday\s+ishlar\b|\bqanday\s+imkoniyat\b|\bqanday\s+mavzular\b|\bqanday\s+bo'limlar\b)",
+    re.IGNORECASE,
+)
+
+# Raqam/ro'yxat savollari — majburan data_stats agentiga yuboriladi.
+DATA_COUNT_WORDS: tuple[str, ...] = (
+    "nechta", "qancha", "soni", "necha nafar", "necha kishi", "nechta nafar",
+    "umumiy son", "aniq son", "nechchi", "taqsimot", "miqdori", "raqami",
+)
+DATA_LIST_WORDS: tuple[str, ...] = (
+    "ro'yxat", "ro'yxati", "ro'yxatini", "ro'yxatiga", "ism-familiya", "ism familiya",
+    "ism-familiyalar", "ismlar", "familiyalar", "kimlar", "chiqarib ber",
+    "fuqarolar ro'yxati", "kim bor", "ismini ayt", "ism-familiyasini",
+)
+
+# Boshqa agentlarga tegishli so'zlar — data_stats'ga majburlashda hisobga olinadi.
+FOREIGN_SUBJECT_WORDS: tuple[str, ...] = (
+    "murojaat", "murojaatlar", "vazifa", "vazifalar", "hujjat", "hujjatlar",
+    "hisobot", "hisobotlar", "agent", "agentlar", "qonun", "qonunchilik",
+    "modda", "moddalar", "kredit", "subsidiya", "bank", "dastur", "dasturlar",
+    "jarayon", "fuqaro hujjati", "pasport",
 )
 
 
 def detect_intent(message: str) -> tuple[str, list[str]]:
+    """Savolni agentga yo'naltiradi.
+
+    Tartib muhim: salomlashish -> fayl+hisobot -> qonunchilik/kredit ->
+    majburlangan statistika -> umumiy kalit so'zlash.
+    """
     text = (message or "").lower()
     text = re.sub("[ʻʼ‘’']", "'", text)  # apostrof turlarini birlashtirish
+
+    # 1. Salomlashish va imkoniyat so'ragan — deterministik javob.
     if GREETING_RE.search(text) and len(text.split()) <= 12:
-        return "smalltalk", ["smalltalk"]
-    # Import/fayl kontekstida "hisobot/xatolik/tahlil" so'zlari hujjat agentiga tegishli.
+        return "greeting", ["greeting"]
+    if CAPABILITY_RE.search(text) and len(text.split()) <= 16:
+        return "greeting", ["greeting"]
+
+    # 2. Import/fayl kontekstida "hisobot/xatolik/tahlil" so'zlari hujjat agentiga tegishli.
     file_words = ("import", "excel", "xlsx", "csv", "fayl", "yukla", "hujjat yukla")
     report_words = ("hisobot", "xatolik", "xato", "tahlil", "tekshir", "dublikat", "sifat")
     if any(word in text for word in file_words) and any(word in text for word in report_words):
         return "document", ["document"]
+
+    # 3. Qonunchilik va kredit — aniq so'zlar bo'lsa, statistika ustidan ustun.
+    if any(word in text for word in ("qonun", "modda", "lex.uz", "lexuz", "farmon",
+                                      "kodeks", "konstitutsiya", "qonunchilik")):
+        return "legislation", ["legislation"]
+    if any(word in text for word in ("kredit", "subsidiya", "ipoteka", "foizsiz yordam")):
+        return "credit_subsidy", ["credit_subsidy"]
+
+    # 4. Son/ro'yxat savollari — majburan deterministik statistika agentiga.
+    wants_count = any(word in text for word in DATA_COUNT_WORDS)
+    wants_list = any(word in text for word in DATA_LIST_WORDS)
+    has_foreign = any(word in text for word in FOREIGN_SUBJECT_WORDS)
+    if (wants_count or wants_list) and not has_foreign:
+        return "data_stats", ["data_stats"]
+
+    # 5. Umumiy kalit so'zlash.
     scores: dict[str, int] = {}
     for intent, keywords in INTENT_RULES:
         score = 0
@@ -100,9 +162,6 @@ def detect_intent(message: str) -> tuple[str, list[str]]:
         if score:
             scores[intent] = score
     if not scores:
-        count_words = ("nechta", "qancha", "soni", "necha", "umumiy son", "aniq son")
-        if any(word in text for word in count_words):
-            return "data_stats", ["data_stats"]
         return "smalltalk", []
     ordered = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     primary, top = ordered[0]
@@ -812,7 +871,35 @@ def _agents_status(db: Session, message: str, context: dict[str, Any]) -> dict[s
     }
 
 
+GREETING_CAPABILITIES = """Salom! Men «Mahalla Assistant» — mahalla ish assistentiman. Quyidagilar bo'yicha yordam bera olaman:
+
+- **Fuqaro va oilalar** — ism-familiya, ko'cha, yosh, ijtimoiy holat bo'yicha aniq ro'yxat va son
+- **Statistika va hisobot** — bazadagi aniq raqamlar, taqsimotlar, hisobot tayyorlash
+- **Murojaat va vazifalar** — holati, muddati, kechikishlar nazorati
+- **Qonunchilik** — Lex.uz manbali huquqiy javoblar
+- **Kredit va subsidiya** — tanlangan bank dasturlari
+- **Hujjatlar** — Excel/CSV fayl import-eksport, sifat va dublikat tekshiruvi
+- **Agentlar holati** — ishlash holati va byudjet
+
+Savolni oddiy tilda yozing — kerakli bo'limni o'zim tanlayman va raqamlarni bazadan aniq hisoblab beraman."""
+
+
+def _greeting(
+    db: Session, message: str, context: dict[str, Any], preferred_model: str | None = None
+) -> dict[str, Any]:
+    """Salomlashishga deterministik javob (tashqi modelga murojaat qilinmaydi)."""
+    return {
+        "text": GREETING_CAPABILITIES,
+        "sources": [],
+        "drafts": [],
+        "data": {"capabilities": True},
+        "confidence": "high",
+        "warnings": [],
+    }
+
+
 HANDLERS = {
+    "greeting": _greeting,
     "plan_control": _plan_control,
     "citizen_lookup": _citizen_lookup,
     "reporting": _reporting,
@@ -823,6 +910,7 @@ HANDLERS = {
 }
 
 INTENT_AGENT = {
+    "greeting": "orchestrator",
     "plan_control": "plan_control",
     "data_stats": "reporting",
     "citizen_lookup": "plan_control",
@@ -839,207 +927,57 @@ INTENT_AGENT = {
 # agent_status agent_status() funksiyasidan keyin aniqlanadi — forward reference muammosi yo'q (chaqiruv vaqtida bog'lanadi)
 
 
-SOCIAL_FACETS: list[tuple[tuple[str, ...], str]] = [
-    (("temir daftar",), "Temir daftar"),
-    (("yoshlar daftar",), "Yoshlar daftari"),
-    (("ayollar daftar",), "Ayollar daftari"),
-    (("kam ta'minlangan", "kam taminlangan", "kam ta'minlangan oila"), "Kam ta'minlangan oila"),
-    (("ko'p bolali", "kop bolali", "ko'p bolali oila"), "Ko'p bolali oila"),
-    (("mehnat faxriysi",), "Mehnat faxriysi"),
-    (("ijtimoiy himoyaga muhtoj",), "Ijtimoiy himoyaga muhtoj"),
-]
+def _previous_data_facets(
+    db: Session, conversation_id: str | None
+) -> "data_query.Facets | None":
+    """Suhbatdagi oxirgi statistik savol filtrlarini qaytaradi.
 
-
-def _extract_stat_facets(text: str, streets: list[str]) -> dict[str, Any]:
-    t = re.sub("[\u02bb\u02bc\u2018\u2019']", "'", (text or "").lower())
-
-    social: list[str] = []
-    nogiron = "nogiron" in t or "nogironlik" in t
-    if nogiron:
-        if re.search(r"(?:\b1\b|\bi\b|birinchi)\s*-?\s*guruh", t):
-            social.append("Nogironligi bor (I guruh)")
-        elif re.search(r"(?:\b2\b|\bii\b|ikkinchi)\s*-?\s*guruh", t):
-            social.append("Nogironligi bor (II guruh)")
-        elif re.search(r"(?:\b3\b|\biii\b|uchinchi)\s*-?\s*guruh", t):
-            social.append("Nogironligi bor (III guruh)")
-        else:
-            social.extend([
-                "Nogironligi bor (I guruh)",
-                "Nogironligi bor (II guruh)",
-                "Nogironligi bor (III guruh)",
-            ])
-    for keywords, value in SOCIAL_FACETS:
-        if any(word in t for word in keywords) and value not in social:
-            social.append(value)
-
-    employment = None
-    if "ishsiz" in t:
-        employment = "Ishsiz"
-    elif "tadbirkor" in t:
-        employment = "Tadbirkor"
-    elif "pensioner" in t:
-        employment = "Pensioner"
-    elif re.search(r"o'qiydi|talaba", t):
-        employment = "O'qiydi"
-    elif "ishlamaydi" in t:
-        employment = "Ishlamaydi"
-    elif "ishlaydi" in t:
-        employment = "Ishlaydi"
-
-    gender = None
-    if ("ayol" in t) and ("ayollar daftar" not in t):
-        gender = "Ayol"
-    elif "erkak" in t:
-        gender = "Erkak"
-
-    street = None
-    for name in streets:
-        base = re.sub(r"\s*ko'?chasi\s*$", "", name.lower()).strip()
-        base = re.sub("[\u02bb\u02bc\u2018\u2019']", "'", base)
-        if len(base) >= 4 and base in t:
-            street = name
-            break
-
-    age_max = None
-    age_min = None
-    match = re.search(r"(\d{1,2})\s*yoshgacha", t)
-    if match:
-        age_max = int(match.group(1))
-    match = re.search(r"(\d{1,2})\s*(?:yoshdan\s*(?:katta|yuqori)|dan\s*katta)", t)
-    if match:
-        age_min = int(match.group(1))
-
-    return {
-        "social": social,
-        "employment": employment,
-        "gender": gender,
-        "street": street,
-        "age_max": age_max,
-        "age_min": age_min,
-    }
+    Ketma-ket savollarda («2 guruh nogironlarining ro'yxatini chiqarib ber»
+    -> «ism familiyalarini ayt») kontekst saqlanadi.
+    """
+    if not conversation_id:
+        return None
+    workflow = db.execute(
+        select(AgentWorkflow)
+        .where(
+            AgentWorkflow.conversation_id == conversation_id,
+            AgentWorkflow.intent == "data_stats",
+            AgentWorkflow.status == "completed",
+        )
+        .order_by(AgentWorkflow.created_at.desc())
+        .limit(1)
+    ).scalars().first()
+    if workflow is None:
+        return None
+    result = workflow.result or {}
+    data = result.get("data") or {}
+    return data_query.facets_from_payload(data)
 
 
 def _data_stats(db: Session, message: str, context: dict[str, Any]) -> dict[str, Any]:
-    from datetime import date as date_cls
+    """Aniq statistik javob — barcha raqamlar jonli SQL so'rovi bilan olinadi.
 
-    today = date_cls.today()
-    streets = [row[0] for row in db.execute(select(Street.name)).all()]
-    facets = _extract_stat_facets(message, streets)
-
-    conditions = [Citizen.archived_at.is_(None)]
-    used: list[str] = []
-    if facets["social"]:
-        conditions.append(Citizen.social_status.in_(facets["social"]))
-        used.append("ijtimoiy holat")
-    if facets["employment"]:
-        conditions.append(Citizen.employment_status == facets["employment"])
-        used.append("bandlik")
-    if facets["gender"]:
-        conditions.append(Citizen.gender == facets["gender"])
-        used.append("jins")
-    if facets["street"]:
-        conditions.append(
-            Citizen.family.has(
-                Family.house.has(House.street.has(Street.name == facets["street"]))
-            )
-        )
-        used.append("ko'cha")
-    if facets["age_max"] is not None:
-        border = today.replace(year=today.year - facets["age_max"])
-        conditions.append(Citizen.birth_date.is_not(None))
-        conditions.append(Citizen.birth_date > border)
-        used.append(f"yosh <= {facets['age_max']}")
-    if facets["age_min"] is not None:
-        border = today.replace(year=today.year - facets["age_min"])
-        conditions.append(Citizen.birth_date.is_not(None))
-        conditions.append(Citizen.birth_date <= border)
-        used.append(f"yosh >= {facets['age_min']}")
-
-    total = int(
-        db.execute(select(func.count()).select_from(Citizen).where(*conditions)).scalar_one()
-    )
-
-    lines: list[str] = []
-    data_payload: dict[str, Any] = {"facets": {k: v for k, v in facets.items() if v}, "total": total}
-
-    if not used:
-        # Umumiy holat — bazadagi fuqarolar + eng muhim taqsimotlar
-        employment_rows = db.execute(
-            select(Citizen.employment_status, func.count())
-            .where(Citizen.archived_at.is_(None))
-            .group_by(Citizen.employment_status)
-        ).all()
-        social_rows = db.execute(
-            select(Citizen.social_status, func.count())
-            .where(Citizen.archived_at.is_(None), Citizen.social_status.notin_(["Yo'q", "-", ""]))
-            .group_by(Citizen.social_status)
-        ).all()
-        lines.append(f"Bazada jami {total} nafar faol fuqaro ro'yxatga olingan.")
-        lines.append("")
-        lines.append("Bandlik bo'yicha:")
-        for name, value in sorted(employment_rows, key=lambda x: -x[1]):
-            lines.append(f"• {name}: {value}")
-        if social_rows:
-            lines.append("")
-            lines.append("Ijtimoiy holat bo'yicha (faol toifalar):")
-            for name, value in sorted(social_rows, key=lambda x: -x[1]):
-                lines.append(f"• {name}: {value}")
-        lines.append("")
-        lines.append("Aniq toifa uchun masalan: «Nogironligi bor (I guruh) fuqarolar soni» yoki «Ishsiz ayollar nechta».")
-        data_payload["employment"] = [{"label": k, "value": v} for k, v in employment_rows]
-        data_payload["social"] = [{"label": k, "value": v} for k, v in social_rows]
-        return {
-            "text": "\n".join(lines),
-            "sources": [{"type": "database", "label": "Fuqarolar bazasi (SQL hisob)", "as_of": _now().isoformat()}],
-            "drafts": [],
-            "data": data_payload,
-            "confidence": "high",
-            "warnings": [],
-        }
-
-    facet_label = " + ".join(used)
-    lines.append(f"Aniq javob ({facet_label} bo'yicha, SQL hisob):")
-    lines.append("")
-    lines.append(f"Jami {total} nafar fuqaro.")
-
-    if facets["social"] and len(facets["social"]) > 1:
-        rows = db.execute(
-            select(Citizen.social_status, func.count())
-            .where(*conditions)
-            .group_by(Citizen.social_status)
-        ).all()
-        lines.append("")
-        lines.append("Guruhlar bo'yicha taqsimot:")
-        for name, value in sorted(rows, key=lambda x: -x[1]):
-            lines.append(f"• {name}: {value}")
-            data_payload.setdefault("breakdown", []).append({"label": name, "value": value})
-
-    if facets["employment"] and facets["gender"]:
-        rows = db.execute(
-            select(Citizen.gender, func.count()).where(*conditions).group_by(Citizen.gender)
-        ).all()
-        lines.append("")
-        lines.append("Jins bo'yicha:")
-        for name, value in rows:
-            lines.append(f"• {name}: {value}")
-
-    lines.append("")
-    link_parts = []
-    if len(facets["social"]) == 1:
-        link_parts.append(f"social_status={facets['social'][0]}")
-    if facets["employment"]:
-        link_parts.append(f"employment_status={facets['employment']}")
-    query = "&".join(link_parts)
-    if query:
-        lines.append(f"Ro'yxatni ko'rish: Fuqarolar bo'limida ({query.replace('=', ': ')}) — filtrlarni qo'llab ko'rishingiz mumkin.")
-    lines.append("Manba: fuqarolar bazasi — ma'lumot oxirgi yuklash holatiga mos.")
+    Barcha mantiq `app.services.data_query` modulida: filtr qiymatlari bazadan
+    `DISTINCT` bilan topiladi, shuning uchun baza o'zgartirilsa ham javob
+    har doim aniq va to'g'ri bo'ladi.
+    """
+    previous = _previous_data_facets(db, context.get("conversation_id"))
+    answer = data_query.build_answer(db, message, base_facets=previous)
+    payload = answer.payload
     return {
-        "text": "\n".join(lines),
-        "sources": [{"type": "database", "label": "Fuqarolar bazasi (SQL hisob)", "as_of": _now().isoformat(), "facets": data_payload["facets"]}],
+        "text": answer.text,
+        "sources": [
+            {
+                "type": "database",
+                "label": f"{answer.entity_label} bazasi (SQL hisob)",
+                "as_of": answer.as_of,
+                "facets": payload["facets"],
+            }
+        ],
         "drafts": [],
-        "data": data_payload,
+        "data": payload,
         "confidence": "high",
-        "warnings": [],
+        "warnings": answer.warnings,
     }
 
 
@@ -1053,9 +991,11 @@ MUHIM CHEKLOVLAR:
 - Siz shu tizimning bir qismisiz. Fuqarolar bazasi SHU TIZIMGA yuklangan bo'lishi mumkin —
   «ma'lumot tashqi tizimda» deb aytmang va tashqi tizim nomlarini (ISM, EMIS, Temir yo'l,
   dasturlar panellari va boshqalar) O'YL-TOPMANG va eslatma qilmang.
-- Aniq raqamlarni BILMAYSIZ — ularni o'ylab topmang. Raqamli savol bo'lsa: «Statistik savol
-  sifatida qayta yozing — masalan «Nogironligi bor fuqarolar soni» — men Hisobot agenti
-  orqali bazadan aniq hisoblab beraman» deb yo'naltiring.
+- Aniq raqam, ro'yxat yoki ism-familiya so'ralsa: ASLA raqam yoki ism o'ylab topmang.
+  Qisqa javob bering: «Bu savol statistika agentiga yuborildi — javob bazadan aniq hisoblanadi».
+  Savolni «qayta yozib bering» yoki «filtrlarni qo'llang» deb chetlab yubormang.
+- Foydalanuvchidan ro'yxatni «o'zingiz qo'ying» yoki «filtrlardan o'ting» deb so'ramang —
+  tizim ro'yxatni ham, sonni ham o'zi qaytaradi.
 - Tizim bo'limlari: Fuqarolar (qidiruv+filtrlar), Hisobotlar, Vazifalar, Murojaatlar,
   Qonunchilik, Hujjatlar, Agentlar.
 - Siz quyidagilarni bajara olasiz: fuqaro/oila qidirish, murojaat-vazifa nazorati,

@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.pagination import PageMeta, paginate
-from app.core.time import now_local, today_local
-from app.models import AuditLog, Case, Citizen, Family, House, Mahalla, Street, Task, WorkLog
+from app.core.time import today_local
+from app.models import AuditLog, Case, Citizen, Family, House, Mahalla, Street, Task
 from app.services.serializers import case_out, task_out
 
 

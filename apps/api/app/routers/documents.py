@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import io
 import json
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import Response
@@ -11,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.deps import require_csrf_and_permission, require_permission
-from app.core.errors import bad_request, not_found
+from app.core.errors import not_found
 from app.models import ImportBatch, User
 from app.schemas import ExportRequest, ImportCommitRequest, MessageResponse
 from app.services import documents as service
