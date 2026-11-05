@@ -246,6 +246,18 @@ def family_member_count(db: Session, family_id: str | None) -> int:
     )
 
 
+def _document_citizen_filter(db: Session, citizen_id: str):
+    """Hujjatni fuqaro bo'yicha filtrlaydi (N-6).
+
+    `meta ->> 'citizen_id'` — faqat PostgreSQL JSONB sintaksisi. Testlarda
+    SQLite ishlatiladi — u yerda JSON matn ichidan izlanadi (`LIKE`).
+    """
+    if db.get_bind().dialect.name == "postgresql":
+        return Document.meta.op("->>")("citizen_id") == citizen_id
+    # SQLite: JSON ustun oddiy TEXT — matn ichida izlash (kichik hajm).
+    return Document.meta.like(f'%"citizen_id": "{citizen_id}"%')
+
+
 def get_citizen_detail(db: Session, citizen_id: str) -> dict:
     citizen = get_citizen(db, citizen_id)
     quality = citizen_quality(citizen, duplicate_risk_for(db, citizen))
@@ -269,8 +281,7 @@ def get_citizen_detail(db: Session, citizen_id: str) -> dict:
         .order_by(WorkLog.occurred_at.desc())
     ).scalars().all()
     documents = db.execute(
-        select(Document)
-        .where(Document.meta.op("->>")("citizen_id") == citizen_id)
+        select(Document).where(_document_citizen_filter(db, citizen_id))
         .order_by(Document.created_at.desc())
     ).scalars().all()
     audit_rows = db.execute(
