@@ -450,6 +450,10 @@ class Conversation(Base):
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("CONV"))
     title: Mapped[str] = mapped_column(String(240), default="Yangi suhbat")
+    # Egasining foydalanuvchi ID'si (NULL — egasi aniqlanmagan, faqat admin ko'radi).
+    user_id: Mapped[Optional[str]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

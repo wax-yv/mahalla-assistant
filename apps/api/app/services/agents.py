@@ -1042,13 +1042,20 @@ def _conversation_title(message: str) -> str:
 
 
 def _get_or_create_conversation(
-    db: Session, conversation_id: str | None, message: str
+    db: Session,
+    conversation_id: str | None,
+    message: str,
+    actor: str | None = None,
+    is_admin: bool = False,
 ) -> Conversation:
     if conversation_id:
         conversation = db.get(Conversation, conversation_id)
         if conversation is not None:
+            if not _conversation_visible(conversation, actor, is_admin):
+                # Boshqa foydalanuvchining suhbatiga kirish — 404 (IDOR yashiriladi)
+                raise not_found("Suhbat topilmadi.")
             return conversation
-    conversation = Conversation(title=_conversation_title(message))
+    conversation = Conversation(title=_conversation_title(message), user_id=actor)
     db.add(conversation)
     db.flush()
     return conversation
@@ -1078,11 +1085,14 @@ def chat(
     request_id: str | None = None,
     preferred_provider: str | None = None,
     preferred_model: str | None = None,
+    is_admin: bool = False,
 ) -> dict[str, Any]:
     message = (message or "").strip()
     if not message:
         raise bad_request("Xabar matni bo'sh bo'lishi mumkin emas.")
-    conversation = _get_or_create_conversation(db, conversation_id, message)
+    conversation = _get_or_create_conversation(
+        db, conversation_id, message, actor=actor, is_admin=is_admin
+    )
     if conversation.archived_at is not None:
         conversation.archived_at = None
     user_message = ConversationMessage(
@@ -1248,12 +1258,47 @@ def chat(
     }
 
 
-def list_conversations(db: Session, limit: int = 40) -> list[dict[str, Any]]:
+def _conversation_visible(
+    conversation: Conversation, user_id: str | None, is_admin: bool
+) -> bool:
+    """Suhbat egaligi: egasi yoki admin. `user_id IS NULL` — faqat admin."""
+    if is_admin:
+        return True
+    if conversation.user_id is None:
+        return False
+    return conversation.user_id == user_id
+
+
+def _owned_conversation(
+    db: Session, conversation_id: str, user_id: str | None, is_admin: bool
+) -> Conversation:
+    """Suhbatni yuklaydi va egaligini tekshiradi (IDOR himoyasi)."""
+    conversation = db.get(Conversation, conversation_id)
+    if conversation is None or not _conversation_visible(conversation, user_id, is_admin):
+        # IDOR oshkor qilinmasin — 404
+        raise not_found("Suhbat topilmadi.")
+    return conversation
+
+
+def ensure_conversation_access(
+    db: Session, conversation_id: str, user_id: str | None, is_admin: bool
+) -> Conversation:
+    """Suhbatga kirish huquqini tekshiradi (404 — IDOR oshkor qilinmaydi)."""
+    return _owned_conversation(db, conversation_id, user_id, is_admin)
+
+
+def list_conversations(
+    db: Session,
+    limit: int = 40,
+    user_id: str | None = None,
+    is_admin: bool = False,
+) -> list[dict[str, Any]]:
+    stmt = select(Conversation).where(Conversation.archived_at.is_(None))
+    if not is_admin:
+        # Faqat o'z suhbatlari (egasi aniqlanmaganlar faqat admin uchun).
+        stmt = stmt.where(Conversation.user_id == user_id)
     conversations = db.execute(
-        select(Conversation)
-        .where(Conversation.archived_at.is_(None))
-        .order_by(Conversation.updated_at.desc())
-        .limit(limit)
+        stmt.order_by(Conversation.updated_at.desc()).limit(limit)
     ).scalars().all()
     result = []
     for conversation in conversations:
@@ -1284,10 +1329,13 @@ def list_conversations(db: Session, limit: int = 40) -> list[dict[str, Any]]:
     return result
 
 
-def get_conversation(db: Session, conversation_id: str) -> dict[str, Any]:
-    conversation = db.get(Conversation, conversation_id)
-    if conversation is None:
-        raise not_found("Suhbat topilmadi.")
+def get_conversation(
+    db: Session,
+    conversation_id: str,
+    user_id: str | None = None,
+    is_admin: bool = False,
+) -> dict[str, Any]:
+    conversation = _owned_conversation(db, conversation_id, user_id, is_admin)
     messages = db.execute(
         select(ConversationMessage)
         .where(ConversationMessage.conversation_id == conversation.id)
@@ -1330,19 +1378,50 @@ def get_conversation(db: Session, conversation_id: str) -> dict[str, Any]:
     }
 
 
-def create_conversation(db: Session, title: str = "Yangi suhbat") -> Conversation:
-    conversation = Conversation(title=(title or "Yangi suhbat")[:200])
+def create_conversation(
+    db: Session, title: str = "Yangi suhbat", user_id: str | None = None
+) -> Conversation:
+    conversation = Conversation(title=(title or "Yangi suhbat")[:200], user_id=user_id)
     db.add(conversation)
     db.commit()
     db.refresh(conversation)
     return conversation
 
 
-def delete_conversation(db: Session, conversation_id: str) -> dict[str, Any]:
-    """Suhbatni xabarlari va draftlari bilan butunlay o'chirish."""
-    conversation = db.get(Conversation, conversation_id)
-    if conversation is None:
-        raise not_found("Suhbat topilmadi.")
+def delete_conversation(
+    db: Session,
+    conversation_id: str,
+    user_id: str | None = None,
+    is_admin: bool = False,
+    purge: bool = False,
+) -> dict[str, Any]:
+    """Suhbatni arxivlaydi. To'liq o'chirish (purge) faqat admin uchun.
+
+    O'chirish o'rniga arxivlash: audit izi va workflowlar saqlanadi.
+    """
+    conversation = _owned_conversation(db, conversation_id, user_id, is_admin)
+    if purge:
+        if not is_admin:
+            from app.core.errors import forbidden
+
+            raise forbidden("Suhbatni to'liq o'chirish faqat administrator uchun.")
+        return _purge_conversation(db, conversation)
+    conversation.archived_at = _now()
+    write_audit(
+        db,
+        action="conversation.archived",
+        entity_type="conversation",
+        entity_id=conversation_id,
+        actor_id=user_id,
+        new_value={"archived": True},
+    )
+    db.commit()
+    return {"ok": True, "archived": conversation_id, "purged": False}
+
+
+def _purge_conversation(db: Session, conversation: Conversation) -> dict[str, Any]:
+    """Suhbatni xabarlari va draftlari bilan butunlay o'chirish (faqat admin)."""
+    conversation_id = conversation.id
     workflows = db.execute(
         select(AgentWorkflow).where(AgentWorkflow.conversation_id == conversation_id)
     ).scalars().all()
@@ -1364,17 +1443,20 @@ def delete_conversation(db: Session, conversation_id: str) -> dict[str, Any]:
         action="conversation.deleted",
         entity_type="conversation",
         entity_id=conversation_id,
-        actor_id=None,
+        actor_id=conversation.user_id,
         new_value={"purged": True},
     )
     db.commit()
-    return {"ok": True, "deleted": conversation_id}
+    return {"ok": True, "deleted": conversation_id, "purged": True}
 
 
-def archive_conversation(db: Session, conversation_id: str) -> Conversation:
-    conversation = db.get(Conversation, conversation_id)
-    if conversation is None:
-        raise not_found("Suhbat topilmadi.")
+def archive_conversation(
+    db: Session,
+    conversation_id: str,
+    user_id: str | None = None,
+    is_admin: bool = False,
+) -> Conversation:
+    conversation = _owned_conversation(db, conversation_id, user_id, is_admin)
     conversation.archived_at = _now()
     db.commit()
     db.refresh(conversation)

@@ -59,18 +59,22 @@ def chat(
 def conversations(
     limit: int = Query(40, ge=1, le=100),
     db: Session = Depends(get_db),
-    _=Depends(require_permission("agents.use")),
+    user: User = Depends(require_permission("agents.use")),
 ):
-    return {"items": service.list_conversations(db, limit=limit)}
+    return {
+        "items": service.list_conversations(
+            db, limit=limit, user_id=user.id, is_admin=user.role == "admin"
+        )
+    }
 
 
 @router.post("/conversations", status_code=201)
 def create_conversation(
     payload: ConversationCreate,
     db: Session = Depends(get_db),
-    _=Depends(require_csrf_and_permission("agents.use")),
+    user: User = Depends(require_csrf_and_permission("agents.use")),
 ):
-    row = service.create_conversation(db, payload.title)
+    row = service.create_conversation(db, payload.title, user_id=user.id)
     return {
         "id": row.id,
         "title": row.title,
@@ -86,9 +90,11 @@ def create_conversation(
 def conversation(
     conversation_id: str,
     db: Session = Depends(get_db),
-    _=Depends(require_permission("agents.use")),
+    user: User = Depends(require_permission("agents.use")),
 ):
-    return service.get_conversation(db, conversation_id)
+    return service.get_conversation(
+        db, conversation_id, user_id=user.id, is_admin=user.role == "admin"
+    )
 
 
 @router.delete("/conversations/{conversation_id}")
@@ -96,12 +102,18 @@ def delete_conversation(
     conversation_id: str,
     purge: bool = False,
     db: Session = Depends(get_db),
-    _=Depends(require_csrf_and_permission("agents.use")),
+    user: User = Depends(require_csrf_and_permission("agents.use")),
 ):
+    is_admin = user.role == "admin"
     if purge:
-        return service.delete_conversation(db, conversation_id)
-    row = service.archive_conversation(db, conversation_id)
-    return {"ok": True, "id": row.id}
+        return service.delete_conversation(
+            db, conversation_id, user_id=user.id, is_admin=is_admin, purge=True
+        )
+    # Oddiy "o'chirish" — o'chirish emas, arxivlash (audit izi saqlanadi).
+    result = service.delete_conversation(
+        db, conversation_id, user_id=user.id, is_admin=is_admin, purge=False
+    )
+    return {"ok": True, "id": result.get("archived"), **result}
 
 
 @router.get("/drafts")

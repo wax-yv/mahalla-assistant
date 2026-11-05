@@ -88,6 +88,16 @@ curl https://<api-url>/api/v1/setup/status
 ## 4. Yakuniy sozlash
 
 - API loyihasida `FRONTEND_URL` va `APP_BASE_URL` ni 3-qadamdagi haqiqiy URL bilan yangilab, **Redeploy** qiling (CORS uchun).
+- **Sxema migratsiyasi (majburiy):** repoda Alembic yo'q va `create_all()` mavjud jadvalga yangi ustun qo'shmaydi. Shu sababli bazadagi o'zgarishlarni `scripts/migrate.sql` orqali qo'lda bajarish kerak:
+  ```bash
+  psql "$DATABASE_URL" -f scripts/migrate.sql
+  ```
+  Neon/Supabase SQL editor'ida `scripts/migrate.sql` faylini ochib butunlay bajarish ham mumkin. Skript `IF NOT EXISTS` bilan himoyalangan — bir necha marta ishga tushirsa ham xato bermaydi. hozirgi migrate.sql tarkibi:
+  - **K-8** — `conversations.user_id` ustuni + indeks (suhbat egalik nazorati / IDOR himoyasi);
+  - **J-6** — `citizens.data_source` uzunligi `VARCHAR(255)` ga kengaytirilgan;
+  - **N-10** — `memory_items (key, conversation_id)` bo'yicha unikal indeks.
+
+  > Eslatma: `create_all()` faqat jadvallarni yaratadi, mavjud jadvallarga ustun **qo'shmaydi**. Shu sababli migratsiyani skip qilish K-8 ni ishlashdan to'xtatadi (suhbat egaligi `user_id` siz saqlanmaydi).
 - **Cron:** `apps/api/vercel.json` da Vercel Cron sozlamasi bor — `GET /api/v1/cron/run-due` har kuni 04:00 UTC (09:00 Toshkent) chaqiriladi. Endpoint `Authorization: Bearer <CRON_SECRET>` sarlavhasini talab qiladi; `CRON_SECRET` env o'zgaruvchisi bo'lmasa yoki `change-me` bo'lsa endpoint **503** qaytaradi (o'chirilgan holat). Qo'lda sinash:
   ```bash
   curl -H "Authorization: Bearer $CRON_SECRET" https://<api-url>/api/v1/cron/run-due

@@ -5,7 +5,9 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.deps import require_permission
+from app.models import User
 from app.schemas import ProgramCompareRequest, ProgramMatchRequest
+from app.services import agents as agents_service
 from app.services import programs as service
 
 router = APIRouter(prefix="/programs", tags=["programs"])
@@ -31,8 +33,13 @@ def organizations(db: Session = Depends(get_db), _=Depends(require_permission("r
 def preference(
     conversation_id: str,
     db: Session = Depends(get_db),
-    _=Depends(require_permission("agents.use")),
+    user: User = Depends(require_permission("agents.use")),
 ):
+    # K-8: suhbat tanlovi (bank) boshqa foydalanuvchining suhbatidan
+    # o'qilmasligi kerak — egalik tekshiriladi.
+    agents_service.ensure_conversation_access(
+        db, conversation_id, user_id=user.id, is_admin=user.role == "admin"
+    )
     return {"preference": service.get_preference(db, conversation_id)}
 
 
