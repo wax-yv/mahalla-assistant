@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.audit import model_snapshot, write_audit
 from app.core.config import settings
-from app.core.downloads import safe_cell
+from app.core.downloads import safe_cell, safe_filename_part
 from app.core.errors import (
     bad_request,
     not_found,
@@ -53,6 +53,8 @@ MIME_BY_KIND: dict[str, str] = {
 }
 # O-10: ZIP (xlsx/docx) ichidagi ochilgan hajm chegarasi — zip-bomba himoyasi.
 MAX_ZIP_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+# O-17: ruxsat etilgan eksport formatlari.
+EXPORT_FORMATS: frozenset[str] = frozenset({"xlsx", "csv", "docx", "pdf"})
 MODULE_ALIASES: dict[str, list[str]] = {
     "full_name": ["f.i.sh.", "fish", "f.i.sh", "full_name", "ism", "fuqaro", "fio"],
     "gender": ["jinsi", "gender", "jins"],
@@ -1410,11 +1412,20 @@ def _module_rows(db: Session, module: str, filters: dict[str, Any]) -> list[list
 
 
 def export_module(db: Session, module: str, fmt: str, filters: dict[str, Any]) -> tuple[bytes, str, str]:
+    # O-17: format oldindan tekshiriladi — noma'lum format 500 (KeyError)
+    # emas, 422 beradi.
+    if fmt not in EXPORT_FORMATS:
+        raise validation_error(
+            "Format qo'llab-quvvatlanmaydi. Ruxsat etilgan formatlar: "
+            + ", ".join(sorted(EXPORT_FORMATS))
+            + "."
+        )
     headers = _headers_for(module)
     rows = _module_rows(db, module, filters)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
-    safe = {"xlsx": "xlsx", "csv": "csv", "docx": "docx", "pdf": "pdf"}[fmt]
-    name = f"{module}-{stamp}.{safe}"
+    safe = fmt
+    # O-17: modul nomi fayl nomiga xavfsiz tarzda o'tadi.
+    name = f"{safe_filename_part(module)}-{stamp}.{safe}"
     if fmt == "csv":
         buffer = io.StringIO()
         writer = csv.writer(buffer)

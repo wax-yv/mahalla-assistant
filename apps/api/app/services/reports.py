@@ -9,7 +9,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import model_snapshot, write_audit
-from app.core.downloads import safe_cell
+from app.core.downloads import safe_cell, safe_filename_part
 from app.core.errors import forbidden, not_found, validation_error
 from app.core.pagination import paginate
 from app.core.time import period_bounds, today_local
@@ -32,6 +32,9 @@ TYPE_LABELS = {
     "overdue": "Kechikkan vazifalar hisoboti",
     "data_quality": "Ma'lumot sifati hisoboti",
 }
+
+# O-17: ruxsat etilgan hisobot eksport formatlari.
+REPORT_EXPORT_FORMATS: frozenset[str] = frozenset({"xlsx", "docx", "pdf"})
 
 
 def _distribution(db: Session, column, limit: int = 20) -> list[dict]:
@@ -479,9 +482,17 @@ def _report_rows(report: Report) -> list[tuple[str, list[tuple[str, Any]]]]:
 def export_report(db: Session, report_id: str, fmt: str) -> tuple[bytes, str, str]:
     import io
 
+    # O-17: format oldindan tekshiriladi — noma'lum formatda aniq xato.
+    if fmt not in REPORT_EXPORT_FORMATS:
+        raise validation_error(
+            "Format qo'llab-quvvatlanmaydi. Ruxsat etilgan formatlar: "
+            + ", ".join(sorted(REPORT_EXPORT_FORMATS))
+            + "."
+        )
     report = get_report(db, report_id)
     stamp = report.period_end.strftime("%Y%m%d")
-    base = f"hisobot-{report.type}-{stamp}"
+    # O-17: hisobot turi fayl nomiga xavfsiz tarzda o'tadi.
+    base = f"hisobot-{safe_filename_part(report.type, fallback='hisobot')}-{stamp}"
     rows = _report_rows(report)
     if fmt == "xlsx":
         from openpyxl import Workbook

@@ -42,6 +42,19 @@ def safe_cell(value: Any) -> Any:
     return value
 
 
+def safe_filename_part(value: str, *, fallback: str = "eksport", max_length: int = 60) -> str:
+    """Fayl nomi komponenti — yo'l elementlari va maxsus belgilar olib tashlanadi.
+
+    O-17: eksport fayl nomi ma'lumotdan (`report.type`, `module`) yig'iladi.
+    `../../etc/passwd` yoki `a"; filename="b` kabi qiymatlar sarlavhani buzishi
+    yoki yo'l traversali yaratishi mumkin. Shu sababli faqat harf, raqam,
+    chiziq va pastki chiziq qoladi.
+    """
+    raw = (value or "").strip()
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", raw).strip("_")
+    return cleaned[:max_length].strip("_") or fallback
+
+
 def content_disposition(filename: str, *, fallback: str = "file") -> str:
     """Xavfsiz `Content-Disposition` sarlavha qiymati.
 

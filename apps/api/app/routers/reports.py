@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -72,7 +74,9 @@ def approve_report(
 @router.get("/{report_id}/export")
 def export_report(
     report_id: str,
-    format: str = Query("docx"),
+    # O-17: format `Literal` bilan tekshiriladi — FastAPI noma'lum formatda
+    # avtomatik 422 beradi (500 emas).
+    format: Literal["xlsx", "docx", "pdf"] = Query("docx"),
     db: Session = Depends(get_db),
     _=Depends(require_permission("reports.export")),
 ):

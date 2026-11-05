@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import Response
@@ -183,7 +184,8 @@ def rollback_import(
 @router.get("/exports/{module}")
 def export_module_get(
     module: str,
-    format: str = Query("xlsx"),
+    # O-17: format `Literal` bilan tekshiriladi — noma'lum formatda 422.
+    format: Literal["xlsx", "csv", "docx", "pdf"] = Query("xlsx"),
     filters: str | None = None,
     db: Session = Depends(get_db),
     _=Depends(require_permission("documents.export")),
