@@ -11,6 +11,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 
+
 def _json_default(value):
     import decimal
     import uuid
@@ -64,12 +65,12 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 def init_db() -> None:
-    from app import models  # noqa: F401
+    from app import models
 
     Base.metadata.create_all(bind=engine)
 
 def schema_ready() -> bool:
-    from app import models  # noqa: F401
+    from app import models
 
     try:
         with engine.connect() as conn:

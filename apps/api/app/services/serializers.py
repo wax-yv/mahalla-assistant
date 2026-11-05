@@ -14,6 +14,7 @@ from app.models import (
     WorkLog,
 )
 
+
 def address_for_citizen(citizen: Citizen) -> dict | None:
     family = citizen.family
     if not family or not family.house:

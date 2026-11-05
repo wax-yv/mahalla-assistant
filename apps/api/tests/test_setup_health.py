@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import pytest
-
 from app.core.errors import APIError
+
 
 def test_setup_status_returns_only_setup_required(client):
     response = client.get("/api/v1/setup/status")

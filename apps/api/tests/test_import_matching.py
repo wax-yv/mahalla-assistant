@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import delete, select
-
 from app.core.db import SessionLocal
 from app.models import Citizen, Document, DocumentBlob, Family, House, ImportBatch, Street
+from sqlalchemy import delete, select
 
 HEADER = "F.I.Sh.,Jinsi,Tug'ilgan sana,Telefon,Mahalla,Ko'cha,Uy raqami,Oila ID,Oiladagi o'rni"
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import pytest
-
 from app.core.config import settings
+
 
 @pytest.fixture()
 def fake_secret(monkeypatch):

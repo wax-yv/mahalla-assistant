@@ -103,7 +103,7 @@ def _column_max_length(table: str, column: str) -> int | None:
                     if str(row[1]) == column:
                         value = row[2]
                         break
-            else:  # pragma: no cover - boshqa dialektlar
+            else:
                 value = None
     except Exception:
         value = None
@@ -442,7 +442,10 @@ def validate_records(
     seen_keys: set[tuple[str, str]] = set()
 
     for index, record in enumerate(records, start=1):
-        get = lambda key: record.get(mapping.get(key, "")) if mapping.get(key) else None  # noqa: E731
+        def get(key: str):
+            if mapping.get(key):
+                return record.get(mapping.get(key))
+            return None
         full_name = _clean(get("full_name"))
         if not full_name or len(full_name.split()) < 2:
             errors.append(

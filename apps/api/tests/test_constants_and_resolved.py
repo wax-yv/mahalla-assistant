@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import delete
-
-from app.core.constants import INTENTS, CASE_TRANSITIONS
+from app.core.constants import CASE_TRANSITIONS, INTENTS
 from app.core.db import SessionLocal
 from app.models import AuditLog, Case
+from sqlalchemy import delete
 
 MARKER = "N9sinov"
 

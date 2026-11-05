@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import func, select
-
 from app.core.db import SessionLocal
 from app.models import Citizen, Street
 from app.services import data_query
 from app.services.agents import detect_intent
+from sqlalchemy import func, select
+
 
 @pytest.mark.parametrize(
     "message",

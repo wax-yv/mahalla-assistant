@@ -24,8 +24,8 @@ from app.core.security import (
     session_expiry,
     verify_password,
 )
-from app.models import RateLimit, Session as SessionModel
-from app.models import User
+from app.models import RateLimit, User
+from app.models import Session as SessionModel
 
 LOGIN_LIMIT = 8
 LOGIN_WINDOW_MINUTES = 15
@@ -69,7 +69,7 @@ def _upsert_counter(db: Session, key: str, window: datetime) -> None:
         statement = sqlite_insert(RateLimit).values(
             key=key, window_start=window, count=1
         )
-    else:  # pragma: no cover - boshqa dialektlar
+    else:
         statement = None
 
     if statement is not None:

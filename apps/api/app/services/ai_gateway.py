@@ -78,7 +78,7 @@ def _provider_models(provider: str) -> tuple[bool, str, set[str]]:
             detail = f"Server javobi: HTTP {response.status_code}"
     except httpx.HTTPError as error:
         detail = f"Ulanmadi: {type(error).__name__}"
-    except Exception as error:  # pragma: no cover - himoya
+    except Exception as error:
         detail = f"Ulanmadi: {type(error).__name__}"
     _provider_models_cache[provider] = (now, ok, detail, frozenset(ids))
     return ok, detail, ids
@@ -264,7 +264,7 @@ def _settle_reservation(reservation_id: int | None) -> None:
                 row.status = "settled"
                 row.total_tokens = 0
                 session.commit()
-    except Exception:  # pragma: no cover — javob buzilmasin
+    except Exception:
         pass
 
 def usage_today(db: Session) -> dict[str, int]:

@@ -3,9 +3,9 @@ from __future__ import annotations
 import io
 
 import pytest
-
 from app.core.errors import APIError
 from app.services.documents import _detect_kind
+
 
 def _make_docx() -> bytes:
     from docx import Document
@@ -63,10 +63,9 @@ def test_broken_zip_is_rejected():
         _detect_kind("buzilgan.xlsx", b"PK\x03\x04" + b"\x00" * 32)
 
 def test_docx_upload_does_not_crash(auth):
-    from sqlalchemy import delete, select
-
     from app.core.db import SessionLocal
     from app.models import Document, DocumentBlob, ImportBatch
+    from sqlalchemy import delete, select
 
     client, token = auth
     response = client.post(

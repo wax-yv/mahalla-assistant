@@ -7,4 +7,4 @@ API_ROOT = Path(__file__).resolve().parents[1]
 if str(API_ROOT) not in sys.path:
     sys.path.insert(0, str(API_ROOT))
 
-from app.main import app  # noqa: E402,F401  (Vercel ASGI eksporti — olib tashlanMAYDI)
+from app.main import app

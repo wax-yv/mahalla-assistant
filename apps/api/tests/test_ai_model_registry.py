@@ -3,9 +3,9 @@ from __future__ import annotations
 import typing
 
 import httpx
-
 from app.core.config import settings
 from app.services import ai_gateway
+
 
 def test_registry_annotation_is_tuple_list():
     hints = typing.get_type_hints(ai_gateway)

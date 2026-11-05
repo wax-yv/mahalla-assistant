@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from sqlalchemy import func, select
-
 from app.core.db import SessionLocal
 from app.models import Citizen
+from sqlalchemy import func, select
+
 
 def test_health(client):
     response = client.get("/api/v1/health")
@@ -25,9 +25,8 @@ def test_login_wrong_password(client):
     assert response.status_code == 401
 
 def test_protected_requires_session(client):
-    from fastapi.testclient import TestClient
-
     from app.main import app as fastapi_app
+    from fastapi.testclient import TestClient
 
     fresh = TestClient(fastapi_app)
     assert fresh.get("/api/v1/citizens").status_code == 401
@@ -42,9 +41,8 @@ def test_csrf_required_for_writes(auth):
     assert delete_response.status_code == 403
 
 def test_unauthenticated_returns_401():
-    from fastapi.testclient import TestClient
-
     from app.main import app as fastapi_app
+    from fastapi.testclient import TestClient
 
     fresh = TestClient(fastapi_app)
     response = fresh.get("/api/v1/citizens")

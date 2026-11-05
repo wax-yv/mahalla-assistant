@@ -3,11 +3,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from sqlalchemy import delete, select
-
 from app.core.db import SessionLocal
 from app.core.time import TZ
 from app.models import JobRun, ScheduledJob
+from sqlalchemy import delete, select
 
 JOB_PREFIX = "j9-test-job"
 _SAVED_JOBS: list[tuple] = []

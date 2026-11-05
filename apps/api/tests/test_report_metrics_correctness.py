@@ -3,10 +3,9 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 import pytest
-from sqlalchemy import delete, select, text
-
 from app.core.db import SessionLocal
 from app.models import Case, Citizen, Family, House, Mahalla, Street, Task
+from sqlalchemy import delete, select, text
 
 MARKER = "N3sinov"
 STREET_A = f"{MARKER} Alpha ko'chasi"

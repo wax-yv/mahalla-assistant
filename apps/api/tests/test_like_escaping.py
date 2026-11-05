@@ -3,11 +3,10 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from sqlalchemy import delete
-
 from app.core.db import SessionLocal
 from app.core.search import escape_like, like_pattern
 from app.models import Citizen
+from sqlalchemy import delete
 
 MARKER = "D5sinov"
 

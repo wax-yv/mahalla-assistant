@@ -292,7 +292,7 @@ def _backup_data_column_exists() -> bool:
             elif dialect == "sqlite":
                 rows = conn.execute(text('PRAGMA table_info("backup_runs")')).all()
                 value = any(str(row[1]) == "data" for row in rows)
-            else:  # pragma: no cover - boshqa dialektlar
+            else:
                 value = False
     except Exception:
         value = False

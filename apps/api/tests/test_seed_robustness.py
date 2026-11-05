@@ -4,6 +4,7 @@ import inspect
 
 from app import seed
 
+
 def test_seed_has_no_external_absolute_path():
     source = inspect.getsource(seed)
     assert "/home/shohjahon" not in source, "absolyut lokal yo'l qolgan"

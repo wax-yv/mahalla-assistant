@@ -3,11 +3,10 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 import pytest
-from sqlalchemy import delete, select
-
 from app.core.audit import model_snapshot, sanitize, write_audit
 from app.core.db import SessionLocal
 from app.models import AuditLog, Citizen
+from sqlalchemy import delete, select
 
 TEST_USERNAME = "o14-kirish-sinovi"
 TEST_CITIZEN_NAME = "O14 sinov fuqarosi Alisher"

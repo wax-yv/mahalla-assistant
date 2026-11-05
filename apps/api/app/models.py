@@ -22,6 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base, JSONType, utcnow
 
+
 def new_id(prefix: str = "") -> str:
     value = uuid.uuid4().hex
     return f"{prefix}-{value}" if prefix else value

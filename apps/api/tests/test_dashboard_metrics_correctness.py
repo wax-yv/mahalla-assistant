@@ -3,10 +3,9 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 import pytest
-from sqlalchemy import delete, func, select
-
 from app.core.db import SessionLocal
 from app.models import AuditLog, Citizen, Task
+from sqlalchemy import delete, func, select
 
 MARKER = "N2sinov"
 EDUCATION_COUNT = 15

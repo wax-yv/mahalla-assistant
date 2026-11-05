@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.schemas import AppSettingsOut, AppSettingsUpdate
 from app.services.admin import ALLOWED_SETTINGS
 
+
 def test_settings_schema_covers_allowed():
     out_fields = set(AppSettingsOut.model_fields)
     update_fields = set(AppSettingsUpdate.model_fields)

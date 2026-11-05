@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import select
-
 from app.core.db import SessionLocal
 from app.models import Document
+from sqlalchemy import select
 
 MARKER = "D13sinov"
 

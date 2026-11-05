@@ -4,7 +4,6 @@ import io
 import zipfile
 
 import pytest
-
 from app.core.db import SessionLocal
 from app.core.errors import APIError
 from app.models import Document

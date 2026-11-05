@@ -586,7 +586,7 @@ def _query_citizens(db: Session, facets: Facets, limit: int) -> tuple[int, list[
             try:
                 if citizen.family and citizen.family.house:
                     address = citizen.family.house.address_label or ""
-            except Exception:  # pragma: no cover - ilişkisel yuklash nosozligi
+            except Exception:
                 address = ""
             badges: list[str] = []
             if citizen.social_status and normalize(citizen.social_status) not in {"yo'q", "-", ""}:
@@ -647,7 +647,7 @@ def _query_families(db: Session, facets: Facets, limit: int) -> tuple[int, list[
                 if family.house:
                     address = family.house.address_label or ""
                 members = len(family.members)
-            except Exception:  # pragma: no cover
+            except Exception:
                 pass
             out.append(
                 Row(
@@ -745,7 +745,7 @@ def _query_houses(db: Session, facets: Facets, limit: int) -> tuple[int, list[Ro
             try:
                 if house.street:
                     street_name = house.street.name
-            except Exception:  # pragma: no cover
+            except Exception:
                 street_name = ""
             out.append(
                 Row(

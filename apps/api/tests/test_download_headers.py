@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import delete
-
 from app.core.db import SessionLocal
 from app.core.downloads import content_disposition
 from app.models import Document, DocumentBlob
+from sqlalchemy import delete
+
 
 def test_unicode_filename_is_encoded():
     header = content_disposition("Oʻzbekiston_ro‘yxat.csv")

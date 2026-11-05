@@ -3,11 +3,10 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import delete, func, select
-
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.models import AIUsage
+from sqlalchemy import delete, func, select
 
 AGENT = "test-j16"
 

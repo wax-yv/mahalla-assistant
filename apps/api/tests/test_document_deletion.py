@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import delete, select
-
 from app.core.db import SessionLocal
 from app.core.errors import APIError
 from app.models import Document, DocumentBlob
 from app.services import documents as service
+from sqlalchemy import delete, select
 
 CSV_DATA = "Ism,Familiya,Jins\nTestovsinov,Testism,Erkak\n".encode("utf-8")
 

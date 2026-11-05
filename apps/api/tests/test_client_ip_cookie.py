@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import pytest
-from starlette.requests import Request
-
 from app.core import deps
 from app.core.config import settings
+from starlette.requests import Request
+
 
 def _request(headers: list[tuple[bytes, bytes]], client_host: str = "10.0.0.1") -> Request:
     scope = {

@@ -4,6 +4,7 @@ import inspect
 
 from app.services import agents, legislation
 
+
 def test_smalltalk_passes_provider_and_model():
     source = inspect.getsource(agents._smalltalk)
     assert "preferred_provider=" in source

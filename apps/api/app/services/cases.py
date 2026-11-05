@@ -22,6 +22,7 @@ from app.schemas import (
 )
 from app.services.serializers import case_out, task_out, work_log_out
 
+
 def _case_options():
     return joinedload(Case.citizen)
 

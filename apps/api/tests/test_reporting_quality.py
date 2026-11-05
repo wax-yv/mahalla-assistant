@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.services import reports
 
+
 def _period():
     from app.core.time import today_local
 

@@ -3,10 +3,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import delete, select
-
 from app.core.db import SessionLocal
 from app.models import RateLimit
+from sqlalchemy import delete, select
+
 
 @pytest.fixture(autouse=True)
 def _clean_rate_limits(monkeypatch):

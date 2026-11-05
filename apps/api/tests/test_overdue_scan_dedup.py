@@ -3,11 +3,10 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import delete, select
-
 from app.core.db import SessionLocal
 from app.core.time import today_local
 from app.models import Notification, ScheduledJob, Task
+from sqlalchemy import delete, select
 
 MARKER = "D14sinov"
 NOTIFY_TITLE = "Muddatidan oshgan vazifalar"

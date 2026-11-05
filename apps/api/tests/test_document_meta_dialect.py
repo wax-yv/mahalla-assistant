@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from sqlalchemy import select
-
 from app.core.db import SessionLocal
 from app.services import citizens as service
+from sqlalchemy import select
+
 
 def test_filter_uses_jsonb_on_postgresql():
     with SessionLocal() as db:

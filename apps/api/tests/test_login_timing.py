@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import pytest
-
 from app.core.db import SessionLocal
 from app.core.security import dummy_password_hash, verify_password
+
 
 class _FakeRequest:
 

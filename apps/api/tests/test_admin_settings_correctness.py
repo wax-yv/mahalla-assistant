@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import delete
-
 from app.core.db import SessionLocal
 from app.models import AppSetting, AuditLog
+from sqlalchemy import delete
+
 
 @pytest.fixture()
 def _settings():

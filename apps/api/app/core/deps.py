@@ -8,12 +8,13 @@ from fastapi import Depends, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
+from app.core.config import settings
 from app.core.db import get_db
 from app.core.errors import APIError, forbidden, unauthenticated
 from app.core.security import CSRF_HEADER, SESSION_COOKIE, hash_token, secure_compare
-from app.core.config import settings
 from app.models import Session as SessionModel
 from app.models import User
+
 
 def _commit_last_seen(session_id: str, seen_at: datetime) -> None:
     from app.core.db import SessionLocal
@@ -24,7 +25,7 @@ def _commit_last_seen(session_id: str, seen_at: datetime) -> None:
             if row is not None:
                 row.last_seen_at = seen_at
                 session.commit()
-    except Exception:  # pragma: no cover — monitoring maydoni, so'rov buzilmasin
+    except Exception:
         pass
 
 def client_ip(request: Request) -> str:

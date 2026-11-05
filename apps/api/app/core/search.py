@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 def escape_like(value: str | None) -> str:
     return (
         (value or "")

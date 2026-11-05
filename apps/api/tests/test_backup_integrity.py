@@ -4,10 +4,10 @@ import hashlib
 import json
 
 import pytest
-from sqlalchemy import delete, select
-
 from app.core.db import SessionLocal
 from app.models import BackupRun
+from sqlalchemy import delete, select
+
 
 @pytest.fixture()
 def clean_backups():

@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.core.config import settings
 from app.main import docs_paths
 
+
 def test_docs_paths_closed_in_production(monkeypatch):
     monkeypatch.setattr(settings, "app_env", "production")
     paths = docs_paths()

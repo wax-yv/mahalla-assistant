@@ -3,8 +3,8 @@ from __future__ import annotations
 import time
 
 import pytest
-
 from app.services import legislation as service
+
 
 def test_ask_does_not_sync_by_default(monkeypatch):
     calls: list[str] = []

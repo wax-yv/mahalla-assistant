@@ -3,11 +3,10 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
-from sqlalchemy import delete, func, select
-
 from app.core.db import SessionLocal
 from app.core.time import minus_years
 from app.models import AuditLog, Citizen
+from sqlalchemy import delete, func, select
 
 MARKER = "YoshSinov"
 

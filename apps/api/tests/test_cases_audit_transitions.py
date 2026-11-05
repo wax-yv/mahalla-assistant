@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import pytest
+from app.core.db import SessionLocal
+from app.models import AuditLog, Case, Citizen, Task, WorkLog
 from sqlalchemy import delete, select
 
-from app.core.db import SessionLocal
-from app.models import AuditLog, Citizen, Case, Task, WorkLog
 
 @pytest.fixture()
 def clean_tasks():

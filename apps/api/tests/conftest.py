@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import delete
-
 from app.core.db import SessionLocal
 from app.main import app
 from app.models import RateLimit
+from fastapi.testclient import TestClient
+from sqlalchemy import delete
+
 
 def clear_login_limit() -> None:
     with SessionLocal() as db:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
@@ -14,8 +15,6 @@ from app.schemas import (
     TaskUpdate,
     WorkLogCreate,
 )
-from pydantic import BaseModel, Field
-
 from app.services import cases as service
 
 router = APIRouter(tags=["cases"])

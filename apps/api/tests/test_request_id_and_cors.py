@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+from app.core.config import settings
+from app.main import install_middleware, request_id_for
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.core.config import settings
-from app.main import install_middleware, request_id_for
 
 class _FakeRequest:
     def __init__(self, headers: dict[str, str]):

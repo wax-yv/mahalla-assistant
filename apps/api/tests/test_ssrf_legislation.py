@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import pytest
-
 from app.core.errors import APIError
 from app.core.urls import validate_lex_host, validate_lex_url
+
 
 @pytest.mark.parametrize(
     "url",
@@ -84,7 +84,6 @@ def test_sync_endpoint_rejects_ssrf_url(auth):
 
 def test_https_redirect_to_internal_is_blocked(auth, monkeypatch):
     import httpx
-
     from app.services import legislation as service
 
     api_client, token = auth

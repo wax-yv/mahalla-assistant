@@ -30,6 +30,7 @@ from app.routers import (
     setup,
 )
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -93,7 +94,7 @@ def install_middleware(application: FastAPI) -> None:
         request.state.request_id = request_id
         try:
             response = await call_next(request)
-        except Exception as exc:  # noqa: BLE001 — 500 javob CORS bilan
+        except Exception as exc:
             response = server_error_response(request, exc)
         response.headers["X-Request-ID"] = request_id
         response.headers["X-Content-Type-Options"] = "nosniff"

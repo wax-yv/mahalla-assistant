@@ -4,6 +4,7 @@ import inspect
 
 from app.services import agents
 
+
 def test_smalltalk_system_forbids_fabricating_facts():
     system = agents.SMALLTALK_SYSTEM
     lowered = system.lower()

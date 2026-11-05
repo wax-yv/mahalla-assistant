@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any
-import re
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError

@@ -3,10 +3,9 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from sqlalchemy import delete, select
-
 from app.core.db import SessionLocal
 from app.models import AuditLog, Citizen, MemoryItem, Program
+from sqlalchemy import delete, select
 
 MARKER = "N10sinov"
 

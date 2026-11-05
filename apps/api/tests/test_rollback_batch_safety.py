@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import delete, select
-
 from app.core.db import SessionLocal
 from app.models import AuditLog, Citizen, Document, ImportBatch, ImportChange
+from sqlalchemy import delete, select
 
 MARKER = "N11sinov"
 
@@ -98,11 +97,11 @@ def test_rollback_survives_row_failure(clean):
                 raise RuntimeError("sinov xatosi")
             return original_get(*args, **kwargs)
 
-        db.get = _flaky_get  # type: ignore[method-assign]
+        db.get = _flaky_get
         try:
             result = rollback_batch(db, batch_id, "tester", None)
         finally:
-            db.get = original_get  # type: ignore[method-assign]
+            db.get = original_get
 
         assert result["batch"]["status"] == "rolled_back"
         db.commit()

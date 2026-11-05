@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import delete, select
-
 from app.core.db import SessionLocal
 from app.models import Conversation, User
+from sqlalchemy import delete, select
+
 
 def _ensure_user(username: str, role: str, permissions: list[str]) -> str:
     from app.core.security import hash_password

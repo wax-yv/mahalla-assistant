@@ -5,10 +5,9 @@ import io
 from datetime import date
 
 import pytest
-from sqlalchemy import delete, select
-
 from app.core.db import SessionLocal
 from app.models import Citizen, Report
+from sqlalchemy import delete, select
 
 MALICIOUS_NAME = "=cmd|' /C calc'!A0 O15sinov"
 MALICIOUS_NOTE = "@SUM(1+1)*cmd|' /C calc'!A0"
@@ -155,9 +154,8 @@ def test_export_citizens_csv_helper_is_safe(clean_rows):
     assert matched[0][name_index].startswith("'")
 
 def test_xlsx_export_does_not_write_formula(clean_rows):
-    from openpyxl import load_workbook
-
     from app.services import documents as service
+    from openpyxl import load_workbook
 
     citizen_id = _make_citizen()
     with SessionLocal() as db:
@@ -183,9 +181,8 @@ def test_xlsx_export_does_not_write_formula(clean_rows):
         assert str(cell.value).startswith("'"), f"niqolanmadi: {cell.value!r}"
 
 def test_xlsx_export_keeps_numeric_cells_numeric(clean_rows):
-    from openpyxl import load_workbook
-
     from app.services import documents as service
+    from openpyxl import load_workbook
 
     with SessionLocal() as db:
         data, _name, _mime = service.export_module(db, "families", "xlsx", {})
@@ -202,9 +199,8 @@ def test_xlsx_export_keeps_numeric_cells_numeric(clean_rows):
     assert numeric, "sonlar ustuni raqam sifatida saqlanmadi"
 
 def test_report_export_does_not_write_formula(clean_rows):
-    from openpyxl import load_workbook
-
     from app.services import reports as report_service
+    from openpyxl import load_workbook
 
     report_id = _make_report(f"{MALICIOUS_NAME}\n\nIkkinchi paragraf.")
     with SessionLocal() as db:
@@ -221,9 +217,8 @@ def test_report_export_does_not_write_formula(clean_rows):
     assert not formulas, f"formulalar yozildi: {formulas}"
 
 def test_report_export_keeps_plain_narrative(clean_rows):
-    from openpyxl import load_workbook
-
     from app.services import reports as report_service
+    from openpyxl import load_workbook
 
     report_id = _make_report("Oddiy xulosa matni.")
     with SessionLocal() as db:

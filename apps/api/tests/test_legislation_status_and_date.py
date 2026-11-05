@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import date
 
+from app.services.legislation import _legal_status_from_html, _parse_effective_date
 from bs4 import BeautifulSoup
 
-from app.services.legislation import _legal_status_from_html, _parse_effective_date
 
 def test_active_status_from_dom_element():
     html = """

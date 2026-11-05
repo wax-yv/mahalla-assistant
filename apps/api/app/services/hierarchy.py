@@ -17,6 +17,7 @@ from app.services.serializers import (
     work_log_out,
 )
 
+
 def _family_eager():
     return (
         joinedload(Family.house)

@@ -4,11 +4,10 @@ from datetime import date
 from urllib.parse import unquote
 
 import pytest
-from sqlalchemy import delete
-
 from app.core.db import SessionLocal
 from app.core.errors import APIError
 from app.models import Report
+from sqlalchemy import delete
 
 REPORT_MARKER = "O17 sinov hisobili"
 

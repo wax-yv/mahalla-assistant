@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import pytest
-
 from app.services import ai_gateway
+
 
 @pytest.fixture()
 def _clean_cache():

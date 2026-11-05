@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import delete
-
 from app.core.db import SessionLocal
 from app.models import Citizen
 from app.services import agents
+from sqlalchemy import delete
 
 FAMILY = "Testovsinov"
 GIVEN = "Testism"

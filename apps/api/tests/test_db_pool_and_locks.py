@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import event, text
-
 from app.core import db as db_module
 from app.core.db import advisory_lock, engine
+from sqlalchemy import event, text
 
 LOCK_NAME = "o12-test-lock"
 

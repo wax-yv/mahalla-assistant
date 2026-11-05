@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.core.config import settings
 
+
 def test_max_upload_mb_is_below_platform_limit():
     assert settings.max_upload_mb <= 3.5
 

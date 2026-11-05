@@ -4,10 +4,9 @@ from contextlib import contextmanager
 from datetime import date
 
 import pytest
-from sqlalchemy import delete, event, select
-
 from app.core.db import SessionLocal, engine
 from app.models import Citizen, Conversation, ConversationMessage, Family, House, Mahalla, Street
+from sqlalchemy import delete, event, select
 
 MARKER = "N1sinov"
 
@@ -172,7 +171,8 @@ def test_list_conversations_uses_constant_queries(dataset):
     assert target["last_message"], target
 
 def test_agent_status_uses_few_queries(dataset, monkeypatch):
-    from app.services import ai_gateway, agents as service
+    from app.services import agents as service
+    from app.services import ai_gateway
 
     monkeypatch.setattr(ai_gateway, "provider_status", lambda live=True: [])
 

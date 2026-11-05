@@ -3,11 +3,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import delete, select
-
 from app.core.db import SessionLocal
 from app.models import Program, ProgramSource
 from app.services import scheduler
+from sqlalchemy import delete, select
 
 PREFIX = "J10 sinov dasturi"
 

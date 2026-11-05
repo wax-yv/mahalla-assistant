@@ -25,10 +25,12 @@ from app.models import (
     Family,
     House,
     ImportBatch,
-    ImportError as ImportErrorModel,
     Street,
     Task,
     WorkLog,
+)
+from app.models import (
+    ImportError as ImportErrorModel,
 )
 from app.schemas import (
     CaseCreate,

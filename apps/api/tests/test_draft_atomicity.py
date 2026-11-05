@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import delete, select
-
 from app.core.db import SessionLocal
 from app.models import AgentWorkflow, DraftAction, Task
+from sqlalchemy import delete, select
+
 
 @pytest.fixture()
 def clean_drafts():

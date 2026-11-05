@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import delete, func, select
-
 from app.core.db import SessionLocal
 from app.models import LegislationChunk, LegislationDocument, LegislationVersion
 from app.services import legislation as service
+from sqlalchemy import delete, func, select
 
 DOC_URL = "https://lex.uz/docs/J12-sinov-hujjati"
 

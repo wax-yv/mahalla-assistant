@@ -1,4 +1,3 @@
-# Python
 .venv/
 __pycache__/
 *.py[cod]
@@ -10,7 +9,6 @@ __pycache__/
 coverage.xml
 htmlcov/
 
-# Node / Next.js
 node_modules/
 .next/
 out/
@@ -19,29 +17,24 @@ dist/
 apps/web/.vercel/
 apps/api/.vercel/
 
-# Environment & secrets
 .env
 .env.local
 .env.*.local
 *.pem
 
-# Local database / runtime
 .pgdata/
 var/
 *.log
 *.sqlite
 *.sqlite3
 
-# Tests
 playwright-report/
 test-results/
 blob-report/
 
-# OS / editor
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
 
-# Generated build artefacts
 *.tsbuildinfo

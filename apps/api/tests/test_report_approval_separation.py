@@ -3,10 +3,9 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from sqlalchemy import delete, select
-
 from app.core.db import SessionLocal
 from app.models import Report, User
+from sqlalchemy import delete, select
 
 GENERATOR = "o16-generator"
 APPROVER = "o16-approver"

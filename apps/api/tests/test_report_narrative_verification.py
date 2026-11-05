@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from app.core.db import SessionLocal
 from app.schemas import ReportGenerateRequest
 from app.services import reports as service
@@ -68,9 +67,8 @@ def patched_metrics(monkeypatch):
 
 @pytest.fixture()
 def clean_reports():
-    from sqlalchemy import delete, select
-
     from app.models import Report, ReportRun
+    from sqlalchemy import delete, select
 
     def _cleanup():
         with SessionLocal() as db:

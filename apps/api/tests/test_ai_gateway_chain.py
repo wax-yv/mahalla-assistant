@@ -4,11 +4,11 @@ import time
 
 import httpx
 import pytest
-from sqlalchemy import delete, select
-
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.models import AIUsage
+from sqlalchemy import delete, select
+
 
 def _rows(agent: str = "test-j"):
     with SessionLocal() as db:
