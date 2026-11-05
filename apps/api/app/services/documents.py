@@ -338,6 +338,60 @@ def _role(value: Any) -> str:
     return text if text in allowed else "Farzand"
 
 
+def find_existing_citizen(
+    db: Session, row: dict[str, Any]
+) -> tuple[Citizen | None, str]:
+    """Import qatorini bazadagi fuqaro bilan moslashtiradi.
+
+    Tartib:
+      1. `existing_id` — validatsiya natijasi (eng ishonchli).
+      2. `full_name` + `birth_date` — shaxsning tabiiy kaliti.
+      3. Telefon — FAQAT tekshiruv uchun: aynan bitta nomzod bo'lsa va ism ham
+         mos kelsa. Telefon oila a'zolari orasida umumiy bo'lgani uchun
+         telefon bo'yicha moslashtirish hech qachon boshqa odamni
+         «ustidan yozmaydi».
+
+    Qaytaradi: (mos fuqaro yoki None, usul nomi).
+    Usul nomlari: "existing_id" | "name_birth" | "phone_name" | "ambiguous" | "new".
+    """
+    existing_id = row.get("existing_id")
+    if existing_id:
+        obj = db.get(Citizen, existing_id)
+        if obj is not None and obj.archived_at is None:
+            return obj, "existing_id"
+
+    name = (row.get("full_name") or "").strip()
+    birth = row.get("birth_date")
+    if isinstance(birth, str):
+        birth = _parse_birth(birth)
+    if name and birth:
+        candidates = db.execute(
+            select(Citizen).where(
+                Citizen.full_name == name,
+                Citizen.birth_date == birth,
+                Citizen.archived_at.is_(None),
+            )
+        ).scalars().all()
+        if len(candidates) == 1:
+            return candidates[0], "name_birth"
+        if len(candidates) > 1:
+            return None, "ambiguous"
+
+    phone = (row.get("phone") or "").strip()
+    if phone:
+        candidates = db.execute(
+            select(Citizen).where(
+                Citizen.phone == phone, Citizen.archived_at.is_(None)
+            )
+        ).scalars().all()
+        if len(candidates) == 1 and (candidates[0].full_name or "").strip() == name:
+            return candidates[0], "phone_name"
+        # 2+ nomzod yoki ism mos kelmadi — yangi yozuv yaratiladi,
+        # mavjud yozuv ustidan yozilmaydi.
+
+    return None, "new"
+
+
 def validate_records(
     db: Session, mapping: dict[str, str], records: list[dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
@@ -440,19 +494,31 @@ def validate_records(
                 }
             )
         seen_keys.add(duplicate_key)
-        existing = None
-        if phone:
-            existing = db.execute(
-                select(Citizen).where(Citizen.phone == phone, Citizen.archived_at.is_(None))
-            ).scalar_one_or_none()
-        if existing is None and birth:
-            existing = db.execute(
-                select(Citizen).where(
-                    Citizen.full_name == full_name,
-                    Citizen.birth_date == birth,
-                    Citizen.archived_at.is_(None),
-                )
-            ).scalar_one_or_none()
+        needs = _split_needs(get("needs"))
+        row = {
+            "row_number": index,
+            "existing_id": None,
+            "external_id": _clean(get("external_id")),
+            "full_name": full_name,
+            "gender": _gender(get("gender")),
+            "birth_date": birth,
+            "phone": phone,
+            "mahalla": _clean(get("mahalla"), "Mahalla"),
+            "street": _clean(get("street"), "Ko'cha"),
+            "house_number": _clean(get("house_number"), "1"),
+            "family_external_id": _clean(get("family_external_id")),
+            "family_role": _role(get("family_role")),
+            "education": _clean(get("education"), "O'rta"),
+            "employment_status": _clean(get("employment_status"), "Ishlamaydi"),
+            "profession": _clean(get("profession"), "Yo'q"),
+            "social_status": _clean(get("social_status"), "Yo'q"),
+            "needs": needs,
+            "notes": _clean(get("notes")),
+            "family_type": _clean(get("family_type")),
+        }
+        existing, match_method = find_existing_citizen(db, row)
+        row["existing_id"] = existing.id if existing else None
+        row["match_method"] = match_method
         if existing is not None:
             warnings.append(
                 {
@@ -464,30 +530,21 @@ def validate_records(
                     "severity": "warning",
                 }
             )
-        needs = _split_needs(get("needs"))
-        parsed.append(
-            {
-                "row_number": index,
-                "existing_id": existing.id if existing else None,
-                "external_id": _clean(get("external_id")),
-                "full_name": full_name,
-                "gender": _gender(get("gender")),
-                "birth_date": birth,
-                "phone": phone,
-                "mahalla": _clean(get("mahalla"), "Mahalla"),
-                "street": _clean(get("street"), "Ko'cha"),
-                "house_number": _clean(get("house_number"), "1"),
-                "family_external_id": _clean(get("family_external_id")),
-                "family_role": _role(get("family_role")),
-                "education": _clean(get("education"), "O'rta"),
-                "employment_status": _clean(get("employment_status"), "Ishlamaydi"),
-                "profession": _clean(get("profession"), "Yo'q"),
-                "social_status": _clean(get("social_status"), "Yo'q"),
-                "needs": needs,
-                "notes": _clean(get("notes")),
-                "family_type": _clean(get("family_type")),
-            }
-        )
+        elif match_method == "ambiguous":
+            errors.append(
+                {
+                    "row_number": index,
+                    "column": mapping.get("full_name"),
+                    "code": "AMBIGUOUS_CITIZEN",
+                    "message": (
+                        f"'{full_name}' ismi va tug'ilgan sanasi bo'yicha bazada bir nechta "
+                        "yozuv topildi — qaysi fuqaro ekanini aniqlashtiring."
+                    ),
+                    "raw_value": full_name,
+                    "severity": "error",
+                }
+            )
+        parsed.append(row)
     summary = {
         "total_rows": len(records),
         "valid_rows": len(parsed),
@@ -771,6 +828,7 @@ def commit_batch(
     changes = 0
     updates = 0
     family_cache: dict[tuple[str, str], Family] = {}
+    created_index: dict[tuple[str, str], str] = {}
     for row in parsed:
         mahalla = _get_or_create(
             db,
@@ -817,19 +875,16 @@ def commit_batch(
                 )
             family_cache[family_key] = family
         family = family_cache[family_key]
-        existing = db.get(Citizen, row["existing_id"]) if row["existing_id"] else None
-        if existing is None and row["phone"]:
-            existing = db.execute(
-                select(Citizen).where(Citizen.phone == row["phone"], Citizen.archived_at.is_(None))
-            ).scalar_one_or_none()
+        # Moslashtirish validate natijasidan olinadi (commit siklida qayta
+        # qidirilmaydi). Fayl ichida yaratilgan yozuvlar batch keshida saqlanadi.
+        existing = db.get(Citizen, row["existing_id"]) if row.get("existing_id") else None
         if existing is None:
-            existing = db.execute(
-                select(Citizen).where(
-                    Citizen.full_name == row["full_name"],
-                    Citizen.birth_date == row["birth_date"],
-                    Citizen.archived_at.is_(None),
-                )
-            ).scalar_one_or_none()
+            cached_id = created_index.get(
+                (row["full_name"], row["birth_date"].isoformat() if row["birth_date"] else "")
+            )
+            if cached_id:
+                existing = db.get(Citizen, cached_id)
+        match_method = (row.get("match_method") or "existing_id") if existing else "new"
         if existing is None:
             citizen = Citizen(
                 full_name=row["full_name"],
@@ -851,18 +906,25 @@ def commit_batch(
             db.add(citizen)
             db.flush()
             row["_created_citizen"] = citizen
+            created_index[
+                (row["full_name"], row["birth_date"].isoformat() if row["birth_date"] else "")
+            ] = citizen.id
             created.append(
                 {"entity_type": "citizens", "entity_id": citizen.id, "action": "create"}
             )
             changes += 1
         else:
             before = model_snapshot(existing)
-            existing.full_name = row["full_name"]
-            existing.gender = row["gender"]
-            existing.birth_date = row["birth_date"]
+            if match_method != "phone_name":
+                # Telefon bo'yicha moslashuvda shaxsning o'zgaruvchan
+                # identifikatorlari (ism, sana, jins, oiladagi o'rni)
+                # ustidan yozilmaydi.
+                existing.full_name = row["full_name"]
+                existing.gender = row["gender"]
+                existing.birth_date = row["birth_date"]
+                existing.family_role = row["family_role"]
             existing.phone = row["phone"] or existing.phone
             existing.family_id = family.id
-            existing.family_role = row["family_role"]
             existing.education = row["education"]
             existing.employment_status = row["employment_status"]
             existing.profession = row["profession"]
