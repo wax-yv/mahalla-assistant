@@ -769,6 +769,11 @@ class AppSettingsOut(BaseModel):
     scheduler_time: str = "21:00"
     backup_status: str = "unknown"
     demo_mode: bool = True
+    # J-15: `ALLOWED_SETTINGS` dagi maydonlar sxemada ham bo'lishi kerak —
+    # aks holda admin panelda ko'rinmaydi yoki javobdan kesilib qoladi.
+    mahalla: str = "Navbahor mahallasi"
+    district: str = "Urganch shahri"
+    region: str = "Xorazm viloyati"
 
 
 class AppSettingsUpdate(BaseModel):
@@ -780,6 +785,11 @@ class AppSettingsUpdate(BaseModel):
     ai_budget: int | None = None
     agents_enabled: dict[str, bool] | None = None
     scheduler_time: str | None = None
+    demo_mode: bool | None = None
+    # J-15: `ALLOWED_SETTINGS` bilan to'liq mos.
+    mahalla: str | None = None
+    district: str | None = None
+    region: str | None = None
 
 
 class HealthResponse(BaseModel):
