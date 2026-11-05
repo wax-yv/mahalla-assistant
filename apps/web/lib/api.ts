@@ -51,7 +51,7 @@ async function request<T>(path: string, options: RequestInit = {}, retry = true)
     unauthorizedHandler();
     throw new RequestError(401, { code: "UNAUTHENTICATED", message: "Sessiya tugagan" });
   }
-  if (response.status === 403 && retry && (await response.text()).includes("CSRF")) {
+  if (response.status === 403 && retry && (await response.clone().text()).includes("CSRF")) {
     const me = await fetch("/api/v1/auth/me", { credentials: "same-origin" });
     if (me.ok) {
       const data = await me.json();
@@ -97,8 +97,14 @@ export const api = {
     const a = document.createElement("a");
     a.href = url;
     a.download = filename;
+    a.rel = "noopener";
+    // D-9: `<a>` DOM'ga qo'shilmasa Safari/Firefox yuklab olishni
+    // to'xtatishi mumkin; obekt URL haqiqiy yuklanish tugagandan keyin
+    // bekor qilinadi (darhol revoke qilish yuklashni buzadi).
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   },
 };
 
