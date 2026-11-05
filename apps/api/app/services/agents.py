@@ -492,7 +492,7 @@ def _reporting(db: Session, message: str, context: dict[str, Any]) -> dict[str, 
     employment = metrics.get("employment", {})
     cases = metrics.get("cases", {})
     tasks = metrics.get("tasks", {})
-    quality = metrics.get("quality", {})
+    quality = metrics.get("data_quality", {})
     totals = metrics.get("totals", {})
     lines = [
         f"{label.capitalize()} uchun asosiy ko'rsatkichlar ({start.strftime('%d.%m.%Y')} — {end.strftime('%d.%m.%Y')}):",
