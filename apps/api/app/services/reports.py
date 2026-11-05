@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -169,21 +170,108 @@ Agar ma'lumot yetishmasa "ma'lumot mavjud emas" deb yozing. Rasmiy qaror vakolat
 
 
 def _fallback_narrative(report_type: str, metrics: dict[str, Any]) -> str:
-    totals = metrics["totals"]
-    employment = metrics["employment"]
-    tasks = metrics["tasks"]
-    cases = metrics["cases"]
-    quality = metrics["data_quality"]
+    """Deterministik xulosa — har doim metrikaga asoslanadi (O-13).
+
+    Kalitlar bo'lmasa ham xato bermaydi (`0` bilan to'ldiriladi) — hisobot
+    so'rovi 500 bilan uzilmasligi kerak.
+    """
+    totals = metrics.get("totals") or {}
+    employment = metrics.get("employment") or {}
+    tasks = metrics.get("tasks") or {}
+    cases = metrics.get("cases") or {}
+    quality = metrics.get("data_quality") or {}
+    period = metrics.get("period") or {}
     return "\n\n".join(
         [
-            f"{TYPE_LABELS.get(report_type, 'Hisobot')} {metrics['period']['start']} — {metrics['period']['end']} davri uchun shakllantirildi.",
-            f"Hisobot davrida {totals['citizens']} nafar fuqaro, {totals['families']} ta oila, {totals['houses']} ta uy va {totals['streets']} ta ko'cha hisobga olindi.",
-            f"Bandlik bo'yicha {employment['employed']} nafar fuqaro band, {employment['unemployed']} nafar fuqaro ishsiz. Bandlik darajasi {employment['employment_rate']} foizni tashkil etdi.",
-            f"Davr ichida {cases['total']} ta murojaat qayd etildi, ulardan {cases['open']} tasi hali yopilmagan. Vazifalar bo'yicha jami {tasks['total']} ta yozuv mavjud, {tasks['completed']} tasi bajarilgan, {tasks['overdue']} tasi muddatidan oshgan.",
-            f"Ma'lumotlar sifati ko'rsatkichi {quality['score']} foiz. {quality['incomplete']} nafar fuqaro yozuvida to'ldirilmagan maydonlar mavjud.",
+            f"{TYPE_LABELS.get(report_type, 'Hisobot')} {period.get('start', '')} — {period.get('end', '')} davri uchun shakllantirildi.",
+            f"Hisobot davrida {totals.get('citizens', 0)} nafar fuqaro, {totals.get('families', 0)} ta oila, {totals.get('houses', 0)} ta uy va {totals.get('streets', 0)} ta ko'cha hisobga olindi.",
+            f"Bandlik bo'yicha {employment.get('employed', 0)} nafar fuqaro band, {employment.get('unemployed', 0)} nafar fuqaro ishsiz. Bandlik darajasi {employment.get('employment_rate', 0)} foizni tashkil etdi.",
+            f"Davr ichida {cases.get('total', 0)} ta murojaat qayd etildi, ulardan {cases.get('open', 0)} tasi hali yopilmagan. Vazifalar bo'yicha jami {tasks.get('total', 0)} ta yozuv mavjud, {tasks.get('completed', 0)} tasi bajarilgan, {tasks.get('overdue', 0)} tasi muddatidan oshgan.",
+            f"Ma'lumotlar sifati ko'rsatkichi {quality.get('score', 0)} foiz. {quality.get('incomplete', 0)} nafar fuqaro yozuvida to'ldirilmagan maydonlar mavjud.",
             "Ushbu hisobot draft holatida. Rasmiy tasdiqlashdan oldin mas'ul xodim tomonidan tekshirilishi shart.",
         ]
     )
+
+
+# O-13: prompt uchun metriklar JSON'i — zich, kesilmaydigan.
+METRICS_PROMPT_LIMIT = 12000
+# O-13: matndagi sonlarni topish uchun andoza.
+NUMBER_RE = re.compile(r"\d[\d\s., ]*")
+
+
+def _metrics_payload(metrics: dict[str, Any]) -> str | None:
+    """Metriklarni zich JSON ko'rinishida beradi (O-13).
+
+    Eski kod `json.dumps(..., indent=2)[:12000]` ishlatardi — JSON o'rtasidan
+    kesilib, model buzuq kirish olardi. Endi JSON kompakt yig'iladi va
+    hajm chegaradan oshsa `None` qaytariladi (AI chaqirilmaydi).
+    """
+    payload = json.dumps(metrics, ensure_ascii=False, separators=(",", ":"))
+    if len(payload) > METRICS_PROMPT_LIMIT:
+        return None
+    return payload
+
+
+def _to_number(raw: str) -> float | None:
+    """Matndagi son qiymatini float'ga aylantiradi (`1 258`, `1,258`, `62,5%`)."""
+    cleaned = re.sub(r"[\s ]", "", raw or "").rstrip(".")
+    if not cleaned:
+        return None
+    if "," in cleaned and "." in cleaned:
+        # "1,234.56" — minglik ajratgich + kasr
+        cleaned = cleaned.replace(",", "")
+    elif "," in cleaned:
+        head, _, tail = cleaned.rpartition(",")
+        if cleaned.count(",") == 1 and tail.isdigit() and len(tail) == 3 and len(head) <= 3:
+            # "1,258" — minglik ajratgich
+            cleaned = cleaned.replace(",", "")
+        else:
+            # "62,5" — kasrli yozuv
+            cleaned = cleaned.replace(",", ".")
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _metric_numbers(metrics: Any) -> set[float]:
+    """Metrik ichidagi barcha sonlar (o'z ichiga qaragan holda)."""
+    found: set[float] = set()
+    if isinstance(metrics, bool):
+        return found
+    if isinstance(metrics, (int, float)):
+        found.add(float(metrics))
+        return found
+    if isinstance(metrics, str):
+        for raw in NUMBER_RE.findall(metrics):
+            value = _to_number(raw)
+            if value is not None:
+                found.add(value)
+        return found
+    if isinstance(metrics, dict):
+        for item in metrics.values():
+            found |= _metric_numbers(item)
+        return found
+    if isinstance(metrics, (list, tuple)):
+        for item in metrics:
+            found |= _metric_numbers(item)
+    return found
+
+
+def _has_unknown_number(text: str, metrics: dict[str, Any]) -> bool:
+    """Matnda metrikaga tegilmagan son bormi? (O-13)
+
+    `True` — uydirilgan son topildi (matn qabul qilinmasligi kerak).
+    """
+    allowed = _metric_numbers(metrics)
+    for raw in NUMBER_RE.findall(text or ""):
+        value = _to_number(raw)
+        if value is None:
+            continue
+        if any(abs(value - item) <= 0.01 for item in allowed):
+            continue
+        return True
+    return False
 
 
 def generate_report(
@@ -223,7 +311,16 @@ def generate_report(
     db.add(run)
     db.flush()
     narrative, model, provider = "", "", ""
-    if use_ai:
+    verified = False
+    metrics_payload = _metrics_payload(metrics) if use_ai else None
+    if use_ai and metrics_payload is None:
+        # O-13: metrikalar prompt chegarasidan oshdi — modelga buzuq JSON
+        # berish o'rniga deterministik xulosa ishlatiladi.
+        run.status = "fallback"
+        run.error = "Metrikalar hajmi prompt chegarasidan oshdi."
+        narrative = _fallback_narrative(payload.type, metrics)
+        model, provider = "deterministic-fallback", "local"
+    elif use_ai:
         try:
             result = ai_gateway.chat_completion(
                 db,
@@ -232,17 +329,28 @@ def generate_report(
                     {
                         "role": "user",
                         "content": "Quyidagi tasdiqlangan metrikalar asosida hisobot matnini yoz. Faqat shu raqamlardan foydalan.\n\n"
-                        + json.dumps(metrics, ensure_ascii=False, indent=2)[:12000],
+                        + metrics_payload,
                     },
                 ],
                 agent="reporting",
                 max_tokens=1400,
                 temperature=0.2,
             )
-            narrative, model, provider = result.content.strip(), result.model, result.provider
-            run.status = "completed"
-            run.token_usage = result.total_tokens
-            run.model = result.model
+            candidate = result.content.strip()
+            # O-13: model yozgan sonlar metrikaga mos kelishi shart —
+            # aks holda deterministik xulosaga qaytamiz.
+            if _has_unknown_number(candidate, metrics):
+                run.status = "fallback"
+                run.error = "Model matnida metrikaga tegilmagan son topildi."
+                narrative = _fallback_narrative(payload.type, metrics)
+                model, provider = "deterministic-fallback", "local"
+            else:
+                narrative = candidate
+                model, provider = result.model, result.provider
+                verified = True
+                run.status = "completed"
+                run.token_usage = result.total_tokens
+                run.model = result.model
         except Exception as error:
             run.status = "fallback"
             run.error = str(error)[:500]
@@ -255,7 +363,10 @@ def generate_report(
     run.finished_at = datetime.now(timezone.utc)
     report.narrative = narrative
     report.summary = narrative.split("\n\n")[0][:500]
-    report.metrics = {**metrics, "ai": {"model": model, "provider": provider}}
+    report.metrics = {
+        **metrics,
+        "ai": {"model": model, "provider": provider, "verified": verified},
+    }
     db.flush()
     write_audit(
         db,
