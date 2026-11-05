@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from typing import Any
 
 from app.core.time import age_from_birth, today_local
 from app.models import (
@@ -14,10 +13,6 @@ from app.models import (
     Task,
     WorkLog,
 )
-
-
-def _iso(value: datetime | date | None) -> Any:
-    return value
 
 
 def address_for_citizen(citizen: Citizen) -> dict | None:
@@ -82,7 +77,6 @@ def citizen_out(
     citizen: Citizen,
     *,
     quality: dict | None = None,
-    duplicate_risk: str = "low",
     include_family: bool = True,
     family_member_count: int | None = None,
 ) -> dict:
@@ -214,8 +208,10 @@ def document_out(document: Document) -> dict:
     }
 
 
-def program_out(program: Program) -> dict:
-    now = datetime.now(timezone.utc)
+def program_out(program: Program, *, now: datetime | None = None) -> dict:
+    # N-4: `now` bir marta beriladi — ro'yxat ichida "stale" chegarasi har
+    # qatorga boshqacha hisoblanib qolmasdi.
+    now = now or datetime.now(timezone.utc)
     verified = program.last_verified_at
     stale = program.status == "stale"
     if verified is not None:

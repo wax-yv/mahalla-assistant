@@ -38,7 +38,13 @@ def years_ago(day: date, years: int) -> date:
         return day.replace(year=day.year - years, day=28)
 
 
-def citizen_quality(citizen: Citizen, duplicate_risk: str = "low") -> dict:
+def citizen_quality(citizen: Citizen, duplicate_risk: str | None = None) -> dict:
+    """Fuqaro ma'lumot sifati.
+
+    N-4: `duplicate_risk` berilmasa "low" (yolg'on xavfsizlik) emas,
+    halol "unknown" qaytariladi — real hisob faqat detailda bajariladi
+    (`duplicate_risk_for`).
+    """
     missing = []
     filled = 0
     for field, label in REQUIRED_FIELDS.items():
@@ -57,7 +63,7 @@ def citizen_quality(citizen: Citizen, duplicate_risk: str = "low") -> dict:
     return {
         "score": score,
         "missing_fields": missing,
-        "duplicate_risk": duplicate_risk,
+        "duplicate_risk": duplicate_risk or "unknown",
         "notes": note,
     }
 
@@ -217,7 +223,6 @@ def list_citizens(
         citizen_out(
             row,
             quality=citizen_quality(row),
-            duplicate_risk="low",
             include_family=False,
         )
         for row in rows
@@ -381,7 +386,6 @@ def get_citizen_detail(db: Session, citizen_id: str) -> dict:
     data = citizen_out(
         citizen,
         quality=quality,
-        duplicate_risk=quality["duplicate_risk"],
         include_family=True,
         family_member_count=member_count,
     )

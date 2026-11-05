@@ -34,7 +34,9 @@ def list_programs(
             )
         )
     rows = db.execute(stmt).scalars().all()
-    return [program_out(row) for row in rows]
+    # N-4: yagona `now` — barcha dastur uchun bir xil "stale" chegarasi.
+    checked_at = datetime.now(timezone.utc)
+    return [program_out(row, now=checked_at) for row in rows]
 
 
 def get_program(db: Session, program_id: str) -> dict[str, Any]:
@@ -127,13 +129,18 @@ def match_citizen(
 def compare(db: Session, program_ids: list[str]) -> list[dict[str, Any]]:
     if not program_ids:
         raise validation_error("Taqqoslash uchun kamida bitta dastur tanlang.")
-    rows = []
-    for program_id in program_ids[:6]:
-        program = db.get(Program, program_id)
-        if program is None:
-            continue
-        rows.append(program_out(program))
-    return rows
+    # N-10/N-4: bitta IN so'rov, topilmagan ID'lar jimgina tashlanmaydi —
+    # client aniq 422 xato oladi.
+    ids = list(dict.fromkeys(program_ids))[:6]
+    programs = {
+        program.id: program
+        for program in db.execute(select(Program).where(Program.id.in_(ids))).scalars().all()
+    }
+    missing = [pid for pid in ids if pid not in programs]
+    if missing:
+        raise validation_error(f"Bunday dasturlar topilmadi: {', '.join(missing)}")
+    checked_at = datetime.now(timezone.utc)
+    return [program_out(programs[pid], now=checked_at) for pid in ids]
 
 
 def get_preference(db: Session, conversation_id: str | None) -> dict[str, Any] | None:
