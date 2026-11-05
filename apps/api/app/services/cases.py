@@ -92,7 +92,14 @@ def get_case(db: Session, case_id: str) -> dict:
     return data
 
 
-def create_case(db: Session, payload: CaseCreate, actor: str, request_id: str | None) -> Case:
+def create_case(
+    db: Session,
+    payload: CaseCreate,
+    actor: str,
+    request_id: str | None,
+    *,
+    commit: bool = True,
+) -> Case:
     if payload.citizen_id and db.get(Citizen, payload.citizen_id) is None:
         raise validation_error("Fuqaro topilmadi.")
     if payload.family_id and db.get(Family, payload.family_id) is None:
@@ -113,8 +120,9 @@ def create_case(db: Session, payload: CaseCreate, actor: str, request_id: str | 
         new_value=model_snapshot(case),
         request_id=request_id,
     )
-    db.commit()
-    db.refresh(case)
+    if commit:
+        db.commit()
+        db.refresh(case)
     return case
 
 
@@ -235,7 +243,14 @@ def get_task(db: Session, task_id: str) -> dict:
     return data
 
 
-def create_task(db: Session, payload: TaskCreate, actor: str, request_id: str | None) -> Task:
+def create_task(
+    db: Session,
+    payload: TaskCreate,
+    actor: str,
+    request_id: str | None,
+    *,
+    commit: bool = True,
+) -> Task:
     if payload.citizen_id and db.get(Citizen, payload.citizen_id) is None:
         raise validation_error("Fuqaro topilmadi.")
     if payload.family_id and db.get(Family, payload.family_id) is None:
@@ -254,8 +269,9 @@ def create_task(db: Session, payload: TaskCreate, actor: str, request_id: str | 
         new_value=model_snapshot(task),
         request_id=request_id,
     )
-    db.commit()
-    db.refresh(task)
+    if commit:
+        db.commit()
+        db.refresh(task)
     return task
 
 
@@ -409,7 +425,12 @@ def list_work_logs(
 
 
 def create_work_log(
-    db: Session, payload: WorkLogCreate, actor: str, request_id: str | None
+    db: Session,
+    payload: WorkLogCreate,
+    actor: str,
+    request_id: str | None,
+    *,
+    commit: bool = True,
 ) -> WorkLog:
     log = WorkLog(
         **payload.model_dump(exclude={"occurred_at"}),
@@ -429,6 +450,7 @@ def create_work_log(
         new_value=model_snapshot(log),
         request_id=request_id,
     )
-    db.commit()
-    db.refresh(log)
+    if commit:
+        db.commit()
+        db.refresh(log)
     return log

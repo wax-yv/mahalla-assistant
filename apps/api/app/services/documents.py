@@ -867,6 +867,7 @@ def commit_batch(
     mapping: dict[str, str] | None = None,
     idempotency_key: str | None = None,
     request_id: str | None = None,
+    commit: bool = True,
 ) -> dict:
     batch = db.get(ImportBatch, batch_id)
     if batch is None:
@@ -894,7 +895,8 @@ def commit_batch(
         batch.status = "failed"
         batch.summary = summary
         batch.error_count = len(errors)
-        db.commit()
+        if commit:
+            db.commit()
         raise validation_error(
             "Import oldidan xatolar mavjud. Xatolarni tuzating yoki validatsiyani qayta ishga tushiring.",
             [item["message"] for item in errors[:10]],
@@ -1056,7 +1058,8 @@ def commit_batch(
         new_value={"created": changes, "updated": updates, "batch": batch.id},
         request_id=request_id,
     )
-    db.commit()
+    if commit:
+        db.commit()
     return {
         "batch": import_batch_out(db, batch),
         "created": changes,

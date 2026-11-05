@@ -19,6 +19,7 @@ class ConversationCreate(BaseModel):
 
 class DraftDecision(BaseModel):
     note: str = ""
+    retry: bool = False
 
 
 @router.post("/chat")
@@ -141,6 +142,7 @@ def approve_draft(
         actor=user.id,
         request_id=getattr(request.state, "request_id", None),
         note=payload.note,
+        retry=payload.retry,
     )
 
 

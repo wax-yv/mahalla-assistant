@@ -6,11 +6,11 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.audit import write_audit
-from app.core.errors import bad_request, not_found
+from app.core.errors import bad_request, conflict, not_found
 from app.core.time import today_local
 from app.models import (
     AgentRun,
@@ -1489,19 +1489,25 @@ def list_drafts(db: Session, status: str | None = "pending", limit: int = 50) ->
 def _execute_draft(
     db: Session, draft: DraftAction, actor: str, request_id: str | None
 ) -> dict[str, Any]:
+    """Draft amalini bajaradi.
+
+    J-4: ichki servislar `commit=False` bilan chaqiriladi — barcha o'zgarishlar
+    bitta tranzaksiyada saqlanadi. Shunda keyingi qadam yiqilsa yarim
+    bajarilgan vazifa qolmaydi.
+    """
     payload = draft.payload or {}
     if draft.action_type == "create_task":
-        task = cases.create_task(db, TaskCreate(**payload), actor, request_id)
+        task = cases.create_task(db, TaskCreate(**payload), actor, request_id, commit=False)
         return {"entity_type": "task", "entity_id": task.id, "label": task.title}
     if draft.action_type == "create_case":
-        case = cases.create_case(db, CaseCreate(**payload), actor, request_id)
+        case = cases.create_case(db, CaseCreate(**payload), actor, request_id, commit=False)
         return {"entity_type": "case", "entity_id": case.id, "label": case.title}
     if draft.action_type == "create_worklog":
-        log = cases.create_work_log(db, WorkLogCreate(**payload), actor, request_id)
+        log = cases.create_work_log(db, WorkLogCreate(**payload), actor, request_id, commit=False)
         return {"entity_type": "work_log", "entity_id": log.id, "label": log.title}
     if draft.action_type == "generate_report":
         report = reports.generate_report(
-            db, ReportGenerateRequest(**payload), actor=actor, request_id=request_id
+            db, ReportGenerateRequest(**payload), actor=actor, request_id=request_id, commit=False
         )
         return {"entity_type": "report", "entity_id": report.id, "label": report.title}
     if draft.action_type == "sync_legislation":
@@ -1534,6 +1540,7 @@ def _execute_draft(
             actor=actor,
             idempotency_key=payload.get("idempotency_key"),
             request_id=request_id,
+            commit=False,
         )
         return {
             "entity_type": "import_batch",
@@ -1545,6 +1552,49 @@ def _execute_draft(
     raise bad_request(f"«{draft.action_type}» amali qo'llab-quvvatlanmaydi.")
 
 
+# J-4: "executing" holatida qolib ketgan draftni qayta urinish mumkin.
+STALE_EXECUTING_MINUTES = 10
+
+
+def _claim_draft(
+    db: Session, draft_id: str, actor: str, *, retry: bool
+) -> DraftAction:
+    """Draftni atomik ravishda `executing` holatiga oladi.
+
+    `UPDATE ... WHERE status='pending'` — qo'sh bosish yoki qayta yuborishda
+    faqat bitta so'rov bajariladi (qolganlari 409 oladi).
+    """
+    now = _now()
+    conditions = [DraftAction.id == draft_id]
+    if retry:
+        conditions.append(DraftAction.status.in_(["failed", "executing"]))
+    else:
+        conditions.append(DraftAction.status == "pending")
+
+    result = db.execute(
+        update(DraftAction)
+        .where(*conditions)
+        .values(status="executing", decided_by=actor, decided_at=now)
+    )
+    if result.rowcount != 1:
+        db.rollback()
+        current = db.get(DraftAction, draft_id)
+        if current is None:
+            raise not_found("Taklif etilgan amal topilmadi.")
+        if current.status == "failed" and not retry:
+            raise bad_request(
+                "Bu amal bajarilishdan to'xtadi. Qayta urinish uchun `retry` parametrini yuboring."
+            )
+        if current.status == "executing" and not retry:
+            raise conflict("Bu amal hozir bajarilmoqda. Birozdan keyin yana urinib ko'ring.")
+        raise bad_request("Bu amal bo'yicha qaror allaqachon qabul qilingan.")
+    db.commit()
+    claimed = db.get(DraftAction, draft_id)
+    if claimed is None:
+        raise not_found("Taklif etilgan amal topilmadi.")
+    return claimed
+
+
 def decide_draft(
     db: Session,
     draft_id: str,
@@ -1553,17 +1603,33 @@ def decide_draft(
     actor: str,
     request_id: str | None = None,
     note: str = "",
+    retry: bool = False,
 ) -> dict[str, Any]:
     draft = db.get(DraftAction, draft_id)
     if draft is None:
         raise not_found("Taklif etilgan amal topilmadi.")
-    if draft.status != "pending":
-        raise bad_request("Bu amal bo'yicha qaror allaqachon qabul qilingan.")
-    draft.decided_by = actor
-    draft.decided_at = _now()
+
     if not approve:
-        draft.status = "rejected"
-        draft.result = {"note": note[:500]}
+        # Rad etish — atomik `pending` -> `rejected`.
+        if draft.status != "pending":
+            raise bad_request("Bu amal bo'yicha qaror allaqachon qabul qilingan.")
+        result = db.execute(
+            update(DraftAction)
+            .where(DraftAction.id == draft_id, DraftAction.status == "pending")
+            .values(
+                status="rejected",
+                result={"note": note[:500]},
+                decided_by=actor,
+                decided_at=_now(),
+            )
+        )
+        if result.rowcount != 1:
+            db.rollback()
+            raise conflict("Bu amal bo'yicha qaror allaqachon qabul qilingan.")
+        db.commit()
+        draft = db.get(DraftAction, draft_id)
+        if draft is None:
+            raise not_found("Taklif etilgan amal topilmadi.")
         write_audit(
             db,
             action="draft.rejected",
@@ -1576,20 +1642,33 @@ def decide_draft(
         db.commit()
         db.refresh(draft)
         return _draft_out(draft)
+
+    if retry and draft.status == "executing":
+        # Uzoq vaqtdan beri "executing" holatida qolib ketgan bo'lsa —
+        # qayta urinishga ruxsat beriladi.
+        decided_at = draft.decided_at
+        if decided_at is not None:
+            age = _now() - decided_at
+            if age < timedelta(minutes=STALE_EXECUTING_MINUTES):
+                raise conflict("Bu amal hozir bajarilmoqda. Birozdan keyin yana urinib ko'ring.")
+
+    draft = _claim_draft(db, draft_id, actor, retry=retry)
     try:
         result = _execute_draft(db, draft, actor, request_id)
         draft.status = "approved"
         draft.result = result
         draft.error = ""
     except Exception as error:
+        # Bajarish muvaffaqiyatsiz — tranzaksiya bekor qilinadi, draft
+        # "failed" holatiga o'tadi (qayta urinish mumkin).
         db.rollback()
-        draft = db.get(DraftAction, draft_id)
-        if draft is None:
+        failed = db.get(DraftAction, draft_id)
+        if failed is None:
             raise not_found("Taklif etilgan amal topilmadi.") from error
-        draft.status = "failed"
-        draft.decided_by = actor
-        draft.decided_at = _now()
-        draft.error = _agent_error_message(error)
+        failed.status = "failed"
+        failed.decided_by = actor
+        failed.decided_at = _now()
+        failed.error = _agent_error_message(error)
         db.commit()
         raise
     write_audit(

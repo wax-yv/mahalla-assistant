@@ -193,6 +193,7 @@ def generate_report(
     actor: str,
     request_id: str | None = None,
     use_ai: bool = True,
+    commit: bool = True,
 ) -> Report:
     if payload.type not in TYPE_LABELS:
         raise validation_error("Hisobot turi qo'llab-quvvatlanmaydi.")
@@ -265,8 +266,9 @@ def generate_report(
         new_value={"type": payload.type, "period": [start.isoformat(), end.isoformat()], "model": model},
         request_id=request_id,
     )
-    db.commit()
-    db.refresh(report)
+    if commit:
+        db.commit()
+        db.refresh(report)
     return report
 
 
