@@ -4,6 +4,7 @@ import csv
 import hashlib
 import io
 import re
+import zipfile
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -81,11 +82,33 @@ def detect_mapping(headers: list[str]) -> dict[str, str]:
 
 
 def _detect_kind(name: str, data: bytes) -> str:
-    """Formatni kengaytma emas, tarkib bo'yicha aniqlash (MD 9.1)."""
-    if data[:4] == b"PK\x03\x04":
-        return "xlsx"
+    """Formatni kengaytma emas, tarkib bo'yicha aniqlash (MD 9.1).
+
+    DOCX va XLSX ikkalasi ham ZIP (OOXML) paket — magic baytlari bir xil
+    (`PK\x03\x04`). Ularni ichki tuzilma bo'yicha ajratamiz: Word
+    hujjatida `word/`, Excel ish-bookida `xl/` papkasi bor.
+    """
+    suffix = Path(name).suffix.lower().lstrip(".")
     if data[:5] == b"%PDF-":
         return "pdf"
+    if data[:4] == b"PK\x03\x04":
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                names = archive.namelist()
+        except zipfile.BadZipFile:
+            raise validation_error(
+                "Fayl buzilgan arxiv. Faylni qayta saqlab, keyin yuklang."
+            )
+        if any(item.startswith("word/") for item in names):
+            return "docx"
+        if any(item.startswith("xl/") for item in names):
+            return "xlsx"
+        # Tuzilma noto'g'ri aniqlanmadi — kengaytmaga qarab
+        if suffix in {"docx", "xlsx"}:
+            return suffix
+        raise validation_error(
+            "Fayl formatini aniqlab bo'lmadi. XLSX, CSV, DOCX yoki PDF yuklang."
+        )
     if data[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
         raise validation_error(
             "Eski .xls (binary) format qo'llab-quvvatlanmaydi. Faylni Excel'da «.xlsx» sifatida saqlab yuklang."
@@ -99,7 +122,6 @@ def _detect_kind(name: str, data: bytes) -> str:
             return "csv"
     except UnicodeDecodeError:
         pass
-    suffix = Path(name).suffix.lower().lstrip(".")
     if suffix in {"xlsx", "csv", "docx", "pdf"}:
         return suffix
     raise validation_error("Fayl formatini aniqlab bo'lmadi. XLSX, CSV, DOCX yoki PDF yuklang.")
