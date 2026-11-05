@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import Integer, and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.audit import model_snapshot, write_audit
@@ -421,13 +422,24 @@ def get_citizen_detail(db: Session, citizen_id: str) -> dict:
 
 
 def next_citizen_id(db: Session) -> str:
-    max_id = db.execute(select(func.max(Citizen.id))).scalar_one()
-    if not max_id:
-        return "F-00001"
-    try:
-        number = int(str(max_id).split("-")[1]) + 1
-    except (IndexError, ValueError):
-        number = 1
+    """Yangi fuqaro ID'sini yaratadi (N-5).
+
+    Eski kod `func.max(Citizen.id)` ni **string** tartibida olardi —
+    `F-99999` dan keyin `F-100000` kelganda string MAX noto'g'ri
+    tanlanardi (`"F-99999" > "F-100000"`). Endi ID'ning raqamli qismi
+    SQL'da ajratilib, eng kattasi olinadi.
+    """
+    max_number = db.execute(
+        select(
+            func.max(
+                func.cast(
+                    func.substring(Citizen.id, "[0-9]+"),
+                    Integer,
+                )
+            )
+        ).where(Citizen.id.like("F-%"))
+    ).scalar_one()
+    number = int(max_number or 0) + 1
     return f"F-{number:05d}"
 
 
@@ -445,21 +457,35 @@ def _validate_citizen_payload(db: Session, data: dict) -> None:
             raise validation_error("Ko'rsatilgan oila mavjud emas.")
 
 
-def create_citizen(db: Session, payload: CitizenCreate, actor: str, request_id: str | None = None) -> Citizen:
+def create_citizen(
+    db: Session, payload: CitizenCreate, actor: str, request_id: str | None = None
+) -> Citizen:
     data = payload.model_dump()
     _validate_citizen_payload(db, data)
-    citizen = Citizen(
-        id=next_citizen_id(db),
-        **{k: v for k, v in data.items() if k != "needs"},
-        needs=list(payload.needs or []),
-        needs_text=", ".join(payload.needs or []),
-        data_source="manual",
-        last_verified_at=datetime.now(timezone.utc),
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
-    )
-    db.add(citizen)
-    db.flush()
+    # N-5: parallel yaratishda ikki so'rov bir xil MAX ni o'qib, bir xil
+    # ID oladi — IntegrityError bo'lsa qayta urinish (maks. 3 marta).
+    last_error: Exception | None = None
+    for _attempt in range(3):
+        citizen = Citizen(
+            id=next_citizen_id(db),
+            **{k: v for k, v in data.items() if k != "needs"},
+            needs=list(payload.needs or []),
+            needs_text=", ".join(payload.needs or []),
+            data_source="manual",
+            last_verified_at=datetime.now(timezone.utc),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(citizen)
+        try:
+            db.flush()
+            last_error = None
+            break
+        except IntegrityError as error:
+            db.rollback()
+            last_error = error
+    if last_error is not None:
+        raise conflict("Fuqaro yaratishda poyga aniqlandi. Qayta urinib ko'ring.")
 
     if citizen.family_id and citizen.family_role in {"Ota", "Ona", "Bobo", "Buvi"}:
         family = db.get(Family, citizen.family_id)
