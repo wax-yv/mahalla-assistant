@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -8,21 +9,80 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import write_audit
 from app.core.errors import not_found
-from app.core.time import today_local
+from app.core.time import TZ, today_local
 from app.models import JobRun, Notification, Program, ProgramSource, ScheduledJob, Task, User
 from app.services import legislation, reports
 
+# J-9: kunlik joblar uchun standart soat (sozlamadagi `scheduler_time`
+# o'rnini bosganda ishlatiladi).
+DEFAULT_DAILY_HOUR = 21
+DEFAULT_DAILY_MINUTE = 0
 
-def next_run_at(schedule: str, from_time: datetime | None = None) -> datetime:
+# J-9: jarayon to'xtab qolsa, "running" holatidagi ish yozimi 10 daqiqadan
+# eski bo'lsa "failed" deb yopiladi (abadiy "running" qolmasligi uchun).
+STALE_RUN_MINUTES = 10
+
+
+def _scheduler_time_of_day(db: Session) -> tuple[int, int]:
+    """Sozlamalardagi `scheduler_time` ("HH:MM") -> (soat, daqiqa)."""
+    from app.models import AppSetting
+
+    try:
+        row = db.get(AppSetting, "app")
+        raw = (row.value or {}).get("scheduler_time") if row is not None else None
+        if isinstance(raw, str) and ":" in raw:
+            hours, minutes = raw.split(":", 1)
+            hour = int(hours)
+            minute = int(minutes)
+            if 0 <= hour <= 23 and 0 <= minute <= 59:
+                return hour, minute
+    except Exception:
+        pass
+    return DEFAULT_DAILY_HOUR, DEFAULT_DAILY_MINUTE
+
+
+def _add_month(value: datetime) -> datetime:
+    """Bir oy qo'shish (oy oxiridagi sanalarni moslashtiradi)."""
+    year = value.year + (1 if value.month == 12 else 0)
+    month = 1 if value.month == 12 else value.month + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return value.replace(year=year, month=month, day=day)
+
+
+def next_run_at(
+    schedule: str,
+    from_time: datetime | None = None,
+    *,
+    hour: int | None = None,
+    minute: int | None = None,
+) -> datetime:
+    """Keyingi bajarilish vaqti (UTC).
+
+    J-9: vaqt **rejalashtirilgan** vaqtdan (`from_time`) hisoblanadi — shunda
+    kechikish keyingi kunlarga siljimaydi. Kunlik/haftalik/oylik joblar
+    `scheduler_timezone` (Asia/Tashkent) bo'yicha belgilangan soatga tekislanadi.
+    """
     base = from_time or datetime.now(timezone.utc)
+    if base.tzinfo is None:
+        base = base.replace(tzinfo=timezone.utc)
+    local = base.astimezone(TZ)
+    hour = DEFAULT_DAILY_HOUR if hour is None else int(hour)
+    minute = DEFAULT_DAILY_MINUTE if minute is None else int(minute)
+    hour = min(23, max(0, hour))
+    minute = min(59, max(0, minute))
     schedule = (schedule or "daily").lower()
-    if schedule.startswith("weekly"):
-        return base + timedelta(days=7)
-    if schedule.startswith("monthly"):
-        return base + timedelta(days=30)
     if schedule.startswith("hourly"):
-        return base + timedelta(hours=1)
-    return base + timedelta(days=1)
+        return (local + timedelta(hours=1)).astimezone(timezone.utc)
+    if schedule.startswith("weekly"):
+        target = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        return (target + timedelta(days=7)).astimezone(timezone.utc)
+    if schedule.startswith("monthly"):
+        target = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        return _add_month(target).astimezone(timezone.utc)
+    target = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target <= local:
+        target += timedelta(days=1)
+    return target.astimezone(timezone.utc)
 
 
 def _notify(db: Session, title: str, body: str, kind: str = "info") -> None:
@@ -102,70 +162,164 @@ JOB_HANDLERS = {
 }
 
 
-def run_job(db: Session, job: ScheduledJob, actor: str = "scheduler") -> dict[str, Any]:
+def close_stale_runs(db: Session, *, minutes: int = STALE_RUN_MINUTES) -> int:
+    """J-9: "running" holatida qolib ketgan ish yozimlarini yopadi.
+
+    Jarayon o'ldirilgan (timeout/kill) bo'lsa, `JobRun.status` abadiy
+    "running" qolardi. 10 daqiqadan eski bo'lganlar "failed" deb yopiladi
+    va "running" holatida qolib ketgan joblar qayta faollashtiriladi.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    runs = db.execute(
+        select(JobRun).where(JobRun.status == "running", JobRun.started_at < cutoff)
+    ).scalars().all()
+    for run in runs:
+        run.status = "failed"
+        run.error = "Job bajariluvi to'xtab qoldi (vaqt chegarasi)."
+        run.finished_at = datetime.now(timezone.utc)
+    jobs = db.execute(
+        select(ScheduledJob).where(
+            ScheduledJob.status == "running",
+            ScheduledJob.last_run_at.is_not(None),
+            ScheduledJob.last_run_at < cutoff,
+        )
+    ).scalars().all()
+    for job in jobs:
+        job.status = "active"
+        if not job.error:
+            job.error = "Job bajariluvi to'xtab qoldi, qayta rejalashtirildi."
+    if runs or jobs:
+        db.commit()
+    return len(runs)
+
+
+def _fail_job(
+    db: Session,
+    job: ScheduledJob,
+    run: JobRun,
+    error: str,
+    scheduled: datetime,
+    hour: int,
+    minute: int,
+) -> dict[str, Any]:
+    """Job muvaffaqiyatsiz bo'ldi — urinishlar hisoblagichi oshadi."""
+    db.rollback()
+    job = db.get(ScheduledJob, job.id)
+    run = db.get(JobRun, run.id)
+    if job is None or run is None:
+        raise not_found("Rejalashtirilgan job topilmadi.")
+    # J-9: `attempts` har urinishda oshadi (muvaffaqiyatda 0 ga qaytadi).
+    job.attempts = (job.attempts or 0) + 1
+    job.error = error[:1000]
+    job.next_run_at = next_run_at(
+        job.schedule, from_time=scheduled, hour=hour, minute=minute
+    )
+    job.status = "failed" if job.attempts >= (job.max_attempts or 3) else "active"
+    run.status = "failed"
+    run.error = job.error
+    run.finished_at = datetime.now(timezone.utc)
+    db.commit()
+    return {
+        "job_id": job.id,
+        "status": "failed",
+        "error": job.error,
+        "attempts": job.attempts,
+    }
+
+
+def run_job(
+    db: Session,
+    job: ScheduledJob,
+    actor: str = "scheduler",
+    *,
+    scheduled_for: datetime | None = None,
+) -> dict[str, Any]:
+    """Jobni bajaradi.
+
+    J-9: `attempts` faqat muvaffaqiyatda 0 ga qaytadi; xatoda oshadi va
+    `max_attempts` ga yetganda job "failed" holatiga o'tadi.
+    """
     handler = JOB_HANDLERS.get(job.job_type)
+    now = datetime.now(timezone.utc)
+    scheduled = scheduled_for or job.next_run_at or now
+    # Qo'lda ishga tushirilganda jadval siljib ketmasligi uchun kelajakdagi
+    # reja o'rniga "hozir" dan hisoblanadi.
+    if scheduled.tzinfo is None:
+        scheduled = scheduled.replace(tzinfo=timezone.utc)
+    if scheduled > now:
+        scheduled = now
     run = JobRun(job_id=job.id, status="running")
     db.add(run)
     db.flush()
-    job.last_run_at = datetime.now(timezone.utc)
-    job.attempts = 0
-    job.error = ""
+    job.last_run_at = now
+    # J-9: claim — jobni "running" belgilab, parallel ishga tushishning oldini
+    # olamiz (qo'sh bosish ikki marta bajarishga olib kelmasligi kerak).
+    job.status = "running"
     db.commit()
+    hour, minute = _scheduler_time_of_day(db)
     if handler is None:
-        run.status = "failed"
-        run.error = f"«{job.job_type}» job turi qo'llab-quvvatlanmaydi."
-        run.finished_at = datetime.now(timezone.utc)
-        job.next_run_at = next_run_at(job.schedule)
-        db.commit()
-        return {"job_id": job.id, "status": "failed", "error": run.error}
+        error = f"«{job.job_type}» job turi qo'llab-quvvatlanmaydi."
+        return _fail_job(db, job, run, error, scheduled, hour, minute)
     try:
         result = handler(db, job, actor)
-        run.status = "completed"
-        run.result = result
-        run.finished_at = datetime.now(timezone.utc)
-        job.next_run_at = next_run_at(job.schedule)
-        job.status = "active"
-        write_audit(
-            db,
-            action="job.completed",
-            entity_type="scheduled_job",
-            entity_id=job.id,
-            actor_id=actor,
-            new_value={"job_type": job.job_type, "result": result},
-        )
-        db.commit()
-        return {"job_id": job.id, "status": "completed", "result": result}
     except Exception as error:
-        db.rollback()
-        job = db.get(ScheduledJob, job.id)
-        run = db.get(JobRun, run.id)
-        if job is None or run is None:
-            raise
-        job.attempts = (job.attempts or 0) + 1
-        job.error = f"{type(error).__name__}: {error}"[:1000]
-        job.next_run_at = next_run_at(job.schedule)
-        if job.attempts >= (job.max_attempts or 3):
-            job.status = "failed"
-        run.status = "failed"
-        run.error = job.error
-        run.finished_at = datetime.now(timezone.utc)
-        db.commit()
-        return {"job_id": job.id, "status": "failed", "error": job.error}
+        return _fail_job(
+            db,
+            job,
+            run,
+            f"{type(error).__name__}: {error}"[:1000],
+            scheduled,
+            hour,
+            minute,
+        )
+    run.status = "completed"
+    run.result = result
+    run.finished_at = datetime.now(timezone.utc)
+    # J-9: muvaffaqiyat — urinishlar hisoblagichi noldan boshlanadi.
+    job.attempts = 0
+    job.error = ""
+    job.status = "active"
+    job.next_run_at = next_run_at(
+        job.schedule, from_time=scheduled, hour=hour, minute=minute
+    )
+    write_audit(
+        db,
+        action="job.completed",
+        entity_type="scheduled_job",
+        entity_id=job.id,
+        actor_id=actor,
+        new_value={"job_type": job.job_type, "result": result},
+    )
+    db.commit()
+    return {"job_id": job.id, "status": "completed", "result": result}
 
 
 def run_due_jobs(db: Session, limit: int = 5) -> list[dict[str, Any]]:
-    now = datetime.now(timezone.utc)
-    jobs = db.execute(
-        select(ScheduledJob)
-        .where(
-            ScheduledJob.status == "active",
-            ScheduledJob.next_run_at.is_not(None),
-            ScheduledJob.next_run_at <= now,
-        )
-        .order_by(ScheduledJob.next_run_at)
-        .limit(limit)
-    ).scalars().all()
-    return [run_job(db, job) for job in jobs]
+    """Mudaqati kelgan joblarni bajaradi.
+
+    J-9: `FOR UPDATE SKIP LOCKED` — cron va qo'lda ishga tushirish bir vaqtda
+    ishlasa ham, har job faqat bitta ishchi tomonidan bajariladi.
+    """
+    close_stale_runs(db)
+    results: list[dict[str, Any]] = []
+    for _ in range(max(0, limit)):
+        now = datetime.now(timezone.utc)
+        job = db.execute(
+            select(ScheduledJob)
+            .where(
+                ScheduledJob.status == "active",
+                ScheduledJob.next_run_at.is_not(None),
+                ScheduledJob.next_run_at <= now,
+            )
+            .order_by(ScheduledJob.next_run_at)
+            .limit(1)
+            .with_for_update(skip_locked=True)
+        ).scalars().first()
+        if job is None:
+            break
+        scheduled_for = job.next_run_at
+        results.append(run_job(db, job, scheduled_for=scheduled_for))
+    return results
 
 
 def list_jobs(db: Session) -> list[dict[str, Any]]:
