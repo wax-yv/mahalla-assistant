@@ -328,6 +328,8 @@ table.data .cell-sub { font-size: 12px; color: var(--color-text-muted); margin-t
 .hbar .track { height: 8px; border-radius: 999px; background: var(--color-surface-3); overflow: hidden; }
 .hbar .track > i { display: block; height: 100%; background: var(--brand-600); }
 .hbar b { font-variant-numeric: tabular-nums; text-align: right; }
+.chain-row { grid-template-columns: 24px minmax(120px, 1fr) 72px 60px; gap: 8px; }
+@media (max-width: 480px) { .chain-row { grid-template-columns: 22px minmax(100px, 1fr) 60px 52px; } }
 
 /* ---------- Utility ---------- */
 .mono, code.mono { font-family: var(--mono); font-size: 12.5px; }

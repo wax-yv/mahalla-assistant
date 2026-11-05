@@ -111,7 +111,7 @@ export default function AgentsPage() {
             {data.models.map((model, index) => {
               const active = model.id === data.active_model;
               return (
-                <div className="row" key={model.id} style={{ gridTemplateColumns: "28px minmax(140px,1fr) 90px 90px" }}>
+                <div className="row chain-row" key={model.id}>
                   <span className="badge muted num">{index + 1}</span>
                   <span style={{ display: "flex", gap: 8, alignItems: "center", minWidth: 0 }}>
                     <b style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{model.label || model.id}</b>
