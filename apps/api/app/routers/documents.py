@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.deps import require_csrf_and_permission, require_permission
+from app.core.downloads import content_disposition
 from app.core.errors import not_found
 from app.models import ImportBatch, User
 from app.schemas import ExportRequest, ImportCommitRequest, MessageResponse
@@ -21,7 +22,7 @@ def _attachment(data: bytes, filename: str, media_type: str) -> Response:
     return Response(
         content=data,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename)},
     )
 
 

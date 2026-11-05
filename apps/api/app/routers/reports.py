@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.deps import require_csrf_and_permission, require_permission
+from app.core.downloads import content_disposition
 from app.models import User
 from app.schemas import ReportApproveRequest, ReportGenerateRequest
 from app.services import reports as service
@@ -77,5 +78,5 @@ def export_report(
     return Response(
         content=data,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename)},
     )

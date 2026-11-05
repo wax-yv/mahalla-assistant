@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.deps import require_csrf_and_permission, require_permission
+from app.core.downloads import content_disposition
 from app.models import User
 from app.services import admin as service
 from app.services import scheduler
@@ -147,5 +148,9 @@ def download_backup(
     return Response(
         content=data,
         media_type="application/json",
-        headers={"Content-Disposition": f'attachment; filename="mahalla-backup-{backup_id}.json"'},
+        headers={
+            "Content-Disposition": content_disposition(
+                f"mahalla-backup-{backup_id}.json"
+            )
+        },
     )
