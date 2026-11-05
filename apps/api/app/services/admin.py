@@ -85,6 +85,14 @@ def update_settings(db: Session, updates: dict[str, Any], actor: str, request_id
         raise validation_error(
             "Quyidagi sozlamalar qo'llab-quvvatlanmaydi: " + ", ".join(sorted(unknown))
         )
+    if "ai_model" in updates:
+        requested = (updates.get("ai_model") or "").strip()
+        if requested:
+            known = {model["id"] for model in ai_gateway.available_models()}
+            if requested not in known:
+                raise validation_error(
+                    "Tanlangan model mavjud emas. Model ro'yxatidan tanlang."
+                )
     if "ai_budget" in updates:
         try:
             updates["ai_budget"] = max(1000, int(updates["ai_budget"]))

@@ -1,31 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Badge, Empty, ErrorNote, Loading, Pager, PageHead } from "@/components/ui";
+import { Check, Download, Plus } from "@/components/ui/icons";
+import { Badge, Empty, PageHead } from "@/components/ui";
+import { ConfirmDialog, Drawer, ErrorState, SkeletonList, useToast } from "@/components/ui/overlays";
 import { api, type Paged } from "@/lib/api";
 import { fmtDate } from "@/lib/format";
 
 type ReportRow = {
-  id: string;
-  type: string;
-  title: string;
-  status: string;
-  period_start: string;
-  period_end: string;
-  summary: string;
-  narrative: string;
-  created_at: string;
+  id: string; type: string; title: string; status: string; period_start: string; period_end: string;
+  summary: string; narrative: string; created_at: string;
 };
 
 const TYPE_LABELS: Record<string, string> = {
-  daily: "Kunlik",
-  weekly: "Haftalik",
-  monthly: "Oylik",
-  quarterly: "Choraklik",
-  annual: "Yillik",
+  daily: "Kunlik", weekly: "Haftalik", monthly: "Oylik", quarterly: "Choraklik", annual: "Yillik",
 };
 
 export default function ReportsPage() {
+  const toast = useToast();
   const [data, setData] = useState<Paged<ReportRow> | null>(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
@@ -33,6 +25,8 @@ export default function ReportsPage() {
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState<ReportRow | null>(null);
+  const [approveOpen, setApproveOpen] = useState<ReportRow | null>(null);
+  const [approving, setApproving] = useState(false);
 
   const load = useCallback(() => {
     api
@@ -61,17 +55,19 @@ export default function ReportsPage() {
     }
   }
 
-  async function approve(report: ReportRow) {
-    setBusy(true);
+  async function approve() {
+    if (!approveOpen) return;
+    setApproving(true);
     try {
-      await api.post(`/reports/${report.id}/approve`, { note: "Administrator tasdiqladi" });
-      setNote("Hisobot tasdiqlandi.");
+      await api.post(`/reports/${approveOpen.id}/approve`, { note: "Administrator tasdiqladi" });
+      toast.show("success", "Hisobot tasdiqlandi.");
+      setApproveOpen(null);
       setOpen(null);
       load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Tasdiqlash amalga oshmadi.");
+      toast.show("error", err instanceof Error ? err.message : "Tasdiqlash amalga oshmadi.");
     } finally {
-      setBusy(false);
+      setApproving(false);
     }
   }
 
@@ -80,100 +76,106 @@ export default function ReportsPage() {
       <PageHead
         kicker="Hisobotlar"
         title="Hisobotlar markazi"
-        lede="Kunlik, haftalik va oylik hisobotlar SQL ko‘rsatkichlari asosida shakllanadi. AI xulosa qismini yozadi, raqamlar bazadan olinadi."
+        lede="Kunlik, haftalik va oylik hisobotlar SQL ko'rsatkichlari asosida shakllanadi. AI xulosa qismini yozadi, raqamlar bazadan olinadi."
         actions={
           <span style={{ display: "flex", gap: 8 }}>
-            <select className="select" value={type} onChange={(e) => setType(e.target.value)}>
+            <select className="select" value={type} onChange={(e) => setType(e.target.value)} aria-label="Hisobot turi">
               <option value="daily">Kunlik</option>
               <option value="weekly">Haftalik</option>
               <option value="monthly">Oylik</option>
             </select>
-            <button className="btn primary" disabled={busy} onClick={generate}>
-              Hisobot tayyorlash
+            <button className="btn primary" disabled={busy} onClick={() => void generate()}>
+              <Plus size={16} /> Hisobot tayyorlash
             </button>
           </span>
         }
       />
-      {error && <ErrorNote message={error} />}
-      {note && <div className="alert info">ℹ️ {note}</div>}
-      {!data && !error && <Loading />}
+      {error && <div className="alert danger" role="alert">{error}</div>}
+      {note && <div className="alert success" role="alert">{note}</div>}
+      {!data && !error && <SkeletonList rows={4} />}
       {data && (
         <div className="card">
-          <div className="table-wrap">
+          <div className="table-wrap" style={{ border: "none", borderRadius: 0 }}>
             <table className="data">
-              <thead>
-                <tr>
-                  <th>Hisobot</th>
-                  <th>Tur</th>
-                  <th>Davr</th>
-                  <th>Holat</th>
-                  <th>Amallar</th>
-                </tr>
-              </thead>
+              <thead><tr><th>Hisobot</th><th>Tur</th><th>Davr</th><th>Holat</th><th>Amallar</th></tr></thead>
               <tbody>
                 {data.items.map((report) => (
                   <tr key={report.id}>
-                    <td>
-                      <b>{report.title}</b>
-                    </td>
+                    <td><b style={{ fontWeight: 600 }}>{report.title}</b></td>
                     <td>{TYPE_LABELS[report.type] ?? report.type}</td>
-                    <td className="nowrap">
-                      {fmtDate(report.period_start)} — {fmtDate(report.period_end)}
-                    </td>
+                    <td className="nowrap">{fmtDate(report.period_start)} — {fmtDate(report.period_end)}</td>
                     <td>
                       <Badge tone={report.status === "approved" ? "ok" : "warn"}>
                         {report.status === "approved" ? "Tasdiqlangan" : "Draft"}
                       </Badge>
                     </td>
                     <td className="nowrap">
-                      <button className="btn sm" onClick={() => setOpen(report)}>
-                        Ko‘rish
+                      <button className="btn sm" onClick={() => setOpen(report)}>Ko'rish</button>{" "}
+                      <button className="btn sm" onClick={() => void api.file(`/reports/${report.id}/export?format=docx`, `${report.title}.docx`)} aria-label="Word yuklab olish">
+                        <Download size={13} /> Word
                       </button>{" "}
-                      <button className="btn sm" onClick={() => void api.file(`/reports/${report.id}/export?format=docx`, `${report.title}.docx`)}>
-                        Word
-                      </button>{" "}
-                      <button className="btn sm" onClick={() => void api.file(`/reports/${report.id}/export?format=pdf`, `${report.title}.pdf`)}>
-                        PDF
+                      <button className="btn sm" onClick={() => void api.file(`/reports/${report.id}/export?format=pdf`, `${report.title}.pdf`)} aria-label="PDF yuklab olish">
+                        <Download size={13} /> PDF
                       </button>
                     </td>
                   </tr>
                 ))}
                 {data.items.length === 0 && (
-                  <tr>
-                    <td colSpan={5}>
-                      <Empty title="Hisobot yo‘q" icon="▤" note="«Hisobot tayyorlash» tugmasi bilan birinchisini yarating." />
-                    </td>
-                  </tr>
+                  <tr><td colSpan={5}><Empty title="Hisobot yo'q" note="«Hisobot tayyorlash» tugmasi bilan birinchisini yarating." /></td></tr>
                 )}
               </tbody>
             </table>
           </div>
-          <Pager meta={data.meta} onPage={setPage} />
-        </div>
-      )}
-      {open && (
-        <div className="card mb">
-          <div className="card-head">
-            <h3>{open.title}</h3>
-            <Badge tone={open.status === "approved" ? "ok" : "warn"}>
-              {open.status === "approved" ? "Tasdiqlangan" : "Draft"}
-            </Badge>
-          </div>
-          <div className="card-pad">
-            <div style={{ whiteSpace: "pre-wrap", fontSize: 14.5, lineHeight: 1.7 }}>{open.narrative || open.summary}</div>
-            <div className="mt" style={{ display: "flex", gap: 8 }}>
-              {open.status !== "approved" && (
-                <button className="btn primary" disabled={busy} onClick={() => void approve(open)}>
-                  Tasdiqlash
-                </button>
-              )}
-              <button className="btn" onClick={() => setOpen(null)}>
-                Yopish
-              </button>
+          {data.meta.total_pages > 1 && (
+            <div className="pager">
+              <span className="num">{data.meta.total} ta hisobot · {data.meta.page}/{data.meta.total_pages}</span>
+              <span style={{ display: "flex", gap: 8 }}>
+                <button className="btn sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>‹</button>
+                <button className="btn sm" disabled={page >= data.meta.total_pages} onClick={() => setPage(page + 1)}>›</button>
+              </span>
             </div>
-          </div>
+          )}
         </div>
       )}
+
+      <Drawer
+        open={Boolean(open)}
+        onClose={() => setOpen(null)}
+        title={open?.title ?? ""}
+        wide
+        footer={
+          <>
+            {open?.status !== "approved" && (
+              <button className="btn primary" disabled={busy} onClick={() => setApproveOpen(open!)}>
+                <Check size={15} /> Tasdiqlash
+              </button>
+            )}
+            <button className="btn ghost" onClick={() => setOpen(null)}>Yopish</button>
+          </>
+        }
+      >
+        {open && (
+          <>
+            <div className="meta-row mb">
+              <Badge tone={open.status === "approved" ? "ok" : "warn"}>{open.status === "approved" ? "Tasdiqlangan" : "Draft"}</Badge>
+              <span>{TYPE_LABELS[open.type] ?? open.type}</span>
+              <span>{fmtDate(open.period_start)} — {fmtDate(open.period_end)}</span>
+            </div>
+            <div style={{ fontSize: 14.5, lineHeight: 1.75, whiteSpace: "pre-wrap" }}>{open.narrative || open.summary}</div>
+          </>
+        )}
+      </Drawer>
+
+      <ConfirmDialog
+        open={Boolean(approveOpen)}
+        onClose={() => setApproveOpen(null)}
+        onConfirm={() => void approve()}
+        title="Hisobotni tasdiqlash"
+        message={`«${approveOpen?.title}» rasmiy tasdiqlangan hisobot sifatida belgilanadi. Davom etamizmi?`}
+        confirmLabel="Tasdiqlash"
+        danger={false}
+        busy={approving}
+      />
     </>
   );
 }

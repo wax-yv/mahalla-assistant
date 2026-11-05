@@ -176,6 +176,24 @@ def _endpoint(provider: str) -> tuple[str, dict[str, str]]:
     )
 
 
+def stored_model(db: Session) -> str:
+    """Sozlamalarda saqlangan faol model id (bo'sh = registratsiya tartibi)."""
+    from app.models import AppSetting
+
+    row = db.get(AppSetting, "app")
+    if row is None:
+        return ""
+    value = (row.value or {}).get("ai_model", "")
+    return value if isinstance(value, str) else ""
+
+
+def order_models(models: list[dict[str, Any]], primary: str) -> list[dict[str, Any]]:
+    """Tanlangan modelni zanjir boshiga qo'yadi, qolganlari rank tartibida."""
+    chosen = [m for m in models if m["id"] == primary]
+    rest = [m for m in models if m["id"] != primary]
+    return chosen + rest
+
+
 def chat_completion(
     db: Session,
     *,
@@ -186,15 +204,19 @@ def chat_completion(
     temperature: float | None = None,
     json_mode: bool = False,
     preferred_provider: str | None = None,
+    preferred_model: str | None = None,
 ) -> AIResult:
     budget = usage_today(db)
     if budget["remaining"] <= 0:
         raise service_unavailable("Kunlik AI token budjeti tugagan. Sozlamalarda limitni oshiring.")
     candidates = available_models()
+    active_model = preferred_model or stored_model(db)
+    if active_model:
+        candidates = order_models(candidates, active_model)
     if preferred_provider in {"nvidia", "openrouter"}:
-        candidates = [m for m in candidates if m["provider"] == preferred_provider] + [
-            m for m in candidates if m["provider"] != preferred_provider
-        ]
+        head = [m for m in candidates if m["provider"] == preferred_provider]
+        tail = [m for m in candidates if m["provider"] != preferred_provider]
+        candidates = head + tail
     if not candidates:
         raise service_unavailable("AI provayderlari sozlanmagan.")
     attempts: list[dict[str, Any]] = []

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Monitor, Moon, Sun } from "@/components/ui/icons";
 
 export function applyTheme(theme: "light" | "dark" | "system") {
   const dark =
@@ -10,22 +11,28 @@ export function applyTheme(theme: "light" | "dark" | "system") {
   localStorage.setItem("mahalla-theme", theme);
 }
 
+const ORDER = ["light", "dark", "system"] as const;
+const META: Record<(typeof ORDER)[number], { icon: typeof Sun; label: string }> = {
+  light: { icon: Sun, label: "Yorug‘" },
+  dark: { icon: Moon, label: "Tungi" },
+  system: { icon: Monitor, label: "Tizim" },
+};
+
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
+  const [theme, setTheme] = useState<(typeof ORDER)[number]>("system");
   useEffect(() => {
-    setTheme((localStorage.getItem("mahalla-theme") as "light" | "dark" | "system") ?? "system");
+    setTheme((localStorage.getItem("mahalla-theme") as (typeof ORDER)[number]) ?? "system");
   }, []);
   const next = () => {
-    const order: Array<"light" | "dark" | "system"> = ["light", "dark", "system"];
-    const value = order[(order.indexOf(theme) + 1) % order.length];
+    const value = ORDER[(ORDER.indexOf(theme) + 1) % ORDER.length];
     setTheme(value);
     applyTheme(value);
   };
-  const icon = theme === "dark" ? "🌙" : theme === "light" ? "☀️" : "🖥️";
+  const Icon = META[theme].icon;
   return (
-    <button className="btn sm" onClick={next} title="Mavzu: yorug‘ / tungi / tizim" aria-label="Mavzuni almashtirish">
-      <span aria-hidden="true">{icon}</span>
-      <span className="nowrap">{theme === "system" ? "Tizim" : theme === "dark" ? "Tungi" : "Yorug‘"}</span>
+    <button className="btn sm" onClick={next} title={`Mavzu: ${META[theme].label}`} aria-label={`Mavzu: ${META[theme].label}. Almashtirish uchun bosing`}>
+      <Icon size={14} />
+      <span className="nowrap hide-sm">{META[theme].label}</span>
     </button>
   );
 }
