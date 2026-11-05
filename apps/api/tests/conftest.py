@@ -10,9 +10,14 @@ from app.models import RateLimit
 
 
 def clear_login_limit() -> None:
-    # Tests share one IP; clear the login rate-limit window before authenticating.
+    """Testlar uchun login hisoblagichini tozalash.
+
+    K-2 dan keyin muvaffaqiyatsiz urinishlar **alohida sessiyada commit** qilinadi
+    va muvaffaqiyatli login ularni 0 ga tushiradi. Shuning uchun bu yordamchi
+    faqat rate-limit sinovi uchun kerak — umumiy login oqimida kerak emas.
+    """
     with SessionLocal() as db:
-        db.execute(delete(RateLimit).where(RateLimit.key.ilike("%wax%")))
+        db.execute(delete(RateLimit))
         db.commit()
 
 
@@ -24,7 +29,6 @@ def client():
 
 @pytest.fixture()
 def auth(client):
-    clear_login_limit()
     response = client.post("/api/v1/auth/login", json={"username": "wax", "password": "waxs"})
     assert response.status_code == 200, response.text
     token = response.json()["csrf_token"]

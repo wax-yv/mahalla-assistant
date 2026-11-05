@@ -9,9 +9,6 @@ def test_health(client):
 
 
 def test_login_success_and_me(client):
-    from tests.conftest import clear_login_limit
-
-    clear_login_limit()
     response = client.post("/api/v1/auth/login", json={"username": "wax", "password": "waxs"})
     assert response.status_code == 200
     body = response.json()
@@ -22,9 +19,6 @@ def test_login_success_and_me(client):
 
 
 def test_login_wrong_password(client):
-    from tests.conftest import clear_login_limit
-
-    clear_login_limit()
     response = client.post("/api/v1/auth/login", json={"username": "wax", "password": "nope123"})
     assert response.status_code == 401
 
