@@ -48,7 +48,7 @@ mahalla-assistant/
 | **Kredit-subsidiya** | Avval bank/dastur so'raydi, keyin **faqat** tanlangan bank bo'yicha javob beradi va tanlovni eslab qoladi |
 | **Hujjat** | Excel/CSV/Word import-eksport tartibi va holati |
 
-Agentlar **deterministik asboblar-first**: raqamlar va faktlar bazadan/Lex.uz dan olinadi, LLM faqat tilni yaratish uchun. Har bir yozuv amali (vazifa yaratish, hisobot yaratish) `draft_actions` sifatida taklif qilinadi va **tasdiqlangandan keyin** bajariladi.
+Agentlar **deterministik asboblar-first**: raqamlar va faktlar bazadan/Lex.uz dan olinadi, LLM faqat tilni yaratish uchun. Biznes yozuvlari (vazifa yaratish, hisobot yaratish, hujjat importi, qonunchilik sinxroni) `draft_actions` sifatida taklif qilinadi va **tasdiqlangandan keyin** bajariladi. Yagona istisno — suhbat davomida eslab qolinadigan **tanlov** (masalan, qaysi bank bo'yicha kredit shartlari kerakligi): bu yozuv foydalanuvchiga ochiq aytiladi (`«Tanlovingizni eslab qoldim: ...»`) va javobda `preference_saved` maydoni bilan qaytariladi.
 
 ## Mahalliy ishga tushirish
 

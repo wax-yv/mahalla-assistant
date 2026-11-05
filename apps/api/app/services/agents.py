@@ -723,7 +723,13 @@ def _credit_subsidy(db: Session, message: str, context: dict[str, Any]) -> dict[
         for item in matches[:4]:
             lines.append(f"• {item['program_name']}: {item['result']} — {'; '.join(item['reasons'][:2])}")
     lines.append("")
-    lines.append("Yakuniy shartlar bank filialida yoki rasmiy saytda tasdiqlanishi shart. Tanlangan bank keyingi savollarda eslab qolinadi.")
+    lines.append("Yakuniy shartlar bank filialida yoki rasmiy saytda tasdiqlanishi shart.")
+    # O-8: tanlov yozuvi yashirilmaydi — foydalanuvchiga ochiq aytiladi.
+    lines.append(
+        f"Tanlovingizni eslab qoldim: «{organization}». Keyingi savollarda shu "
+        "tashkilot bo'yicha javob beraman (boshqa tashkilotni so'rasangiz, "
+        "tanlov yangilanadi)."
+    )
     return {
         "text": "\n".join(lines),
         "sources": [
@@ -742,6 +748,12 @@ def _credit_subsidy(db: Session, message: str, context: dict[str, Any]) -> dict[
             "programs": rows,
             "matches": matches,
             "citizen": citizen_out(citizen) if citizen else None,
+            # O-8: saqlangan tanlov foydalanuvchiga ko'rsatiladi.
+            "preference_saved": {
+                "organization": organization,
+                "program_name": rows[0]["name"] if len(rows) == 1 else None,
+                "confirmed": True,
+            },
         },
         "confidence": "medium",
         "warnings": [
@@ -1084,6 +1096,12 @@ MUHIM CHEKLOVLAR:
   Savolni «qayta yozib bering» yoki «filtrlarni qo'llang» deb chetlab yubormang.
 - Foydalanuvchidan ro'yxatni «o'zingiz qo'ying» yoki «filtrlardan o'ting» deb so'ramang —
   tizim ro'yxatni ham, sonni ham o'zi qaytaradi.
+- MAHALLA MA'LUMOTI, QONUN VA KREDIT SHARTLARI haqida faqat TIZIM MA'LUMOTIDAN
+  foydalaning (sizga berilgan kontekst va tizim qarorlari). Agar ma'lumot bo'lmasa
+  yoki aniq bo'lmasa, albatta «bilmayman» deb ayting — hech qachon o'zingizcha
+  raqam, summa, foiz, muddat, muddatlik yoki qoida o'ylab topmang.
+  Kredit/subsidiya shartlari faqat tanlangan tashkilot bo'yicha, tizimda saqlangan
+  rasmiy manbadan beriladi; boshqa bank shartlarini aytib bermang.
 - Tizim bo'limlari: Fuqarolar (qidiruv+filtrlar), Hisobotlar, Vazifalar, Murojaatlar,
   Qonunchilik, Hujjatlar, Agentlar.
 - Siz quyidagilarni bajara olasiz: fuqaro/oila qidirish, murojaat-vazifa nazorati,
