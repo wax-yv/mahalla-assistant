@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -19,11 +20,94 @@ _SECRET_MARKERS = (
     "csrf",
 )
 
+# O-14: shaxsiy ma'lumot (PII) maydonlari. Audit jadvalida saqlash muddati
+# yo'q — shuning uchun PII yozilishidan oldin niqolanadi.
+_PII_NAME_KEYS = {
+    "full_name",
+    "fullname",
+    "citizen_name",
+    "f.i.sh",
+    "fish",
+    "fio",
+    "ism_familiya",
+}
+_PII_PHONE_KEYS = {
+    "phone",
+    "phone_number",
+    "mobile",
+    "telefon",
+    "telefon_raqami",
+}
+_PII_BIRTH_KEYS = {
+    "birth_date",
+    "birthdate",
+    "dob",
+    "tug'ilgan_sana",
+    "tugilgan_sana",
+}
+
 _MAX_STRING = 4000
 
 
+def _pii_kind(key: str) -> str | None:
+    """Kalit bo'yicha PII turini aniqlaydi (`None` — PII emas)."""
+    lowered = str(key).strip().lower()
+    if lowered in _PII_NAME_KEYS or lowered.endswith("_full_name"):
+        return "name"
+    if lowered in _PII_PHONE_KEYS or lowered.endswith("_phone"):
+        return "phone"
+    if lowered in _PII_BIRTH_KEYS or lowered.endswith("_birth_date"):
+        return "birth_date"
+    return None
+
+
+def _mask_name(value: Any) -> str:
+    """F.I.Sh. -> bosh harflar ("Alisher Karimov" -> "A. K.")."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    parts = [part for part in re.split(r"\s+", text) if part]
+    return " ".join(f"{part[0].upper()}." for part in parts[:4])
+
+
+def _mask_phone(value: Any) -> str:
+    """Telefon -> faqat oxirgi 4 ta raqam ko'rinadi ("+998901234567" -> "+*********4567")."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    digit_positions = [index for index, char in enumerate(text) if char.isdigit()]
+    if not digit_positions:
+        return "[masked]"
+    visible = set(digit_positions[-4:])
+    return "".join(
+        char if (index in visible or not char.isdigit()) else "*"
+        for index, char in enumerate(text)
+    )
+
+
+def _mask_birth_date(value: Any) -> str:
+    """Tug'ilgan sana -> faqat yil ("1988-03-12" -> "1988")."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    match = re.search(r"(\d{4})", text)
+    return match.group(1) if match else "[masked]"
+
+
+def _mask_pii(value: Any, kind: str) -> str:
+    if kind == "name":
+        return _mask_name(value)
+    if kind == "phone":
+        return _mask_phone(value)
+    return _mask_birth_date(value)
+
+
 def sanitize(value: Any, depth: int = 0) -> Any:
-    """Remove secrets and truncate long values before writing an audit record."""
+    """Remove secrets and PII, then truncate long values before writing an audit record.
+
+    O-14: fuqaro PII (F.I.Sh., tug'ilgan sana, telefon) audit jadvalida to'liq
+    saqlanmasligi kerak — qiymatlar niqolanadi.
+    """
     if depth > 6:
         return "[…]"
     if isinstance(value, dict):
@@ -32,8 +116,12 @@ def sanitize(value: Any, depth: int = 0) -> Any:
             lowered = str(key).lower()
             if any(marker in lowered for marker in _SECRET_MARKERS):
                 result[str(key)] = "[redacted]"
-            else:
-                result[str(key)] = sanitize(item, depth + 1)
+                continue
+            pii_kind = _pii_kind(str(key))
+            if pii_kind is not None and item is not None:
+                result[str(key)] = _mask_pii(item, pii_kind)
+                continue
+            result[str(key)] = sanitize(item, depth + 1)
         return result
     if isinstance(value, (list, tuple)):
         return [sanitize(item, depth + 1) for item in value[:200]]
@@ -45,6 +133,13 @@ def sanitize(value: Any, depth: int = 0) -> Any:
 
 
 def model_snapshot(obj: Any, fields: list[str] | None = None) -> dict | None:
+    """Model holatining nusxasi.
+
+    O-14: bu yerda qiymatlar **aniq** qoldiriladi — import rollback'i
+    (`ImportChange.before`) ularni bazaga qaytaradi, niqoblash ma'lumotni
+    buzardi. PII niqoblash audit yozuviga yozilish paytida (`write_audit`
+    -> `sanitize`) amalga oshadi.
+    """
     if obj is None:
         return None
     if fields is None:

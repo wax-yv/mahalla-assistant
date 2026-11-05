@@ -310,6 +310,7 @@ def activity_page(db: Session, page: int, page_size: int) -> tuple[list[dict], P
     labels = {
         "auth.login": "Tizimga kirdi",
         "auth.logout": "Tizimdan chiqdi",
+        "auth.login_failed": "Muvaffaqiyatsiz kirish urinish",
         "citizen.created": "Fuqaro qo'shildi",
         "citizen.updated": "Fuqaro yangilandi",
         "task.completed": "Vazifa bajarildi",

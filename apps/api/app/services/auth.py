@@ -13,7 +13,7 @@ from app.core.audit import write_audit
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.core.deps import client_ip
-from app.core.errors import too_many_requests, unauthenticated
+from app.core.errors import APIError, too_many_requests, unauthenticated
 from app.core.security import (
     hash_password,
     hash_token,
@@ -149,6 +149,41 @@ def reset_failures(keys: list[str], window_minutes: int = LOGIN_WINDOW_MINUTES) 
         session.commit()
 
 
+def record_login_failure(
+    *,
+    username: str,
+    ip: str,
+    request_id: str | None = None,
+    reason: str = "invalid_credentials",
+) -> None:
+    """Muvaffaqiyatsiz loginni **alohida sessiyada** audit qiladi (O-14).
+
+    401/429 xatosi chaqiruvchining tranzaksiyasini bekor qiladi — shuning
+    uchun audit yozuvi alohida sessiyada yoziladi va commit qilinadi.
+    Parol hech qachon yozilmaydi: faqat urinish foydalanuvchi nomi, sabab
+    va IP manzili saqlanadi.
+    """
+    normalized = (username or "").strip().lower()[:200]
+    with SessionLocal() as session:
+        try:
+            write_audit(
+                session,
+                action="auth.login_failed",
+                entity_type="user",
+                entity_id=None,
+                actor_id=None,
+                actor_type="anonymous",
+                new_value={"username": normalized, "reason": reason},
+                request_id=request_id,
+                ip=ip,
+                result="failure",
+            )
+            session.commit()
+        except Exception:
+            # Audit yozilishi muvaffaqiyatsiz bo'lsa login oqimi buzilmasin.
+            session.rollback()
+
+
 def login_keys(ip: str, username: str) -> list[str]:
     """Login uchun ikkita kalit: IP bo'yicha va foydalanuvchi nomi bo'yicha."""
     normalized = (username or "").strip().lower()
@@ -159,11 +194,23 @@ def authenticate(db: Session, username: str, password: str, request: Request) ->
     ip = client_ip(request)
     normalized = username.strip().lower()
     keys = login_keys(ip, normalized)
+    request_id = getattr(request.state, "request_id", None)
 
     # Chegara tekshiruvi — muvaffaqiyatsiz urinishlar hisobga olinadi,
     # muvaffaqiyatli urinishlar hisoblanmaydi.
-    check_rate_limit(db, key=keys[0], limit=LOGIN_IP_LIMIT)
-    check_rate_limit(db, key=keys[1], limit=LOGIN_LIMIT)
+    try:
+        check_rate_limit(db, key=keys[0], limit=LOGIN_IP_LIMIT)
+        check_rate_limit(db, key=keys[1], limit=LOGIN_LIMIT)
+    except APIError:
+        # O-14: bloklangan urinish ham audit izida qolishi kerak.
+        db.rollback()
+        record_login_failure(
+            username=normalized,
+            ip=ip,
+            request_id=request_id,
+            reason="rate_limited",
+        )
+        raise
 
     user = db.execute(
         select(User).where(User.username == normalized)
@@ -174,6 +221,14 @@ def authenticate(db: Session, username: str, password: str, request: Request) ->
         db.rollback()
         for key in keys:
             record_failure(key)
+        # O-14: muvaffaqiyatsiz login audit qilinadi (alohida sessiyada —
+        # chaqiruvchining tranzaksiyasi bekor qilingani bilan birga).
+        record_login_failure(
+            username=normalized,
+            ip=ip,
+            request_id=request_id,
+            reason="invalid_credentials",
+        )
         raise unauthenticated("Login yoki parol noto'g'ri.")
 
     reset_failures(keys)
