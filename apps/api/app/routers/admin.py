@@ -110,19 +110,12 @@ def create_backup(
     db: Session = Depends(get_db),
     user: User = Depends(require_csrf_and_permission("settings.manage")),
 ):
-    payload, digest = service.create_backup(db, user.id)
+    summary, digest = service.create_backup(db, user.id)
     return {
-        "backup_id": payload["backup_id"],
+        "backup_id": summary["backup_id"],
         "sha256": digest,
-        "generated_at": payload["generated_at"],
-        "counts": {
-            "citizens": len(payload["citizens"]),
-            "families": len(payload["families"]),
-            "houses": len(payload["houses"]),
-            "cases": len(payload["cases"]),
-            "tasks": len(payload["tasks"]),
-            "reports": len(payload["reports"]),
-        },
+        "generated_at": summary["generated_at"],
+        "counts": summary["counts"],
     }
 
 
@@ -130,27 +123,41 @@ def create_backup(
 def download_backup(
     backup_id: str,
     db: Session = Depends(get_db),
-    _=Depends(require_permission("settings.manage")),
+    user: User = Depends(require_permission("settings.manage")),
 ):
+    """J-8: saqlangan zaxira baytlarini qaytaradi va sha256 ni tekshiradi.
+
+    Eski versiya yuklab olishda har safar **yangi** backup yaratib, o'sha
+    yangi faylni qaytarardi — `sha256` esa boshqa (saqlanmagan) nusxaga
+    tegishli edi.
+    """
+    import hashlib
+
     from fastapi.responses import Response
 
+    from app.core.errors import bad_request, not_found
     from app.models import BackupRun
 
     backup = db.get(BackupRun, backup_id)
     if backup is None:
-        from app.core.errors import not_found
-
         raise not_found("Backup topilmadi.")
-    payload, _ = service.create_backup(db, "system")
-    import json
-
-    data = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+    if not backup.data:
+        raise bad_request(
+            "Bu zaxira nusxa saqlanmagan. Yangi zaxira nusxa yarating "
+            "(migratsiya bajarilmagan bo'lsa, `scripts/migrate.sql` ni ishga tushiring)."
+        )
+    data = bytes(backup.data)
+    digest = hashlib.sha256(data).hexdigest()
+    expected = (backup.location or "").rsplit("sha256:", 1)[-1]
+    if expected and expected != digest:
+        raise bad_request("Zaxira nusxa yaxlitligi tekshiruvdan o'tmadi (sha256 mos kelmadi).")
     return Response(
         content=data,
         media_type="application/json",
         headers={
             "Content-Disposition": content_disposition(
                 f"mahalla-backup-{backup_id}.json"
-            )
+            ),
+            "X-Backup-SHA256": digest,
         },
     )

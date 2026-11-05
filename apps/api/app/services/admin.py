@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
+from functools import lru_cache
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.core.audit import write_audit
@@ -20,6 +21,8 @@ from app.models import (
     Document,
     Family,
     House,
+    Mahalla,
+    MemoryItem,
     Program,
     Report,
     Street,
@@ -227,125 +230,323 @@ def system_info(db: Session) -> dict[str, Any]:
     }
 
 
-def create_backup(db: Session, actor: str) -> tuple[dict[str, Any], str]:
-    import hashlib
+def _iso(value: Any) -> Any:
+    """None-safe ISO formatlash (J-8: `None` qiymatlar 500 bermasligi kerak)."""
+    if value is None:
+        return None
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    return value
 
-    payload: dict[str, Any] = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "version": settings.app_version,
-        "citizens": [],
-        "families": [],
-        "houses": [],
-        "streets": [],
-        "cases": [],
-        "tasks": [],
-        "work_logs": [],
-        "reports": [],
-    }
-    for row in db.execute(select(Citizen)).scalars().all():
-        payload["citizens"].append(
-            {
-                "id": row.id,
-                "full_name": row.full_name,
-                "gender": row.gender,
-                "birth_date": row.birth_date.isoformat() if row.birth_date else None,
-                "phone": row.phone,
-                "family_id": row.family_id,
-                "family_role": row.family_role,
-                "employment_status": row.employment_status,
-                "social_status": row.social_status,
-                "needs": row.needs,
-                "data_source": row.data_source,
-                "last_verified_at": row.last_verified_at.isoformat() if row.last_verified_at else None,
-            }
-        )
-    for row in db.execute(select(Family)).scalars().all():
-        payload["families"].append(
-            {
-                "id": row.id,
-                "house_id": row.house_id,
-                "family_type": row.family_type,
-                "social_status": row.social_status,
-                "family_head_citizen_id": row.family_head_citizen_id,
-            }
-        )
-    for row in db.execute(select(House)).scalars().all():
-        payload["houses"].append(
-            {"id": row.id, "street_id": row.street_id, "house_number": row.house_number, "address_label": row.address_label}
-        )
-    for row in db.execute(select(Street)).scalars().all():
-        payload["streets"].append({"id": row.id, "mahalla_id": row.mahalla_id, "name": row.name})
-    for row in db.execute(select(Case)).scalars().all():
-        payload["cases"].append(
-            {
-                "id": row.id,
-                "citizen_id": row.citizen_id,
-                "category": row.category,
-                "title": row.title,
-                "status": row.status,
-                "priority": row.priority,
-                "opened_at": row.opened_at.isoformat(),
-                "outcome": row.outcome,
-            }
-        )
-    for row in db.execute(select(Task)).scalars().all():
-        payload["tasks"].append(
-            {
-                "id": row.id,
-                "title": row.title,
-                "status": row.status,
-                "priority": row.priority,
-                "due_date": row.due_date.isoformat() if row.due_date else None,
-                "citizen_id": row.citizen_id,
-                "case_id": row.case_id,
-            }
-        )
-    for row in db.execute(select(WorkLog)).scalars().all():
-        payload["work_logs"].append(
-            {
-                "id": row.id,
-                "citizen_id": row.citizen_id,
-                "type": row.type,
-                "title": row.title,
-                "occurred_at": row.occurred_at.isoformat(),
-            }
-        )
-    for row in db.execute(select(Report)).scalars().all():
-        payload["reports"].append(
-            {
-                "id": row.id,
-                "type": row.type,
-                "title": row.title,
-                "status": row.status,
-                "period_start": row.period_start.isoformat(),
-                "period_end": row.period_end.isoformat(),
-                "metrics": row.metrics,
-                "narrative": row.narrative,
-            }
-        )
-    encoded = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
-    digest = hashlib.sha256(encoded).hexdigest()
-    backup = BackupRun(
-        kind="logical",
-        status="completed",
-        finished_at=datetime.now(timezone.utc),
-        size_bytes=len(encoded),
-        location=f"inline:sha256:{digest}",
-    )
+
+@lru_cache(maxsize=1)
+def _backup_data_column_exists() -> bool:
+    """`backup_runs.data` ustuni bazasida bormi (migratsiya bajarilmagan bo'lishi mumkin)."""
+    from app.core.db import engine
+
+    try:
+        with engine.connect() as conn:
+            dialect = conn.dialect.name
+            if dialect == "postgresql":
+                value = conn.execute(
+                    text(
+                        "SELECT 1 FROM information_schema.columns "
+                        "WHERE table_name = 'backup_runs' AND column_name = 'data'"
+                    )
+                ).scalar()
+            elif dialect == "sqlite":
+                rows = conn.execute(text('PRAGMA table_info("backup_runs")')).all()
+                value = any(str(row[1]) == "data" for row in rows)
+            else:  # pragma: no cover - boshqa dialektlar
+                value = False
+    except Exception:
+        value = False
+    return bool(value)
+
+
+def create_backup(db: Session, actor: str) -> tuple[dict[str, Any], str]:
+    """Zaxira nusxa yaratadi va **baytlarini bazada saqlaydi** (J-8).
+
+    Eski versiya: butun baza RAM'da `.all()` bilan JSON qilinardi, hech
+    qayerda saqlanmasdi (`inline:sha256` — yolg'on signal), va yuklab olishda
+    har safar **boshqa** (yangi) backup yaratilib, `sha256` yuklangan fayl
+    bilan mos kelmasdi.
+
+    Endi:
+    - qatorlar oqim bilan (`yield`-style) JSON'ga yoziladi;
+    - baytlar `backup_runs.data` ustuniga saqlanadi, `sha256` — `location` da;
+    - `actor_id` — haqiqiy foydalanuvchi;
+    - restore uchun to'liqroq qamrov (mahalla, hujjat, audit, foydalanuvchi,
+      xotira, fuqaro ta'limi/kasbi).
+    """
+    import hashlib
+    import io
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+    buffer = io.BytesIO()
+    digest = hashlib.sha256()
+    counts: dict[str, int] = {}
+
+    def _write(text: str) -> None:
+        data = text.encode("utf-8")
+        digest.update(data)
+        buffer.write(data)
+
+    def _stream(key: str, rows: Any, serializer: Any) -> None:
+        if counts:
+            _write(",")
+        _write(json.dumps(key) + ": [")
+        count = 0
+        for row in rows:
+            if count:
+                _write(", ")
+            _write(json.dumps(serializer(row), ensure_ascii=False, default=str))
+            count += 1
+        _write("]")
+        counts[key] = count
+
+    backup = BackupRun(kind="logical", status="running")
     db.add(backup)
+    db.flush()
+
+    _write("{")
+    _write('"backup_id": ' + json.dumps(backup.id) + ",")
+    _write('"generated_at": ' + json.dumps(generated_at) + ",")
+    _write('"version": ' + json.dumps(settings.app_version) + ",")
+
+    _stream(
+        "citizens",
+        db.execute(select(Citizen)).scalars(),
+        lambda row: {
+            "id": row.id,
+            "full_name": row.full_name,
+            "gender": row.gender,
+            "birth_date": _iso(row.birth_date),
+            "phone": row.phone,
+            "family_id": row.family_id,
+            "family_role": row.family_role,
+            "education": row.education,
+            "employment_status": row.employment_status,
+            "profession": row.profession,
+            "social_status": row.social_status,
+            "needs": row.needs,
+            "notes": row.notes,
+            "data_source": row.data_source,
+            "last_verified_at": _iso(row.last_verified_at),
+            "archived_at": _iso(row.archived_at),
+            "created_at": _iso(row.created_at),
+        },
+    )
+    _stream(
+        "families",
+        db.execute(select(Family)).scalars(),
+        lambda row: {
+            "id": row.id,
+            "house_id": row.house_id,
+            "family_type": row.family_type,
+            "social_status": row.social_status,
+            "family_head_citizen_id": row.family_head_citizen_id,
+            "notes": row.notes,
+            "created_at": _iso(row.created_at),
+        },
+    )
+    _stream(
+        "houses",
+        db.execute(select(House)).scalars(),
+        lambda row: {
+            "id": row.id,
+            "street_id": row.street_id,
+            "house_number": row.house_number,
+            "address_label": row.address_label,
+        },
+    )
+    _stream(
+        "streets",
+        db.execute(select(Street)).scalars(),
+        lambda row: {"id": row.id, "mahalla_id": row.mahalla_id, "name": row.name},
+    )
+    _stream(
+        "mahallas",
+        db.execute(select(Mahalla)).scalars(),
+        lambda row: {
+            "id": row.id,
+            "name": row.name,
+            "district": row.district,
+            "region": row.region,
+        },
+    )
+    _stream(
+        "cases",
+        db.execute(select(Case)).scalars(),
+        lambda row: {
+            "id": row.id,
+            "citizen_id": row.citizen_id,
+            "family_id": row.family_id,
+            "category": row.category,
+            "title": row.title,
+            "description": row.description,
+            "status": row.status,
+            "priority": row.priority,
+            "responsible_user": row.responsible_user,
+            "target_date": _iso(row.target_date),
+            "opened_at": _iso(row.opened_at),
+            "closed_at": _iso(row.closed_at),
+            "outcome": row.outcome,
+            "evidence_refs": row.evidence_refs,
+        },
+    )
+    _stream(
+        "tasks",
+        db.execute(select(Task)).scalars(),
+        lambda row: {
+            "id": row.id,
+            "title": row.title,
+            "description": row.description,
+            "status": row.status,
+            "priority": row.priority,
+            "category": row.category,
+            "due_date": _iso(row.due_date),
+            "citizen_id": row.citizen_id,
+            "family_id": row.family_id,
+            "case_id": row.case_id,
+            "assignee": row.assignee,
+            "evidence_note": row.evidence_note,
+            "created_by": row.created_by,
+            "created_at": _iso(row.created_at),
+        },
+    )
+    _stream(
+        "work_logs",
+        db.execute(select(WorkLog)).scalars(),
+        lambda row: {
+            "id": row.id,
+            "citizen_id": row.citizen_id,
+            "case_id": row.case_id,
+            "task_id": row.task_id,
+            "type": row.type,
+            "title": row.title,
+            "description": row.description,
+            "author_id": row.author_id,
+            "occurred_at": _iso(row.occurred_at),
+            "source": row.source,
+            "approval_status": row.approval_status,
+        },
+    )
+    _stream(
+        "reports",
+        db.execute(select(Report)).scalars(),
+        lambda row: {
+            "id": row.id,
+            "type": row.type,
+            "title": row.title,
+            "status": row.status,
+            "period_start": _iso(row.period_start),
+            "period_end": _iso(row.period_end),
+            "filters": row.filters,
+            "metrics": row.metrics,
+            "narrative": row.narrative,
+            "summary": row.summary,
+        },
+    )
+    _stream(
+        "documents",
+        db.execute(select(Document)).scalars(),
+        lambda row: {
+            "id": row.id,
+            "filename": row.filename,
+            "original_name": row.original_name,
+            "mime_type": row.mime_type,
+            "size": row.size,
+            "content_hash": row.content_hash,
+            "kind": row.kind,
+            "status": row.status,
+            "uploaded_by": row.uploaded_by,
+            "meta": row.meta,
+            "created_at": _iso(row.created_at),
+        },
+    )
+    _stream(
+        "users",
+        db.execute(select(User)).scalars(),
+        lambda row: {
+            "id": row.id,
+            "username": row.username,
+            "display_name": row.display_name,
+            "password_hash": row.password_hash,
+            "role": row.role,
+            "permissions": row.permissions,
+            "is_active": row.is_active,
+            "created_at": _iso(row.created_at),
+            "last_login_at": _iso(row.last_login_at),
+        },
+    )
+    _stream(
+        "audit_logs",
+        db.execute(select(AuditLog)).scalars(),
+        lambda row: {
+            "id": row.id,
+            "actor_type": row.actor_type,
+            "actor_id": row.actor_id,
+            "action": row.action,
+            "entity_type": row.entity_type,
+            "entity_id": row.entity_id,
+            "old_value": row.old_value,
+            "new_value": row.new_value,
+            "request_id": row.request_id,
+            "workflow_id": row.workflow_id,
+            "source": row.source,
+            "result": row.result,
+            "created_at": _iso(row.created_at),
+        },
+    )
+    _stream(
+        "memory_items",
+        db.execute(select(MemoryItem)).scalars(),
+        lambda row: {
+            "id": row.id,
+            "conversation_id": row.conversation_id,
+            "kind": row.kind,
+            "key": row.key,
+            "value": row.value,
+            "source": row.source,
+            "confidence": row.confidence,
+            "created_at": _iso(row.created_at),
+            "expires_at": _iso(row.expires_at),
+        },
+    )
+    _write("}")
+
+    raw = buffer.getbuffer()
+    size_bytes = raw.nbytes
+    sha256 = digest.hexdigest()
+    if _backup_data_column_exists():
+        backup.data = raw
+        backup.location = f"db:backup_runs.data:sha256:{sha256}"
+    else:
+        # Migratsiya bajarilmagan bazada baytni saqlab bo'lmaydi — bu holatda
+        # "inline" signal yolg'on bo'lmasligi uchun aniq belgilanadi.
+        backup.location = "inline:unmigrated"
+    backup.status = "completed"
+    backup.finished_at = datetime.now(timezone.utc)
+    backup.size_bytes = size_bytes
     write_audit(
         db,
         action="backup.created",
         entity_type="backup_run",
         entity_id=backup.id,
         actor_id=actor,
-        new_value={"size_bytes": len(encoded), "sha256": digest},
+        new_value={"size_bytes": size_bytes, "sha256": sha256, "counts": counts},
     )
     db.commit()
     db.refresh(backup)
-    payload["backup_id"] = backup.id
-    payload["sha256"] = digest
-    return payload, digest
+    summary = {
+        "backup_id": backup.id,
+        "generated_at": generated_at,
+        "counts": counts,
+        "sha256": sha256,
+        "size_bytes": size_bytes,
+    }
+    return summary, sha256
 
 
 def list_backups(db: Session, limit: int = 20) -> list[dict[str, Any]]:

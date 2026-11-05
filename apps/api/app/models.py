@@ -704,3 +704,5 @@ class BackupRun(Base):
     size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     location: Mapped[str] = mapped_column(String(500), default="")
     error: Mapped[str] = mapped_column(Text, default="")
+    # J-8: zaxira nusxa baytlari (sha256 `location` da saqlanadi).
+    data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)

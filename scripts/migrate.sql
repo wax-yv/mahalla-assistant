@@ -32,3 +32,9 @@ ALTER TABLE citizens
 -- ---------------------------------------------------------------------------
 CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_item_key_conversation
     ON memory_items (key, conversation_id);
+
+-- ---------------------------------------------------------------------------
+-- J-8: Zaxira nusxa baytlari bazada saqlanishi (sha256 bilan tekshiriladi)
+-- ---------------------------------------------------------------------------
+ALTER TABLE backup_runs
+    ADD COLUMN IF NOT EXISTS data BYTEA;

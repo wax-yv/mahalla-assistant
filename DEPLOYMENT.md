@@ -98,6 +98,7 @@ curl https://<api-url>/api/v1/setup/status
   Neon/Supabase SQL editor'ida `scripts/migrate.sql` faylini ochib butunlay bajarish ham mumkin. Skript `IF NOT EXISTS` bilan himoyalangan — bir necha marta ishga tushirsa ham xato bermaydi. hozirgi migrate.sql tarkibi:
   - **K-8** — `conversations.user_id` ustuni + indeks (suhbat egalik nazorati / IDOR himoyasi);
   - **J-6** — `citizens.data_source` uzunligi `VARCHAR(255)` ga kengaytirilgan;
+  - **J-8** — `backup_runs.data` (BYTEA) — zaxira nusxa baytlari bazada saqlanadi;
   - **N-10** — `memory_items (key, conversation_id)` bo'yicha unikal indeks.
 
   > Eslatma: `create_all()` faqat jadvallarni yaratadi, mavjud jadvallarga ustun **qo'shmaydi**. Shu sababli migratsiyani skip qilish K-8 ni ishlashdan to'xtatadi (suhbat egaligi `user_id` siz saqlanmaydi).
