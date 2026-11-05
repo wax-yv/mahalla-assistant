@@ -83,8 +83,13 @@ def test_update_task_audit_old_status_is_previous(clean_tasks):
 
     task_id = _make_task("new")
     with SessionLocal() as db:
+        task = db.get(Task, task_id)
         service.update_task(
-            db, task_id, TaskUpdate(status="in_progress", priority="high"), "tester", None
+            db,
+            task_id,
+            TaskUpdate(status="in_progress", priority="high", version=task.version),
+            "tester",
+            None,
         )
 
     audit = _audit_for("task", task_id, "task.updated")
@@ -102,8 +107,9 @@ def test_update_case_audit_old_status_is_previous():
 
     case_id = _make_case("open")
     with SessionLocal() as db:
+        case = db.get(Case, case_id)
         service.update_case(
-            db, case_id, CaseUpdate(status="in_progress"), "tester", None
+            db, case_id, CaseUpdate(status="in_progress", version=case.version), "tester", None
         )
 
     audit = _audit_for("case", case_id, "case.updated")

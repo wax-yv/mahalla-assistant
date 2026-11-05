@@ -132,7 +132,8 @@ def update_case(
     case = db.get(Case, case_id)
     if case is None:
         raise not_found("Case topilmadi.")
-    if payload.version is not None and payload.version != case.version:
+    # D-1: versiya majburiy.
+    if payload.version != case.version:
         raise conflict("Case ma'lumoti o'zgargan. Sahifani yangilang.")
     data = payload.model_dump(exclude_unset=True)
     data.pop("version", None)
@@ -329,7 +330,8 @@ def update_task(
     task = db.get(Task, task_id)
     if task is None:
         raise not_found("Vazifa topilmadi.")
-    if payload.version is not None and payload.version != task.version:
+    # D-1: versiya majburiy.
+    if payload.version != task.version:
         raise conflict("Vazifa ma'lumoti o'zgargan. Sahifani yangilang.")
     data = payload.model_dump(exclude_unset=True)
     data.pop("version", None)

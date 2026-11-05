@@ -397,7 +397,8 @@ def update_family(
     family = db.get(Family, family_id)
     if family is None:
         raise not_found("Oila topilmadi.")
-    if payload.version is not None and payload.version != family.version:
+    # D-1: versiya majburiy.
+    if payload.version != family.version:
         raise conflict("Oila ma'lumoti o'zgargan. Sahifani yangilang.")
     before = model_snapshot(family)
     data = payload.model_dump(exclude_unset=True)

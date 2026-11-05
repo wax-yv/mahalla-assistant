@@ -473,7 +473,8 @@ def update_citizen(
     request_id: str | None = None,
 ) -> Citizen:
     citizen = get_citizen(db, citizen_id)
-    if payload.version is not None and payload.version != citizen.version:
+    # D-1: versiya majburiy — eskirgan yozuv ustidan yozish rad etiladi.
+    if payload.version != citizen.version:
         raise conflict(
             "Ma'lumot siz ko'rganingizdan keyin o'zgargan. Sahifani yangilab qayta urinib ko'ring."
         )

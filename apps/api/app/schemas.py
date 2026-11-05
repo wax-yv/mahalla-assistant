@@ -202,7 +202,8 @@ class CitizenUpdate(BaseModel):
     social_status: str | None = None
     needs: list[str] | None = None
     notes: str | None = None
-    version: int | None = None
+    # D-1: versiya majburiy — eskirgan yozuv ustidan yozish rad etiladi.
+    version: int
 
 
 class FamilyCreate(BaseModel):
@@ -218,7 +219,8 @@ class FamilyUpdate(BaseModel):
     family_type: str | None = None
     social_status: str | None = None
     notes: str | None = None
-    version: int | None = None
+    # D-1: versiya majburiy.
+    version: int
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +270,8 @@ class CaseUpdate(BaseModel):
     responsible_user: str | None = None
     target_date: date | None = None
     outcome: str | None = None
-    version: int | None = None
+    # D-1: versiya majburiy.
+    version: int
 
 
 class TaskOut(ORMModel):
@@ -314,7 +317,8 @@ class TaskUpdate(BaseModel):
     status: str | None = None
     due_date: date | None = None
     assignee: str | None = None
-    version: int | None = None
+    # D-1: versiya majburiy.
+    version: int
 
 
 class TaskCompleteRequest(BaseModel):
