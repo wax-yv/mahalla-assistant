@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.audit import model_snapshot, write_audit
 from app.core.config import settings
+from app.core.downloads import safe_cell
 from app.core.errors import (
     bad_request,
     not_found,
@@ -1417,8 +1418,10 @@ def export_module(db: Session, module: str, fmt: str, filters: dict[str, Any]) -
     if fmt == "csv":
         buffer = io.StringIO()
         writer = csv.writer(buffer)
-        writer.writerow(headers)
-        writer.writerows(rows)
+        # O-15: formula inyeksiyasidan himoya — har bir yozuv `safe_cell`
+        # orqali o'tadi.
+        writer.writerow([safe_cell(title) for title in headers])
+        writer.writerows([[safe_cell(value) for value in row] for row in rows])
         return buffer.getvalue().encode("utf-8-sig"), name, "text/csv"
     if fmt == "xlsx":
         workbook = Workbook()
@@ -1434,13 +1437,17 @@ def export_module(db: Session, module: str, fmt: str, filters: dict[str, Any]) -
         header_font = Font(color="F7F3E8", bold=True)
         thin = Side(style="thin", color="D8D2C2")
         for column_index, title in enumerate(headers, start=1):
-            cell = sheet.cell(row=1, column=column_index, value=title)
+            cell = sheet.cell(row=1, column=column_index, value=safe_cell(title))
             cell.fill = header_fill
             cell.font = header_font
             cell.alignment = Alignment(vertical="center")
         for row_index, row in enumerate(rows, start=2):
             for column_index, value in enumerate(row, start=1):
-                cell = sheet.cell(row=row_index, column=column_index, value=value)
+                # O-15: `=` bilan boshlanuvchi qiymat formula bo'lib
+                # yozilmasligi uchun niqolanadi.
+                cell = sheet.cell(
+                    row=row_index, column=column_index, value=safe_cell(value)
+                )
                 cell.border = Border(bottom=thin)
                 cell.alignment = Alignment(vertical="top", wrap_text=False)
         widths = [12, 30, 10, 14, 16, 22, 26, 12, 16, 20, 18, 16, 24, 22, 28, 30]

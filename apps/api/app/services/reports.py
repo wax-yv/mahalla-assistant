@@ -9,6 +9,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import model_snapshot, write_audit
+from app.core.downloads import safe_cell
 from app.core.errors import not_found, validation_error
 from app.core.pagination import paginate
 from app.core.time import period_bounds, today_local
@@ -479,19 +480,23 @@ def export_report(db: Session, report_id: str, fmt: str) -> tuple[bytes, str, st
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "Hisobot"
-        sheet["A1"] = report.title
+        # O-15: har bir yozuv formula inyeksiyasidan himoyalangan holda
+        # yoziladi (`=` bilan boshlanuvchi matn formula bo'lib ketmasin).
+        sheet["A1"] = safe_cell(report.title)
         sheet["A1"].font = Font(size=14, bold=True, color="1F3D2E")
-        sheet["A2"] = f"Holat: {report.status} · Davr: {report.period_start} — {report.period_end}"
+        sheet["A2"] = safe_cell(
+            f"Holat: {report.status} · Davr: {report.period_start} — {report.period_end}"
+        )
         row_index = 4
         for section, values in rows:
-            cell = sheet.cell(row=row_index, column=1, value=section)
+            cell = sheet.cell(row=row_index, column=1, value=safe_cell(section))
             cell.font = Font(bold=True, color="F7F3E8")
             cell.fill = PatternFill("solid", fgColor="1F3D2E")
             sheet.cell(row=row_index, column=2).fill = PatternFill("solid", fgColor="1F3D2E")
             row_index += 1
             for label, value in values:
-                sheet.cell(row=row_index, column=1, value=label)
-                sheet.cell(row=row_index, column=2, value=value)
+                sheet.cell(row=row_index, column=1, value=safe_cell(label))
+                sheet.cell(row=row_index, column=2, value=safe_cell(value))
                 row_index += 1
             row_index += 1
         sheet.column_dimensions["A"].width = 42
@@ -499,7 +504,9 @@ def export_report(db: Session, report_id: str, fmt: str) -> tuple[bytes, str, st
         narrative_row = row_index + 1
         sheet.cell(row=narrative_row, column=1, value="Tahliliy xulosa").font = Font(bold=True)
         for offset, paragraph in enumerate(report.narrative.split("\n\n")):
-            cell = sheet.cell(row=narrative_row + 1 + offset, column=1, value=paragraph)
+            cell = sheet.cell(
+                row=narrative_row + 1 + offset, column=1, value=safe_cell(paragraph)
+            )
             cell.alignment = Alignment(wrap_text=True, vertical="top")
         buffer = io.BytesIO()
         workbook.save(buffer)
