@@ -6,11 +6,6 @@ import { AlertTriangle, Check, Info, X } from "lucide-react";
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/**
- * Focus-trap + return-focus (audit P1-7).
- * Modal/Drawer ochilganda fokus birinchi fokuslanadigan elementga,
- * yopilganda esa avvalgi faol elementga qaytadi.
- */
 function useFocusTrap(open: boolean, onClose: () => void, ref: RefObject<HTMLElement | null>) {
   const previousRef = useRef<HTMLElement | null>(null);
 
@@ -63,7 +58,6 @@ function useFocusTrap(open: boolean, onClose: () => void, ref: RefObject<HTMLEle
   }, [open, onClose, ref]);
 }
 
-/* ---------------- Modal ---------------- */
 export function Modal({
   open, onClose, title, children, footer, wide,
 }: {
@@ -102,7 +96,6 @@ export function Modal({
   );
 }
 
-/* ---------------- Drawer ---------------- */
 export function Drawer({
   open, onClose, title, children, footer, wide,
 }: {
@@ -141,7 +134,6 @@ export function Drawer({
   );
 }
 
-/* ---------------- ConfirmDialog ---------------- */
 export function ConfirmDialog({
   open, onClose, onConfirm, title, message, confirmLabel = "Tasdiqlash", danger = true, busy = false,
 }: {
@@ -172,7 +164,6 @@ export function ConfirmDialog({
   );
 }
 
-/* ---------------- Toast ---------------- */
 type Toast = { id: number; kind: "success" | "error" | "info"; text: string };
 const ToastCtx = createContext<{ show: (kind: Toast["kind"], text: string) => void }>({ show: () => {} });
 
@@ -198,7 +189,6 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     timers.current.set(id, timer);
   }, []);
 
-  // P2-1: barcha timerlarni tozalash (unmount)
   useEffect(() => {
     const map = timers.current;
     return () => {
@@ -236,7 +226,6 @@ export function useToast() {
   return useContext(ToastCtx);
 }
 
-/* ---------------- States (7.5 — layout-mos skeletlar) ---------------- */
 export function SkeletonBlock({ h = 14, w = "100%", className = "" }: { h?: number; w?: number | string; className?: string }) {
   return <div className={`skeleton ${className}`} style={{ height: h, width: w }} />;
 }
@@ -255,7 +244,6 @@ export function SkeletonList({ rows = 4 }: { rows?: number }) {
   );
 }
 
-/** Dashboard skeleti — haqiqiy layout bilan bir xil balandlik (CLS ≈ 0) */
 export function SkeletonDashboard() {
   return (
     <div aria-hidden="true">
@@ -284,7 +272,6 @@ export function SkeletonDashboard() {
   );
 }
 
-/** Jadval skeleti */
 export function SkeletonTable({ rows = 6, cols = 5 }: { rows?: number; cols?: number }) {
   return (
     <div className="card" aria-hidden="true">
@@ -302,7 +289,6 @@ export function SkeletonTable({ rows = 6, cols = 5 }: { rows?: number; cols?: nu
   );
 }
 
-/** Chat skeleti */
 export function SkeletonChat() {
   return (
     <div className="card card-pad skel-chat" aria-hidden="true">

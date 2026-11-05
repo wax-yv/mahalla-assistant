@@ -1,19 +1,3 @@
-"""Deterministik fuqarolar/oilalar bazasi so'rov motori.
-
-Mohiyat: AI hech qachon raqamni o'zidan o'ylab topmasligi kerak — barcha
-ko'rsatkichlar va ro'yxatlar shu modul orqali **jonli SQL so'rovi** bilan
-bazadan olinadi. Shu sababli:
-
-* baza o'zgartirilsa (yangi fayl import qilinsa) javob darhol yangilanadi;
-* boshqa baza (boshqa PostgreSQL/Neon loyihasi) qo'yilsa ham modul ishlaydi —
-  chunki filtr qiymatlari kodga yozib qo'yilmaydi, balki bazadan
-  `DISTINCT` bilan olinadi;
-* LLM faqat tilni shakllantiradi, raqamlar esa 100% SQL'dan keladi.
-
-Modul API'si:
-    ``analyze(db, message) -> DataAnswer``
-"""
-
 from __future__ import annotations
 
 import re
@@ -21,15 +5,11 @@ from dataclasses import dataclass, field
 from datetime import date as date_cls
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.time import minus_years
 from app.models import Case, Citizen, Family, House, Street, Task
-
-# --------------------------------------------------------------------------
-# So'rovni tushunish (intent)
-# --------------------------------------------------------------------------
 
 COUNT_WORDS: tuple[str, ...] = (
     "nechta", "qancha", "soni", "necha", "nafar", "miqdori", "miqdor",
@@ -47,7 +27,6 @@ DATA_SUBJECT_WORDS: tuple[str, ...] = (
     "shaxslar", "yashovchi", "yashovchilar", "oila", "oilalar", "mahalla",
 )
 
-# Boshqa agentlarga tegishli so'zlar — data_stats'ga majburlash uchun ishlatilmaydi
 FOREIGN_SUBJECT_WORDS: tuple[str, ...] = (
     "murojaat", "murojaatlar", "vazifa", "vazifalar", "hujjat", "hujjatlar",
     "hisobot", "hisobotlar", "agent", "agentlar", "dastur", "dasturlar",
@@ -78,29 +57,22 @@ GROUP_PATTERNS: tuple[tuple[str, str], ...] = (
 
 ROMAN_TO_ARABIC: dict[str, str] = {"I": "1", "II": "2", "III": "3", "IV": "4"}
 
-# Matn normalizatsiyasi
 _APOSTROPHES = "ʻʼ‘’«»'`"
 
-
 def normalize(text: str) -> str:
-    """Matnni barcha apostrof/k Tirnoq turlari uchun yagona ko'rinishga keltiradi."""
     out = (text or "").lower()
     for ch in _APOSTROPHES:
         out = out.replace(ch, "'")
     out = out.replace("–", "-").replace("—", "-")
     return re.sub(r"\s+", " ", out).strip()
 
-
 def _strip_suffix(value: str) -> str:
-    """'Amir Temur ko'chasi' -> 'amir temur' (har ikkala tomon uchun)."""
     v = normalize(value)
     v = re.sub(r"\bko'?chasi\b", " ", v)
     v = re.sub(r"\bko'?cha\b", " ", v)
     return re.sub(r"\s+", " ", v).strip()
 
-
 def _word_hit(text: str, phrase: str, min_len: int = 3) -> bool:
-    """So'z chegarasiga e'tiborsiz, lekin boshlanishiga qarab moslik."""
     phrase = normalize(phrase)
     if not phrase:
         return False
@@ -110,15 +82,8 @@ def _word_hit(text: str, phrase: str, min_len: int = 3) -> bool:
         return phrase in text
     return re.search(rf"\b{re.escape(phrase)}", text) is not None
 
-
-# --------------------------------------------------------------------------
-# Ma'lumot modeli
-# --------------------------------------------------------------------------
-
-
 @dataclass
 class Facets:
-    """Savolga javob berish uchun ishlatilgan filtrlar."""
 
     social: list[str] = field(default_factory=list)
     employment: list[str] = field(default_factory=list)
@@ -128,9 +93,13 @@ class Facets:
     age_min: int | None = None
     age_max: int | None = None
     needs: list[str] = field(default_factory=list)
-    entity: str = "citizens"  # citizens | families | cases | tasks
+    entity: str = "citizens"
     list_mode: bool = False
     count_mode: bool = False
+    status: str | None = None
+    breakdown_by: str | None = None
+    rank_top: bool = False
+    aggregate: str | None = None
 
     def labels(self) -> list[str]:
         out: list[str] = []
@@ -153,12 +122,22 @@ class Facets:
                 out.append(f"yosh: {self.age_min} dan katta")
         if self.needs:
             out.append("ehtiyoj: " + ", ".join(self.needs))
+        if self.status == "overdue":
+            out.append("holat: kechikkan")
+        elif self.status == "today":
+            out.append("holat: bugungi")
+        elif self.status == "done":
+            out.append("holat: bajarilgan")
+        elif self.status == "open":
+            out.append("holat: ochiq")
+        elif self.status == "closed":
+            out.append("holat: yopilgan")
         return out
 
     def is_empty(self) -> bool:
         return not (self.social or self.employment or self.gender or self.education
-                    or self.street or self.age_min or self.age_max or self.needs)
-
+                    or self.street or self.age_min or self.age_max or self.needs
+                    or self.status)
 
 @dataclass
 class Row:
@@ -167,7 +146,6 @@ class Row:
     subtitle: str = ""
     meta: str = ""
     badges: list[str] = field(default_factory=list)
-
 
 @dataclass
 class DataAnswer:
@@ -206,17 +184,17 @@ class DataAnswer:
                 "age_min": self.facets.age_min,
                 "age_max": self.facets.age_max,
                 "needs": self.facets.needs,
+                "entity": self.facets.entity,
                 "list_mode": self.facets.list_mode,
+                "count_mode": self.facets.count_mode,
+                "status": self.facets.status,
+                "breakdown_by": self.facets.breakdown_by,
+                "rank_top": self.facets.rank_top,
+                "aggregate": self.facets.aggregate,
             },
             "as_of": self.as_of,
             "source": "database",
         }
-
-
-# --------------------------------------------------------------------------
-# Bazadan qiymat kashfoti (dinamik — kodga yozilgan ro'yxat yo'q)
-# --------------------------------------------------------------------------
-
 
 def _distinct(db: Session, column: Any, limit: int = 80) -> list[str]:
     rows = (
@@ -231,9 +209,7 @@ def _distinct(db: Session, column: Any, limit: int = 80) -> list[str]:
     )
     return [str(r) for r in rows if r and str(r).strip()]
 
-
 def _discover(db: Session) -> dict[str, list[str]]:
-    """Bazadagi real qiymatlar — filtrlash ularga asoslanadi."""
     social = _distinct(db, Citizen.social_status)
     employment = _distinct(db, Citizen.employment_status)
     gender = _distinct(db, Citizen.gender)
@@ -247,31 +223,20 @@ def _discover(db: Session) -> dict[str, list[str]]:
         "streets": streets,
     }
 
-
-# --------------------------------------------------------------------------
-# Filtrlarni aniqlash
-# --------------------------------------------------------------------------
-
-
 def _match_group(text: str) -> str | None:
-    """'2 guruh' / 'II guruh' / 'ikkinchi guruh' -> 'II'."""
     for pattern, roman in GROUP_PATTERNS:
         if re.search(pattern, text):
             return roman
     return None
 
-
 def _value_group(value: str) -> str | None:
-    """Bazadagi qiymatdagi guruhni aniqlaydi: 'Nogironligi bor (II guruh)' -> 'II'."""
     v = normalize(value)
     for pattern, roman in GROUP_PATTERNS:
         if re.search(pattern, v):
             return roman
     return None
 
-
 def _match_social(text: str, values: list[str]) -> list[str]:
-    """Ijtimoiy holat qiymatlarini matndan aniqlaydi (bazadagi haqiqiy qiymatlar)."""
     matched: list[str] = []
     disability = any(w in text for w in DISABILITY_WORDS)
     group = _match_group(text)
@@ -281,8 +246,6 @@ def _match_social(text: str, values: list[str]) -> list[str]:
         if not v or v in {"yo'q", "-", "yoq", "noma'lum", "nomalum"}:
             continue
 
-        # Aniq guruh so'ralgan bo'lsa — faqat o'sha guruh qiymatlari olinadi.
-        # Aks holda "2 guruh" so'rovi "III guruh"ni ham qamrab olardi.
         if disability and group:
             value_group = _value_group(value)
             if value_group is not None:
@@ -290,16 +253,12 @@ def _match_social(text: str, values: list[str]) -> list[str]:
                     matched.append(value)
                 continue
             if "nogiron" in v:
-                # Guruh belgisi yo'q nogironlik qiymati — aniq guruh so'rog'ida chalkash.
                 continue
 
         hit = False
-        # To'liq qiymat matnda bormi (masalan "temir daftar")
         if v in text:
             hit = True
         else:
-            # Qiymatning muhim so'zlari (masalan "nogironligi bor (ii guruh)" ->
-            # "nogiron" + "ii guruh")
             tokens = [t for t in re.split(r"[^a-z0-9']+", v) if len(t) >= 3]
             significant = [t for t in tokens if t not in {"bor", "va", "guruh", "ro'yxatida"}]
             if significant and all(_word_hit(text, t) for t in significant):
@@ -307,13 +266,11 @@ def _match_social(text: str, values: list[str]) -> list[str]:
         if hit and value not in matched:
             matched.append(value)
 
-    # "nogiron" umumiy so'z + aniq guruh belgilanmagan -> barcha nogironlik guruhlari
     if disability and not matched:
         for value in values:
             if "nogiron" in normalize(value) and value not in matched:
                 matched.append(value)
     return matched
-
 
 def _match_simple(text: str, values: list[str], exclude_contains: tuple[str, ...] = ()) -> list[str]:
     matched: list[str] = []
@@ -327,7 +284,6 @@ def _match_simple(text: str, values: list[str], exclude_contains: tuple[str, ...
             matched.append(value)
     return matched
 
-
 def _match_street(text: str, values: list[str]) -> str | None:
     best: str | None = None
     best_len = 0
@@ -340,71 +296,59 @@ def _match_street(text: str, values: list[str]) -> str | None:
             best_len = len(base)
     return best
 
-
 def _match_age(text: str) -> tuple[int | None, int | None]:
-    """Yosh oralig'ini matndan to'liq o'qiydi.
-
-    Qo'llanadigan shakllar:
-      * "6 yoshdan 10 yoshgacha" / "0 yoshdan 10 gacha"  -> (6, 10)
-      * "6-10 yosh" / "6–10 yoshdagi"                    -> (6, 10)
-      * "10 yoshgacha" / "10 gacha" (yosh konteksti)     -> (None, 10)
-      * "6 yoshdan katta/yuqori/ortiq"                   -> (6, None)
-      * "6 yoshdan kichik/past"                          -> (None, 5)
-      * "10 yoshli" / "yoshi 10"                         -> (10, 10)
-    """
-    # "M yoshdan N yoshgacha" / "M yoshdan N gacha" — diapazon (pastki
-    # chegara avvalgi versiyada YO'QOLARDI).
     match = re.search(r"(\d{1,2})\s*yoshdan\s+(\d{1,2})\s*(?:yosh)?gacha", text)
     if match:
         return int(match.group(1)), int(match.group(2))
 
-    # "M-N yosh" / "M–N yoshdagi"
     match = re.search(r"(\d{1,2})\s*[-–]\s*(\d{1,2})\s*yosh", text)
     if match:
         return int(match.group(1)), int(match.group(2))
 
-    # "M dan N gacha yosh..." (matnda «yosh» so'zi bor bo'lsagina)
     if "yosh" in text:
         match = re.search(r"(\d{1,2})\s*dan\s+(\d{1,2})\s*gacha", text)
         if match:
             return int(match.group(1)), int(match.group(2))
 
-    # "N yoshgacha" — yuqori chegara
     match = re.search(r"(\d{1,2})\s*yoshgacha", text)
     if match:
         return None, int(match.group(1))
 
-    # "N gacha" — faqat matnda «yosh» so'zi bo'lsa ("0 yoshdan 10 gacha")
     if "yosh" in text:
         match = re.search(r"(\d{1,2})\s*gacha\b", text)
         if match:
             return None, int(match.group(1))
 
-    # "M yoshdan katta/yuqori/ortiq" — pastki chegara
     match = re.search(r"(\d{1,2})\s*yoshdan\s*(?:katta|yuqori|ortiq|kattaroq)", text)
     if match:
         return int(match.group(1)), None
 
-    # "M yoshdan kichik/past" — yosh < M  =>  max = M-1
     match = re.search(r"(\d{1,2})\s*yoshdan\s*(?:kichik|past|quyi|kichikroq)", text)
     if match:
         value = int(match.group(1))
         return (None, value - 1) if value > 0 else (None, 0)
 
-    # "N yoshli" — aniq yosh
     match = re.search(r"(\d{1,2})\s*yoshli", text)
     if match:
         return int(match.group(1)), int(match.group(1))
 
-    # "yoshi 10" ko'rinishi — aniq yosh
     match = re.search(r"yosh(?:i)?\s*(\d{1,2})\b", text)
     if match:
         return int(match.group(1)), int(match.group(1))
     return None, None
 
+EMPLOYMENT_ALIASES: dict[str, str] = {
+    "talaba": "O'qiydi",
+    "talabalar": "O'qiydi",
+    "o'quvchi": "O'qiydi",
+    "o'quvchilar": "O'qiydi",
+    "ishlaydigan": "Ishlaydi",
+    "ishchi": "Ishlaydi",
+    "nafaqada": "Pensioner",
+    "nafaqaxo'r": "Pensioner",
+}
 
 def _match_needs(text: str) -> list[str]:
-    """Ehtiyoj so'zlarini matndan topadi (ixtiyoriy filtr)."""
     candidates: list[str] = []
     for token in re.findall(r"[a-z']{5,}", text):
         if token in {"guruh", "ro'yxat", "fuqaro", "fuqarolar", "nafar", "soni"}:
@@ -413,31 +357,31 @@ def _match_needs(text: str) -> list[str]:
             candidates.append(token)
     return candidates[:4]
 
-
 def analyze(db: Session, message: str, base: "Facets | None" = None) -> Facets:
-    """Savol matnini filtrlarga aylantiradi (qiymatlar bazadan olinadi).
-
-    ``base`` — oldingi savolning filtrlari. Ketma-ket savollarda
-    («...ro'yxatini chiqarib ber» -> «ism familiyalarini ayt») kontekst
-    saqlanadi, shunda javob avvalgi toifaga bog'liq bo'lib qoladi.
-    """
     text = normalize(message)
     vocab = _discover(db)
 
     facets = Facets()
 
-    # Entity (nima haqida so'ralyapti)
-    if re.search(r"\boilal?ar?\b", text) and "fuqaro" not in text:
+    if re.search(r"\boila(?:lar)?(?:i|ning|da|dan)?\b", text) and "fuqaro" not in text:
         facets.entity = "families"
     elif re.search(r"\bmurojaat\w*\b", text):
         facets.entity = "cases"
     elif re.search(r"\bvazifal?\w*\b", text):
         facets.entity = "tasks"
+    elif re.search(r"\buy(?:lar)?\b", text):
+        facets.entity = "houses"
+    elif re.search(r"\bko'?cha(?:lar)?\b", text):
+        facets.entity = "streets"
 
     facets.social = _match_social(text, vocab["social"])
     facets.employment = _match_simple(text, vocab["employment"])
+    if not facets.employment:
+        for alias, value in EMPLOYMENT_ALIASES.items():
+            if re.search(rf"\b{alias}\w*\b", text):
+                facets.employment = [value]
+                break
     facets.education = _match_simple(text, vocab["education"])
-    # "ayollar daftari" — jins emas, ijtimoiy holat
     gender_exclude = ("ayollar daftari", "ayollar daftar") if "ayollar" in text and "daftar" in text else ()
     facets.gender = _match_simple(text, vocab["gender"], exclude_contains=gender_exclude)
     facets.street = _match_street(text, vocab["streets"])
@@ -445,34 +389,66 @@ def analyze(db: Session, message: str, base: "Facets | None" = None) -> Facets:
     if facets.entity == "citizens" and facets.social:
         facets.needs = []
 
+    if facets.entity == "tasks":
+        if re.search(r"kechikk\w*|muddati o'?tgan", text):
+            facets.status = "overdue"
+        elif re.search(r"\bbugungi\b", text):
+            facets.status = "today"
+        elif re.search(r"bajarilg\w*", text):
+            facets.status = "done"
+    elif facets.entity == "cases":
+        if re.search(r"\bochiq\b", text):
+            facets.status = "open"
+        elif re.search(r"yopilg\w*|yakunlangan", text):
+            facets.status = "closed"
+
+    dimension = re.search(
+        r"(jins\w*|bandlik(?:\s+holati)?|ijtimoiy\s+holat\w*|ta'?lim\w*|ma'?lumot\w*|"
+        r"ko'?cha(?:lar)?|holati|ustuvorlik\w*|oilalar?)\s+bo'?yicha",
+        text,
+    )
+    if dimension:
+        facet_word = dimension.group(1)
+        if facet_word.startswith("jins"):
+            facets.breakdown_by = "gender"
+        elif facet_word.startswith("bandlik"):
+            facets.breakdown_by = "employment"
+        elif facet_word.startswith("ijtimoiy"):
+            facets.breakdown_by = "social"
+        elif facet_word.startswith("ta'lim") or facet_word.startswith("ma'lumot") or facet_word.startswith("ta'lim"):
+            facets.breakdown_by = "education"
+        elif facet_word.startswith("ko'cha") or facet_word.startswith("ko'cha"):
+            facets.breakdown_by = "street"
+        elif facet_word == "holati":
+            facets.breakdown_by = "status"
+        elif facet_word.startswith("ustuvorlik"):
+            facets.breakdown_by = "priority"
+        elif facet_word.startswith("oila"):
+            facets.breakdown_by = "family_type"
+
+    if re.search(r"eng\s+ko'?p", text) and re.search(r"ko'?cha", text):
+        facets.rank_top = True
+
+    if re.search(r"o'?rtacha", text) and re.search(r"yosh", text):
+        facets.aggregate = "avg_age"
+
     facets.list_mode = any(w in text for w in LIST_WORDS) or bool(
         re.search(r"ism[\s\-]familiy", text)
     )
     facets.count_mode = any(w in text for w in COUNT_WORDS)
 
     if not facets.list_mode and not facets.count_mode:
-        # Savol aniq emas — baribir filtrlarni qo'llab umumiy javob beramiz
         facets.count_mode = True
 
     if base is not None:
         facets = _inherit_context(text, facets, base)
     return facets
 
-
-# So'zlar: bular oldingi filtrni bekor qiladi (kontekst merosxo'rlik qilinmasin).
 RESET_WORDS: tuple[str, ...] = (
     "barcha", "butun", "hammasi", "hamma", "umumiy", "barchasi",
 )
 
-
 def _inherit_context(text: str, facets: Facets, base: Facets) -> Facets:
-    """Oldingi savol filtrlarini merosxo'r qiladi — faqat toza davom savolida.
-
-    Shartlar:
-      * yangi savolda o'z filtri (ijtimoiy holat/bandlik/ko'cha/yosh) yo'q;
-      * savol ro'yxat yoki ism-familiya so'raydi;
-      * foydalanuvchi «barcha/butun/hammasi» deb aniq reset qilmagan.
-    """
     if any(word in text for word in RESET_WORDS):
         return facets
     if not facets.list_mode:
@@ -485,25 +461,20 @@ def _inherit_context(text: str, facets: Facets, base: Facets) -> Facets:
         or facets.street
         or facets.age_min is not None
         or facets.age_max is not None
+        or facets.status
     )
     if not has_own_filter:
-        # Yangi savolda filtr yo'q — oldingisini oladi
         facets.social = list(base.social)
         facets.employment = list(base.employment)
         facets.education = list(base.education)
         facets.gender = list(base.gender)
         facets.street = base.street
+        facets.status = base.status
         facets.age_min = base.age_min
         facets.age_max = base.age_max
         facets.needs = list(base.needs)
         facets.entity = base.entity
     return facets
-
-
-# --------------------------------------------------------------------------
-# SQL so'rovi
-# --------------------------------------------------------------------------
-
 
 def _citizen_conditions(db: Session, facets: Facets) -> list[Any]:
     today = date_cls.today()
@@ -526,26 +497,20 @@ def _citizen_conditions(db: Session, facets: Facets) -> list[Any]:
     if facets.age_min is not None or facets.age_max is not None:
         conditions.append(Citizen.birth_date.is_not(None))
         if facets.age_max is not None:
-            # yosh ≤ N  ⇔  tug'ilgan sana > bugun − (N+1) yil.
-            # Avvalgi kod `bugun − N yil` ishlatardi — aynan N yoshli
-            # bolalar tushib qolardi (off-by-one).
             conditions.append(
                 Citizen.birth_date > minus_years(today, facets.age_max + 1)
             )
         if facets.age_min is not None:
-            # yosh ≥ M  ⇔  tug'ilgan sana ≤ bugun − M yil.
             conditions.append(
                 Citizen.birth_date <= minus_years(today, facets.age_min)
             )
     return conditions
-
 
 def _age_of(birth: date_cls | None) -> int | None:
     if not birth:
         return None
     today = date_cls.today()
     return today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
-
 
 def _query_citizens(db: Session, facets: Facets, limit: int) -> tuple[int, list[Row], list[tuple[str, int]]]:
     conditions = _citizen_conditions(db, facets)
@@ -639,11 +604,20 @@ def _query_citizens(db: Session, facets: Facets, limit: int) -> tuple[int, list[
             )
     return total, rows_out, breakdown
 
-
 def _query_families(db: Session, facets: Facets, limit: int) -> tuple[int, list[Row], list[tuple[str, int]]]:
     conditions: list[Any] = []
     if facets.social:
-        conditions.append(Family.social_status.in_(facets.social))
+        conditions.append(
+            or_(
+                Family.social_status.in_(facets.social),
+                Family.members.any(
+                    and_(
+                        Citizen.social_status.in_(facets.social),
+                        Citizen.archived_at.is_(None),
+                    )
+                ),
+            )
+        )
     if facets.street:
         conditions.append(
             Family.house.has(House.street.has(Street.name == facets.street))
@@ -686,17 +660,46 @@ def _query_families(db: Session, facets: Facets, limit: int) -> tuple[int, list[
             )
     return total, out, breakdown
 
+def _case_conditions(facets: Facets) -> list[Any]:
+    conditions: list[Any] = []
+    if facets.status == "open":
+        conditions.append(Case.status.notin_(["closed", "cancelled"]))
+    elif facets.status == "closed":
+        conditions.append(Case.status.in_(["closed", "cancelled"]))
+    return conditions
+
+def _task_conditions(facets: Facets) -> list[Any]:
+    from app.core.time import today_local
+
+    today = today_local()
+    conditions: list[Any] = []
+    if facets.status == "overdue":
+        conditions.append(Task.due_date < today)
+        conditions.append(Task.status.notin_(["completed", "cancelled"]))
+    elif facets.status == "today":
+        conditions.append(Task.due_date == today)
+        conditions.append(Task.status.notin_(["completed", "cancelled"]))
+    elif facets.status == "done":
+        conditions.append(Task.status == "completed")
+    return conditions
 
 def _query_cases(db: Session, facets: Facets, limit: int) -> tuple[int, list[Row], list[tuple[str, int]]]:
-    total = int(db.execute(select(func.count()).select_from(Case)).scalar_one())
+    conditions = _case_conditions(facets)
+    total = int(
+        db.execute(select(func.count()).select_from(Case).where(*conditions)).scalar_one()
+    )
     rows = db.execute(
-        select(Case.status, func.count()).group_by(Case.status)
+        select(Case.status, func.count()).where(*conditions).group_by(Case.status)
     ).all()
     breakdown = [(str(k), int(v)) for k, v in sorted(rows, key=lambda x: -x[1]) if k]
     out: list[Row] = []
     if facets.list_mode and total:
         cases = (
-            db.execute(select(Case).order_by(Case.opened_at.desc()).limit(limit)).scalars().all()
+            db.execute(
+                select(Case).where(*conditions).order_by(Case.opened_at.desc()).limit(limit)
+            )
+            .scalars()
+            .all()
         )
         for case in cases:
             out.append(
@@ -710,15 +713,88 @@ def _query_cases(db: Session, facets: Facets, limit: int) -> tuple[int, list[Row
             )
     return total, out, breakdown
 
+def _query_houses(db: Session, facets: Facets, limit: int) -> tuple[int, list[Row], list[tuple[str, int]]]:
+    conditions: list[Any] = []
+    if facets.street:
+        conditions.append(House.street.has(Street.name == facets.street))
+    total = int(
+        db.execute(select(func.count()).select_from(House).where(*conditions)).scalar_one()
+    )
+    breakdown: list[tuple[str, int]] = []
+    if not facets.street:
+        rows = db.execute(
+            select(Street.name, func.count(House.id))
+            .select_from(Street)
+            .outerjoin(House, House.street_id == Street.id)
+            .group_by(Street.name)
+            .order_by(func.count(House.id).desc())
+            .limit(10)
+        ).all()
+        breakdown = [(str(k), int(v)) for k, v in rows if k]
+    out: list[Row] = []
+    if facets.list_mode and total:
+        houses = (
+            db.execute(
+                select(House).where(*conditions).order_by(House.house_number.asc()).limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+        for house in houses:
+            street_name = ""
+            try:
+                if house.street:
+                    street_name = house.street.name
+            except Exception:  # pragma: no cover
+                street_name = ""
+            out.append(
+                Row(
+                    id=house.id,
+                    title=f"{house.house_number}-uy",
+                    subtitle=street_name,
+                    meta=house.address_label or "",
+                )
+            )
+    return total, out, breakdown
+
+def _query_streets(db: Session, facets: Facets, limit: int) -> tuple[int, list[Row], list[tuple[str, int]]]:
+    total = int(db.execute(select(func.count()).select_from(Street)).scalar_one())
+    rows = db.execute(
+        select(Street.name, func.count(House.id))
+        .select_from(Street)
+        .outerjoin(House, House.street_id == Street.id)
+        .group_by(Street.name)
+        .order_by(func.count(House.id).desc())
+        .limit(12)
+    ).all()
+    breakdown = [(str(k), int(v)) for k, v in rows if k]
+    out: list[Row] = []
+    if facets.list_mode and total:
+        streets = db.execute(select(Street).order_by(Street.name.asc()).limit(limit)).scalars().all()
+        for street in streets:
+            out.append(Row(id=street.id, title=street.name, subtitle=street.mahalla_id or ""))
+    return total, out, breakdown
 
 def _query_tasks(db: Session, facets: Facets, limit: int) -> tuple[int, list[Row], list[tuple[str, int]]]:
-    total = int(db.execute(select(func.count()).select_from(Task)).scalar_one())
-    rows = db.execute(select(Task.status, func.count()).group_by(Task.status)).all()
+    conditions = _task_conditions(facets)
+    total = int(
+        db.execute(select(func.count()).select_from(Task).where(*conditions)).scalar_one()
+    )
+    rows = db.execute(
+        select(Task.status, func.count()).where(*conditions).group_by(Task.status)
+    ).all()
     breakdown = [(str(k), int(v)) for k, v in sorted(rows, key=lambda x: -x[1]) if k]
     out: list[Row] = []
     if facets.list_mode and total:
         tasks = (
-            db.execute(select(Task).order_by(Task.due_date.asc().nullslast()).limit(limit)).scalars().all()
+            db.execute(
+                select(Task)
+                .where(*conditions)
+                .order_by(Task.due_date.asc().nullslast())
+                .limit(limit)
+            )
+            .scalars()
+            .all()
         )
         for task in tasks:
             out.append(
@@ -732,9 +808,7 @@ def _query_tasks(db: Session, facets: Facets, limit: int) -> tuple[int, list[Row
             )
     return total, out, breakdown
 
-
 def facets_from_payload(payload: dict[str, Any] | None) -> "Facets | None":
-    """Saqlangan javob payload'idan filtrlarni tiklaydi (suhbat konteksti)."""
     if not payload:
         return None
     raw = payload.get("facets") or {}
@@ -762,23 +836,101 @@ def facets_from_payload(payload: dict[str, Any] | None) -> "Facets | None":
         entity=entity,
         list_mode=bool(raw.get("list_mode")),
         count_mode=bool(raw.get("count_mode")),
+        status=(str(raw["status"]) if raw.get("status") else None),
+        breakdown_by=(str(raw["breakdown_by"]) if raw.get("breakdown_by") else None),
+        rank_top=bool(raw.get("rank_top")),
+        aggregate=(str(raw["aggregate"]) if raw.get("aggregate") else None),
     )
-
-
-# --------------------------------------------------------------------------
-# Javob matni
-# --------------------------------------------------------------------------
 
 ENTITY_LABELS = {
     "citizens": "fuqaro",
     "families": "oila",
     "cases": "murojaat",
     "tasks": "vazifa",
+    "houses": "uy",
+    "streets": "ko'cha",
 }
 
+def now_iso() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
+
+def today_local() -> "date_cls":
+    from app.core.time import today_local as _today
+
+    return _today()
+
+_BREAKDOWN_COLUMNS = {
+    "gender": Citizen.gender,
+    "employment": Citizen.employment_status,
+    "social": Citizen.social_status,
+    "education": Citizen.education,
+}
+
+def _breakdown_by_dimension(db: Session, facets: Facets) -> list[tuple[str, int]]:
+    dimension = facets.breakdown_by
+    if not dimension:
+        return []
+    if entity_is_citizen_dimension(dimension) and facets.entity in {"citizens", ""}:
+        column = _BREAKDOWN_COLUMNS[dimension]
+        rows = db.execute(
+            select(column, func.count())
+            .select_from(Citizen)
+            .where(Citizen.archived_at.is_(None))
+            .group_by(column)
+            .order_by(func.count().desc())
+            .limit(12)
+        ).all()
+        return [(str(k), int(v)) for k, v in rows if k]
+    if dimension == "street":
+        rows = db.execute(
+            select(Street.name, func.count(Citizen.id))
+            .select_from(Street)
+            .join(House, House.street_id == Street.id)
+            .join(Family, Family.house_id == House.id)
+            .join(Citizen, (Citizen.family_id == Family.id) & (Citizen.archived_at.is_(None)))
+            .group_by(Street.name)
+            .order_by(func.count(Citizen.id).desc())
+            .limit(12)
+        ).all()
+        return [(str(k), int(v)) for k, v in rows if k]
+    if dimension == "status" and facets.entity == "cases":
+        rows = db.execute(
+            select(Case.status, func.count()).group_by(Case.status).order_by(func.count().desc())
+        ).all()
+        return [(str(k), int(v)) for k, v in rows if k]
+    if dimension in {"status", "priority"} and facets.entity == "tasks":
+        column = Task.status if dimension == "status" else Task.priority
+        rows = db.execute(
+            select(column, func.count()).group_by(column).order_by(func.count().desc())
+        ).all()
+        return [(str(k), int(v)) for k, v in rows if k]
+    if dimension == "social" and facets.entity == "families":
+        rows = db.execute(
+            select(Family.social_status, func.count())
+            .where(Family.social_status.is_not(None))
+            .group_by(Family.social_status)
+            .order_by(func.count().desc())
+            .limit(12)
+        ).all()
+        return [(str(k), int(v)) for k, v in rows if k]
+    if dimension == "family_type" and facets.entity == "families":
+        rows = db.execute(
+            select(Family.family_type, func.count())
+            .group_by(Family.family_type)
+            .order_by(func.count().desc())
+            .limit(12)
+        ).all()
+        return [(str(k), int(v)) for k, v in rows if k]
+    return []
+
+def entity_is_citizen_dimension(dimension: str) -> bool:
+    return dimension in _BREAKDOWN_COLUMNS
 
 def _filter_hint(facets: Facets) -> str:
-    """Filtr havolasi — faqat qo'shimcha, asosiy javobdan keyin."""
+    if facets.entity not in {"citizens", "families"}:
+        return ""
     parts: list[str] = []
     if len(facets.social) == 1:
         parts.append(f"social_status={facets.social[0]}")
@@ -794,14 +946,12 @@ def _filter_hint(facets: Facets) -> str:
     route = "/citizens" if facets.entity == "citizens" else "/families"
     return f"Qo'shimcha: to'liq ro'yxatni `{route}?{query}` filtri orqali ko'rish mumkin."
 
-
 def build_answer(
     db: Session,
     message: str,
     limit: int = 40,
     base_facets: "Facets | None" = None,
 ) -> DataAnswer:
-    """Savolga aniq, bazadan olingan javobni quradi."""
     from datetime import datetime, timezone
 
     facets = analyze(db, message, base=base_facets)
@@ -816,9 +966,86 @@ def build_answer(
     elif entity == "tasks":
         total, rows, breakdown = _query_tasks(db, facets, limit)
         label = ENTITY_LABELS[entity]
+    elif entity == "houses":
+        total, rows, breakdown = _query_houses(db, facets, limit)
+        label = ENTITY_LABELS[entity]
+    elif entity == "streets":
+        total, rows, breakdown = _query_streets(db, facets, limit)
+        label = ENTITY_LABELS[entity]
     else:
         total, rows, breakdown = _query_citizens(db, facets, limit)
         label = ENTITY_LABELS[entity]
+
+    if facets.aggregate == "avg_age" and entity == "citizens":
+        birth_rows = db.execute(
+            select(Citizen.birth_date).where(
+                Citizen.archived_at.is_(None), Citizen.birth_date.is_not(None)
+            )
+        ).all()
+        today = today_local()
+        ages = [
+            today.year - row[0].year - ((today.month, today.day) < (row[0].month, row[0].day))
+            for row in birth_rows
+        ]
+        average = round(sum(ages) / len(ages), 1) if ages else 0.0
+        lines: list[str] = [f"**O'rtacha yosh: {average} yosh.**"]
+        if ages:
+            lines.append("")
+            lines.append(f"Hisobda {len(ages)} nafar fuqaro qatnashdi (tug'ilgan sanasi ma'lum).")
+        lines.append("")
+        lines.append(
+            f"_Manba: fuqaro bazasi — so'rov aynan shu bazada bajarildi ({now_iso()})._"
+        )
+        return DataAnswer(
+            text="\n".join(lines),
+            total=len(ages),
+            rows=[],
+            facets=facets,
+            breakdown=[],
+            entity_label="fuqaro",
+            as_of=now_iso(),
+            warnings=[],
+        )
+
+    if facets.rank_top and entity == "citizens":
+        street_rows = db.execute(
+            select(Street.name, func.count(Citizen.id))
+            .select_from(Street)
+            .join(House, House.street_id == Street.id)
+            .join(Family, Family.house_id == House.id)
+            .join(Citizen, (Citizen.family_id == Family.id) & (Citizen.archived_at.is_(None)))
+            .group_by(Street.name)
+            .order_by(func.count(Citizen.id).desc())
+            .limit(5)
+        ).all()
+        breakdown = [(str(k), int(v)) for k, v in street_rows if k]
+        lines: list[str] = []
+        if breakdown:
+            top_name, top_value = breakdown[0]
+            lines.append(f"**Eng ko'p fuqaro — {top_name}: {top_value} nafar.**")
+            lines.append("")
+            lines.append("Ko'chalar bo'yicha taqsimot (top 5):")
+            for name, value in breakdown:
+                lines.append(f"- {name}: {value} nafar")
+        else:
+            lines.append("Ko'chalar bo'yicha ma'lumot topilmadi.")
+        lines.append("")
+        lines.append(
+            f"_Manba: fuqaro bazasi — so'rov aynan shu bazada bajarildi ({now_iso()})._"
+        )
+        return DataAnswer(
+            text="\n".join(lines),
+            total=total,
+            rows=[],
+            facets=facets,
+            breakdown=breakdown,
+            entity_label="fuqaro",
+            as_of=now_iso(),
+            warnings=[],
+        )
+
+    if facets.breakdown_by:
+        breakdown = _breakdown_by_dimension(db, facets) or breakdown
 
     facet_labels = facets.labels()
     scope = " (" + "; ".join(facet_labels) + ")" if facet_labels else ""

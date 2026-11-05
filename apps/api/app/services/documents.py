@@ -45,16 +45,13 @@ from app.models import (
 from app.services.serializers import citizen_out, document_out
 
 ALLOWED_EXTENSIONS = {".xlsx", ".csv", ".docx", ".pdf"}
-# O-10: mime turi mijozdan olinmaydi — allowlistdan belgilanadi.
 MIME_BY_KIND: dict[str, str] = {
     "csv": "text/csv",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "pdf": "application/pdf",
 }
-# O-10: ZIP (xlsx/docx) ichidagi ochilgan hajm chegarasi — zip-bomba himoyasi.
 MAX_ZIP_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
-# O-17: ruxsat etilgan eksport formatlari.
 EXPORT_FORMATS: frozenset[str] = frozenset({"xlsx", "csv", "docx", "pdf"})
 MODULE_ALIASES: dict[str, list[str]] = {
     "full_name": ["f.i.sh.", "fish", "f.i.sh", "full_name", "ism", "fuqaro", "fio"],
@@ -80,15 +77,10 @@ REQUIRED_COLUMNS = ["full_name"]
 
 UNKNOWN = {"", "yo'q", "yoq", "-", "—", "noma'lum"}
 
-# J-6: `citizens.data_source` ustuni 255 belgiga kengaytirilgan
-# (scripts/migrate.sql). Migratsiya bajarilmagan bazalarda ham 500 chiqmasligi
-# uchun qiymat jadvalning haqiqiy uzunligiga moslab kesiladi.
 DATA_SOURCE_MAX = 255
-
 
 @lru_cache(maxsize=8)
 def _column_max_length(table: str, column: str) -> int | None:
-    """Jadval ustunining haqiqiy belgi chegarasi (None — chegizalanmagan)."""
     bind = None
     try:
         from app.core.db import engine
@@ -125,21 +117,16 @@ def _column_max_length(table: str, column: str) -> int | None:
         return None
     return limit if limit > 0 else None
 
-
 def _data_source_value(name: str | None) -> str:
-    """`data_source` uchun xavfsiz qiymat (bazadagi uzunlikka mos)."""
     raw = (name or "").strip()
     limit = _column_max_length("citizens", "data_source") or DATA_SOURCE_MAX
     return raw[:limit]
 
-
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
-
 def normalize_header(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip().lower()).replace("ʻ", "'").replace("’", "'")
-
 
 def detect_mapping(headers: list[str]) -> dict[str, str]:
     mapping: dict[str, str] = {}
@@ -151,14 +138,7 @@ def detect_mapping(headers: list[str]) -> dict[str, str]:
                 break
     return mapping
 
-
 def _detect_kind(name: str, data: bytes) -> str:
-    """Formatni kengaytma emas, tarkib bo'yicha aniqlash (MD 9.1).
-
-    DOCX va XLSX ikkalasi ham ZIP (OOXML) paket — magic baytlari bir xil
-    (`PK\x03\x04`). Ularni ichki tuzilma bo'yicha ajratamiz: Word
-    hujjatida `word/`, Excel ish-bookida `xl/` papkasi bor.
-    """
     suffix = Path(name).suffix.lower().lstrip(".")
     if data[:5] == b"%PDF-":
         return "pdf"
@@ -174,7 +154,6 @@ def _detect_kind(name: str, data: bytes) -> str:
             return "docx"
         if any(item.startswith("xl/") for item in names):
             return "xlsx"
-        # Tuzilma noto'g'ri aniqlanmadi — kengaytmaga qarab
         if suffix in {"docx", "xlsx"}:
             return suffix
         raise validation_error(
@@ -196,7 +175,6 @@ def _detect_kind(name: str, data: bytes) -> str:
     if suffix in {"xlsx", "csv", "docx", "pdf"}:
         return suffix
     raise validation_error("Fayl formatini aniqlab bo'lmadi. XLSX, CSV, DOCX yoki PDF yuklang.")
-
 
 def _docx_records(data: bytes, warnings: list[str]) -> tuple[list[str], list[dict[str, Any]], list[str]]:
     from docx import Document as DocxDocument
@@ -220,7 +198,6 @@ def _docx_records(data: bytes, warnings: list[str]) -> tuple[list[str], list[dic
         return best[0], best[1], warnings
     text = "\n".join(paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip())
     return ["matn"], [{"matn": text}], [*warnings, "DOCX faylda jadval topilmadi — matn sifatida saqlanadi."]
-
 
 def _pdf_records(data: bytes, warnings: list[str]) -> tuple[list[str], list[dict[str, Any]], list[str]]:
     from pypdf import PdfReader
@@ -258,14 +235,11 @@ def _pdf_records(data: bytes, warnings: list[str]) -> tuple[list[str], list[dict
             return headers, records, warnings
     return ["matn"], [{"matn": text}], [*warnings, "PDF faylda jadval strukturasi topilmadi — matn sifatida tahlil qilinadi."]
 
-
 def _xlsx_sheet_rows(workbook, sheet_name: str) -> list[tuple]:
     target = workbook[sheet_name]
     return list(target.iter_rows(values_only=True))
 
-
 def _score_sheet(rows: list[tuple]) -> int:
-    """Varaq sarlavhalari fuqaro ustunlariga qanchalik mos kelishini baholash."""
     header_row_index = next(
         (index for index, row in enumerate(rows) if any(cell not in (None, "") for cell in row)),
         None,
@@ -287,7 +261,6 @@ def _score_sheet(rows: list[tuple]) -> int:
         elif any(norm in alias or alias in norm for alias in alias_pool):
             score += 1
     return score
-
 
 def parse_table(
     document: Document, data: bytes, sheet: str | None = None
@@ -352,7 +325,6 @@ def parse_table(
         return _pdf_records(data, warnings)
     raise validation_error("Faqat XLSX, CSV, DOCX va PDF fayllar qo'llab-quvvatlanadi.")
 
-
 def _parse_birth(value: Any) -> date | None:
     if value in (None, ""):
         return None
@@ -379,11 +351,9 @@ def _parse_birth(value: Any) -> date | None:
     except ValueError:
         return None
 
-
 def _clean(value: Any, default: str = "") -> str:
     text = str(value).strip() if value is not None else ""
     return text if text not in UNKNOWN else default
-
 
 def _normalize_phone(value: Any) -> str:
     digits = re.sub(r"\D", "", str(value or ""))
@@ -396,10 +366,8 @@ def _normalize_phone(value: Any) -> str:
     elif len(digits) == 12:
         digits = "998" + digits[-9:]
     else:
-        # 9 yoki 12 raqamli bo'lmagan har qanday qiymat noto'g'ri hisoblanadi.
         return ""
     return "+" + digits
-
 
 def _gender(value: Any) -> str:
     text = _clean(value).lower()
@@ -407,13 +375,11 @@ def _gender(value: Any) -> str:
         return "Ayol"
     return "Erkak"
 
-
 def _split_needs(value: Any) -> list[str]:
     text = _clean(value)
     if not text:
         return []
     return [item.strip() for item in re.split(r"[,;/]", text) if item.strip()]
-
 
 def _family_type_for_role(role: str, family_type: str) -> str:
     if family_type:
@@ -424,29 +390,14 @@ def _family_type_for_role(role: str, family_type: str) -> str:
         return "To'liq bo'lmagan oila (ota)"
     return "To'liq oila"
 
-
 def _role(value: Any) -> str:
     text = _clean(value, "Farzand")
     allowed = {"Ota", "Ona", "Farzand", "Bobo", "Buvi", "Aka", "Uka", "Opa", "Singil", "Turmush o'rtoq"}
     return text if text in allowed else "Farzand"
 
-
 def find_existing_citizen(
     db: Session, row: dict[str, Any]
 ) -> tuple[Citizen | None, str]:
-    """Import qatorini bazadagi fuqaro bilan moslashtiradi.
-
-    Tartib:
-      1. `existing_id` — validatsiya natijasi (eng ishonchli).
-      2. `full_name` + `birth_date` — shaxsning tabiiy kaliti.
-      3. Telefon — FAQAT tekshiruv uchun: aynan bitta nomzod bo'lsa va ism ham
-         mos kelsa. Telefon oila a'zolari orasida umumiy bo'lgani uchun
-         telefon bo'yicha moslashtirish hech qachon boshqa odamni
-         «ustidan yozmaydi».
-
-    Qaytaradi: (mos fuqaro yoki None, usul nomi).
-    Usul nomlari: "existing_id" | "name_birth" | "phone_name" | "ambiguous" | "new".
-    """
     existing_id = row.get("existing_id")
     if existing_id:
         obj = db.get(Citizen, existing_id)
@@ -479,11 +430,8 @@ def find_existing_citizen(
         ).scalars().all()
         if len(candidates) == 1 and (candidates[0].full_name or "").strip() == name:
             return candidates[0], "phone_name"
-        # 2+ nomzod yoki ism mos kelmadi — yangi yozuv yaratiladi,
-        # mavjud yozuv ustidan yozilmaydi.
 
     return None, "new"
-
 
 def validate_records(
     db: Session, mapping: dict[str, str], records: list[dict[str, Any]]
@@ -509,7 +457,7 @@ def validate_records(
             )
             continue
         raw_birth = get("birth_date")
-        cleaned_birth = _clean(raw_birth)  # "—", "-", "yo'q" → ataylab bo'sh
+        cleaned_birth = _clean(raw_birth)
         birth = _parse_birth(raw_birth)
         if cleaned_birth and birth is None:
             errors.append(
@@ -523,7 +471,6 @@ def validate_records(
                 }
             )
         elif raw_birth not in (None, "") and birth is not None:
-            # Noaniq format: 05/03/1990 ham kun/oy, ham oy/kun bo'lishi mumkin.
             text = str(raw_birth).strip() if isinstance(raw_birth, str) else ""
             parsed_variants = []
             for fmt in ("%d/%m/%Y", "%m/%d/%Y"):
@@ -546,7 +493,7 @@ def validate_records(
                     }
                 )
         elif not cleaned_birth:
-            pass  # "—" kabi placeholder — ataylab ko'rsatilmagan, ogohlantirish kerak emas
+            pass
         if birth and birth > today_local():
             errors.append(
                 {
@@ -561,7 +508,7 @@ def validate_records(
         phone = _normalize_phone(get("phone"))
         raw_phone = _clean(get("phone"))
         if phone:
-            pass  # normallashtirildi
+            pass
         elif raw_phone and not phone:
             warnings.append(
                 {
@@ -648,7 +595,6 @@ def validate_records(
     }
     return parsed, errors, warnings, summary
 
-
 def create_import_batch(
     db: Session,
     *,
@@ -668,7 +614,6 @@ def create_import_batch(
     batch.status = "mapping"
     db.flush()
     return batch
-
 
 def analyze_document(
     db: Session,
@@ -774,7 +719,6 @@ def analyze_document(
     db.commit()
     return build_preview(db, batch, headers, parsed, errors, warnings)
 
-
 def build_preview(
     db: Session,
     batch: ImportBatch,
@@ -820,7 +764,6 @@ def build_preview(
         "can_commit": batch.status == "validated" and not errors,
     }
 
-
 def import_batch_out(db: Session, batch: ImportBatch) -> dict:
     return {
         "id": batch.id,
@@ -836,7 +779,6 @@ def import_batch_out(db: Session, batch: ImportBatch) -> dict:
         "committed_at": batch.committed_at,
         "rolled_back_at": batch.rolled_back_at,
     }
-
 
 def get_batch_preview(db: Session, batch_id: str) -> dict:
     batch = db.get(ImportBatch, batch_id)
@@ -863,7 +805,6 @@ def get_batch_preview(db: Session, batch_id: str) -> dict:
         )
     return build_preview(db, batch, headers, parsed, errors, warnings)
 
-
 def _get_or_create(db: Session, model, filters: dict, defaults: dict, created: list[dict]):
     instance = db.execute(select(model).filter_by(**filters)).scalar_one_or_none()
     if instance is not None:
@@ -875,7 +816,6 @@ def _get_or_create(db: Session, model, filters: dict, defaults: dict, created: l
         {"entity_type": model.__tablename__, "entity_id": instance.id, "action": "create"}
     )
     return instance
-
 
 def commit_batch(
     db: Session,
@@ -970,8 +910,6 @@ def commit_batch(
                 )
             family_cache[family_key] = family
         family = family_cache[family_key]
-        # Moslashtirish validate natijasidan olinadi (commit siklida qayta
-        # qidirilmaydi). Fayl ichida yaratilgan yozuvlar batch keshida saqlanadi.
         existing = db.get(Citizen, row["existing_id"]) if row.get("existing_id") else None
         if existing is None:
             cached_id = created_index.get(
@@ -1011,9 +949,6 @@ def commit_batch(
         else:
             before = model_snapshot(existing)
             if match_method != "phone_name":
-                # Telefon bo'yicha moslashuvda shaxsning o'zgaruvchan
-                # identifikatorlari (ism, sana, jins, oiladagi o'rni)
-                # ustidan yozilmaydi.
                 existing.full_name = row["full_name"]
                 existing.gender = row["gender"]
                 existing.birth_date = row["birth_date"]
@@ -1085,7 +1020,6 @@ def commit_batch(
         "skipped": 0,
     }
 
-
 def rollback_batch(db: Session, batch_id: str, actor: str, request_id: str | None) -> dict:
     batch = db.get(ImportBatch, batch_id)
     if batch is None:
@@ -1097,9 +1031,6 @@ def rollback_batch(db: Session, batch_id: str, actor: str, request_id: str | Non
     ).scalars().all()
     deleted = 0
     restored = 0
-    # N-11: xatolik faqat **shu qator**ni bekor qilishi kerak. Eski kodda
-    # `db.rollback()` butun tranzaksiyani qaytarardi — oldingi delete/restore
-    # yo'qolardi va `batch` detach bo'lib, keyingi holat yozuvi buzilardi.
     for change in reversed(changes):
         savepoint = db.begin_nested()
         try:
@@ -1146,14 +1077,7 @@ def rollback_batch(db: Session, batch_id: str, actor: str, request_id: str | Non
     db.commit()
     return {"batch": import_batch_out(db, batch), "deleted": deleted, "restored": restored}
 
-
 def _check_zip_size(data: bytes) -> None:
-    """O-10: ZIP paket ichidagi ochilgan hajm chegaradan oshmasligini tekshiradi.
-
-    `.xlsx` va `.docx` — ZIP (OOXML) paketlar. Zararli arxiv ichida
-    yozilgan hajm juda kichik bo'lishi mumkin (zip-bomba) — ochilganda
-    esa gigabayt egallaydi.
-    """
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             total = 0
@@ -1165,9 +1089,7 @@ def _check_zip_size(data: bytes) -> None:
                         "Faylni bo‘lib, alohida yuklang."
                     )
     except zipfile.BadZipFile:
-        # Buzilgan arxiv — `_detect_kind` allaqachon xato beradi.
         return
-
 
 def upload_document(
     db: Session,
@@ -1178,15 +1100,6 @@ def upload_document(
     actor: str,
     request_id: str | None,
 ) -> Document:
-    """Hujjatni yuklaydi va bazaga saqlaydi.
-
-    O-10:
-    - hajm chegarasi `413` bilan qaytariladi;
-    - format **tarkib** bo'yicha aniqlanadi (`_detect_kind`) va kengaytmaga
-      mos kelishi shart;
-    - mime turi allowlistdan olinadi (mijoz yuborgan `Content-Type` ishlatilmaydi);
-    - ZIP paket ichidagi ochilgan hajm 50 MB dan oshsa — rad etiladi.
-    """
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         raise validation_error("Faqat .xlsx, .csv, .docx va .pdf fayllar qabul qilinadi.")
@@ -1196,7 +1109,6 @@ def upload_document(
         )
     if not data:
         raise validation_error("Fayl bo'sh.")
-    # O-10: format kengaytmadan emas, tarkibdan aniqlanadi.
     kind = _detect_kind(filename, data)
     if kind != suffix.lstrip("."):
         raise validation_error(
@@ -1206,9 +1118,6 @@ def upload_document(
     if kind in {"xlsx", "docx"}:
         _check_zip_size(data)
     digest = sha256_bytes(data)
-    # D-13: bir xil xeshli bir nechta faol hujjat bo'lsa
-    # `scalar_one_or_none()` `MultipleResultsFound` bilan 500 berardi —
-    # eng so'nggisi qaytariladi (`.first()`).
     existing = db.execute(
         select(Document)
         .where(Document.content_hash == digest, Document.status != "archived")
@@ -1219,7 +1128,6 @@ def upload_document(
     document = Document(
         filename=f"{digest[:12]}{suffix}",
         original_name=filename,
-        # O-10: mime turi allowlistdan — mijoz yubgan `Content-Type` emas.
         mime_type=MIME_BY_KIND.get(kind, "application/octet-stream"),
         size=len(data),
         content_hash=digest,
@@ -1246,7 +1154,6 @@ def upload_document(
     db.commit()
     return document
 
-
 def list_documents(
     db: Session, *, kind: str | None = None, q: str | None = None, page: int = 1, page_size: int = 20
 ) -> tuple[list[dict], PageMeta]:
@@ -1263,17 +1170,13 @@ def list_documents(
     rows, meta = paginate(db, stmt, page, page_size)
     return [document_out(row) for row in rows], meta
 
-
 def get_document(db: Session, document_id: str) -> Document:
-    """Hujjatni oladi (O-11: arxivlangan hujjat topilmaydi)."""
     document = db.get(Document, document_id)
     if document is None:
         raise not_found("Hujjat topilmadi.")
     if document.status == "archived":
-        # O-11: o'chirilgan hujjat ID bo'yicha hamon ochilmasligi kerak.
         raise not_found("Hujjat topilmadi.")
     return document
-
 
 def get_document_blob(db: Session, document_id: str) -> tuple[Document, bytes]:
     document = get_document(db, document_id)
@@ -1282,14 +1185,7 @@ def get_document_blob(db: Session, document_id: str) -> tuple[Document, bytes]:
         raise not_found("Fayl mazmuni topilmadi.")
     return document, blob.data
 
-
 def delete_document(db: Session, document_id: str, actor: str) -> Document:
-    """Hujjatni arxivlaydi va fayl mazmunini **o'chiredi** (O-11).
-
-    O-11: avvalgi holatda faqat `status="archived"` qilinardi — fayl
-    mazmuni (fuqarolar ro'yxati Excel'i) bazada to'liq qolardi va ID
-    bo'yicha yuklab olinardi.
-    """
     document = db.get(Document, document_id)
     if document is None:
         raise not_found("Hujjat topilmadi.")
@@ -1308,12 +1204,6 @@ def delete_document(db: Session, document_id: str, actor: str) -> Document:
     )
     db.commit()
     return document
-
-
-# ---------------------------------------------------------------------------
-# Export
-# ---------------------------------------------------------------------------
-
 
 def _citizen_rows(db: Session, filters: dict[str, Any]) -> list[list[Any]]:
     stmt = select(Citizen).options(
@@ -1354,7 +1244,6 @@ def _citizen_rows(db: Session, filters: dict[str, Any]) -> list[list[Any]]:
         )
     return output
 
-
 def _headers_for(module: str) -> list[str]:
     return {
         "citizens": [
@@ -1367,7 +1256,6 @@ def _headers_for(module: str) -> list[str]:
         "tasks": ["ID", "Sarlavha", "Fuqaro", "Kategoriya", "Ustuvorlik", "Holat", "Muddat", "Mas'ul"],
         "cases": ["ID", "Sarlavha", "Fuqaro", "Kategoriya", "Holat", "Ustuvorlik", "Ochilgan"],
     }.get(module, ["ID", "Nomi"])
-
 
 def _module_rows(db: Session, module: str, filters: dict[str, Any]) -> list[list[Any]]:
     if module == "citizens":
@@ -1424,10 +1312,7 @@ def _module_rows(db: Session, module: str, filters: dict[str, Any]) -> list[list
         ]
     return []
 
-
 def export_module(db: Session, module: str, fmt: str, filters: dict[str, Any]) -> tuple[bytes, str, str]:
-    # O-17: format oldindan tekshiriladi — noma'lum format 500 (KeyError)
-    # emas, 422 beradi.
     if fmt not in EXPORT_FORMATS:
         raise validation_error(
             "Format qo'llab-quvvatlanmaydi. Ruxsat etilgan formatlar: "
@@ -1438,13 +1323,10 @@ def export_module(db: Session, module: str, fmt: str, filters: dict[str, Any]) -
     rows = _module_rows(db, module, filters)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
     safe = fmt
-    # O-17: modul nomi fayl nomiga xavfsiz tarzda o'tadi.
     name = f"{safe_filename_part(module)}-{stamp}.{safe}"
     if fmt == "csv":
         buffer = io.StringIO()
         writer = csv.writer(buffer)
-        # O-15: formula inyeksiyasidan himoya — har bir yozuv `safe_cell`
-        # orqali o'tadi.
         writer.writerow([safe_cell(title) for title in headers])
         writer.writerows([[safe_cell(value) for value in row] for row in rows])
         return buffer.getvalue().encode("utf-8-sig"), name, "text/csv"
@@ -1468,8 +1350,6 @@ def export_module(db: Session, module: str, fmt: str, filters: dict[str, Any]) -
             cell.alignment = Alignment(vertical="center")
         for row_index, row in enumerate(rows, start=2):
             for column_index, value in enumerate(row, start=1):
-                # O-15: `=` bilan boshlanuvchi qiymat formula bo'lib
-                # yozilmasligi uchun niqolanadi.
                 cell = sheet.cell(
                     row=row_index, column=column_index, value=safe_cell(value)
                 )
@@ -1544,7 +1424,6 @@ def export_module(db: Session, module: str, fmt: str, filters: dict[str, Any]) -
         doc.build(story)
         return buffer.getvalue(), name, "application/pdf"
     raise validation_error("Format qo'llab-quvvatlanmaydi.")
-
 
 def export_citizens_csv(db: Session) -> bytes:
     data, _, _ = export_module(db, "citizens", "csv", {})

@@ -26,7 +26,6 @@ const LABELS: Record<string, string> = {
   "bajarilgan ish": "Bajarilgan ish", natija: "Natija", vazifa: "Vazifa", murojaat: "Murojaat",
 };
 
-/* P1-15: timeline nuqtasi bo‘sh doira emas — yozuv turi ikona bilan belgilanadi. */
 const TYPE_ICONS: Record<string, React.ReactNode> = {
   uchrashuv: <Users size={12} />,
   telefon: <Phone size={12} />,

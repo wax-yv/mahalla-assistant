@@ -51,7 +51,6 @@ const KPI_META: Record<string, { icon: React.ReactNode; tone: "teal" | "coral" |
   unemployed: { icon: <AlertTriangle size={20} />, tone: "coral" },
 };
 
-/** Harakat turiga mos ikon va rang (P0-6) */
 const ACTIVITY_ICON: Record<string, { icon: React.ReactNode; tone: string }> = {
   login: { icon: <LogIn size={12} />, tone: "tone-ok" },
   chat: { icon: <Sparkles size={12} />, tone: "tone-info" },
@@ -71,7 +70,6 @@ function activityVisual(action: string) {
   return ACTIVITY_ICON.wallet;
 }
 
-/** HBar — yagona brend rangi (P1-9), bo‘sh joy yo‘q */
 function HBar({ rows, maxHint }: { rows: Distribution; maxHint?: string }) {
   const max = Math.max(...rows.map((r) => r.value), 1);
   if (rows.length === 0) {
@@ -90,7 +88,6 @@ function HBar({ rows, maxHint }: { rows: Distribution; maxHint?: string }) {
   );
 }
 
-/** Donut — ko‘chalar kesimi (7.4) */
 const DONUT_COLORS = ["var(--brand-700)", "var(--brand-500)", "var(--brand-400)", "var(--brand-300)", "var(--brand-200)", "var(--color-info)", "var(--color-warning)", "var(--color-text-muted)"];
 
 function Donut({ rows }: { rows: Array<{ label: string; value: number }> }) {
@@ -146,7 +143,6 @@ function Donut({ rows }: { rows: Array<{ label: string; value: number }> }) {
   );
 }
 
-/** Onboarding checklist (7.7) */
 const ONBOARD_KEY = "mahalla-onboarding";
 
 type OnboardState = { base: boolean; street: boolean; ai: boolean };
@@ -233,7 +229,6 @@ export default function DashboardPage() {
   const metric = (key: string) => data.metrics.find((item) => item.key === key);
   const isEmptyBase = Number(metric("citizens")?.value ?? 0) === 0;
 
-  /* P0-4: bo‘sh holatda soxta “0” KPI yo‘q — onboarding checklist */
   if (isEmptyBase) {
     const steps = [
       {

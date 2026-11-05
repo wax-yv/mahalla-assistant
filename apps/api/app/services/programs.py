@@ -14,9 +14,7 @@ from app.core.time import age_from_birth
 from app.models import Citizen, MemoryItem, Program
 from app.services.serializers import program_out
 
-# N-10: bir fuqaro uchun tekshiriladigan dasturlar chegarasi.
 MAX_MATCH_PROGRAMS = 50
-
 
 def list_programs(
     db: Session, *, q: str | None = None, type: str | None = None, organization: str | None = None
@@ -39,17 +37,14 @@ def list_programs(
             )
         )
     rows = db.execute(stmt).scalars().all()
-    # N-4: yagona `now` — barcha dastur uchun bir xil "stale" chegarasi.
     checked_at = datetime.now(timezone.utc)
     return [program_out(row, now=checked_at) for row in rows]
-
 
 def get_program(db: Session, program_id: str) -> dict[str, Any]:
     program = db.get(Program, program_id)
     if program is None:
         raise not_found("Dastur topilmadi.")
     return program_out(program)
-
 
 def organizations(db: Session) -> list[dict[str, Any]]:
     rows = db.execute(
@@ -58,7 +53,6 @@ def organizations(db: Session) -> list[dict[str, Any]]:
         .order_by(Program.organization)
     ).all()
     return [{"name": row[0], "program_count": int(row[1])} for row in rows]
-
 
 def _match_one(citizen: Citizen, program: Program) -> dict[str, Any]:
     eligibility = program.eligibility or {}
@@ -93,12 +87,8 @@ def _match_one(citizen: Citizen, program: Program) -> dict[str, Any]:
         if citizen.employment_status == "Tadbirkor":
             reasons.append("Tadbirkorlik holati tasdiqlangan.")
         else:
-            # N-10: tadbirkorlik talabi bajarilmaganligi — "ma'lumot
-            # yetarli emas" emas, "mos kelmaydi" (yolg'on umid tug'dirmasin).
             fails += 1
             reasons.append("Tadbirkorlik faoliyati tasdiqlanmagan.")
-    # N-10: tug'ilgan sana/telefon faqat dastur talab qilganda "yetishmaydi"
-    # — aks holda har javob shovqinli "ma'lumot yetarli emas" bo'lardi.
     if (eligibility.get("min_age") is not None or eligibility.get("max_age") is not None) and not citizen.birth_date:
         missing.append("tug'ilgan sana")
     if eligibility.get("requires_phone") and not citizen.phone:
@@ -119,7 +109,6 @@ def _match_one(citizen: Citizen, program: Program) -> dict[str, Any]:
         "source_url": program.official_url,
     }
 
-
 def match_citizen(
     db: Session, citizen_id: str, program_id: str | None = None
 ) -> list[dict[str, Any]]:
@@ -131,19 +120,14 @@ def match_citizen(
         if program is None:
             raise not_found("Dastur topilmadi.")
         return [_match_one(citizen, program)]
-    # N-10: himoyaviy chegarasiz ro'yxat o'rniga kap ostida (joriy bazada
-    # dasturlar soni kichik, lekin kattarishi mumkin).
     rows = db.execute(
         select(Program).order_by(Program.organization).limit(MAX_MATCH_PROGRAMS)
     ).scalars().all()
     return [_match_one(citizen, program) for program in rows]
 
-
 def compare(db: Session, program_ids: list[str]) -> list[dict[str, Any]]:
     if not program_ids:
         raise validation_error("Taqqoslash uchun kamida bitta dastur tanlang.")
-    # N-10/N-4: bitta IN so'rov, topilmagan ID'lar jimgina tashlanmaydi —
-    # client aniq 422 xato oladi.
     ids = list(dict.fromkeys(program_ids))[:6]
     programs = {
         program.id: program
@@ -155,7 +139,6 @@ def compare(db: Session, program_ids: list[str]) -> list[dict[str, Any]]:
     checked_at = datetime.now(timezone.utc)
     return [program_out(programs[pid], now=checked_at) for pid in ids]
 
-
 def get_preference(db: Session, conversation_id: str | None) -> dict[str, Any] | None:
     stmt = select(MemoryItem).where(MemoryItem.key == "credit.bank_preference")
     if conversation_id:
@@ -164,7 +147,6 @@ def get_preference(db: Session, conversation_id: str | None) -> dict[str, Any] |
         )
     row = db.execute(stmt.order_by(MemoryItem.created_at.desc())).scalars().first()
     return row.value if row else None
-
 
 def save_preference(
     db: Session,
@@ -199,8 +181,6 @@ def save_preference(
         try:
             db.flush()
         except IntegrityError:
-            # N-10: parallel so'rov — unique (key, conversation_id) ustiga
-            # tushdi. Mavjud yozuvni yangilaymiz (poyga himoyasi).
             db.rollback()
             row = db.execute(
                 select(MemoryItem).where(
@@ -221,7 +201,6 @@ def save_preference(
         row.confidence = "confirmed"
         row.created_at = datetime.now(timezone.utc)
     db.flush()
-
 
 def detect_organization(db: Session, text: str) -> dict[str, Any] | None:
     lowered = (text or "").lower()
@@ -244,8 +223,6 @@ def detect_organization(db: Session, text: str) -> dict[str, Any] | None:
         "brb": "Biznesni rivojlantirish banki",
     }
     for alias, name in aliases.items():
-        # N-10: qisqa aliaslar ("brb", "nbu") tasodifiy so'zlarning ichida
-        # mos kelmasligi kerak — so'z chegarasi bilan tekshiriladi.
         if re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", lowered):
             programs = organizations_seen.get(name) or [
                 p for p in rows if name.lower() in p.organization.lower()

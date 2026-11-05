@@ -1,13 +1,3 @@
-"""J-5: agent xatosi sessiyani buzmasligi, run/workflow holati haqiqiy bo'lishi.
-
-Muqova:
-- Xatoda `run.status = "completed"` yozilardi -> agent monitoringi xatoni
-  ko'rmaydi (success_rate doim 100%).
-- `workflow.status` har doim "completed" edi.
-- Handler DB xatosi ko'tarsa sessiya buzilib, keyingi flush/commit
-  `PendingRollbackError` bilan yiqilardi (butun suhbat 500).
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -16,14 +6,11 @@ from sqlalchemy import delete, select
 from app.core.db import SessionLocal
 from app.models import AgentRun, AgentWorkflow, Conversation, ConversationMessage, User
 
-
 def _admin_id() -> str:
-    """Haqiqiy admin foydalanuvchi ID'si (FK constraint uchun)."""
     with SessionLocal() as db:
         user = db.execute(select(User).where(User.username == "wax")).scalars().first()
         assert user is not None
         return user.id
-
 
 @pytest.fixture()
 def clean_workflows():
@@ -41,7 +28,6 @@ def clean_workflows():
     yield
     _cleanup()
 
-
 def _last_workflow() -> tuple[str, str, str]:
     with SessionLocal() as db:
         workflow = db.execute(
@@ -55,9 +41,7 @@ def _last_workflow() -> tuple[str, str, str]:
         run_error = runs[0].error if runs else ""
         return workflow.status, run_status, run_error
 
-
 def test_failed_agent_marks_run_failed(clean_workflows, monkeypatch):
-    """Agent xatosi -> run "failed", workflow "failed" (completed emas)."""
     from app.services import agents
 
     def _boom(*args, **kwargs):
@@ -74,9 +58,7 @@ def test_failed_agent_marks_run_failed(clean_workflows, monkeypatch):
     assert workflow_status == "failed"
     assert run_error
 
-
 def test_chat_survives_agent_error_and_saves_message(clean_workflows, monkeypatch):
-    """Agent xatosi butun suhbatni buzmasligi kerak (xabar saqlanadi)."""
     from app.services import agents
 
     def _boom(*args, **kwargs):
@@ -89,7 +71,7 @@ def test_chat_survives_agent_error_and_saves_message(clean_workflows, monkeypatc
         result = agents.chat(db, message="ishsizlar nechta?", actor=_admin_id())
         assert result["conversation_id"]
         content = result["message"].content
-    assert content  # foydalanuvchiga javob berilgan
+    assert content
 
     with SessionLocal() as db:
         conversation = db.get(Conversation, result["conversation_id"])
@@ -99,9 +81,7 @@ def test_chat_survives_agent_error_and_saves_message(clean_workflows, monkeypatc
         ).scalars().all()
     assert any(message.role == "assistant" for message in messages)
 
-
 def test_successful_agent_keeps_completed(clean_workflows):
-    """Muvaffaqiyatli agent -> run/workflow "completed"."""
     from app.services import agents
 
     with SessionLocal() as db:
@@ -111,9 +91,7 @@ def test_successful_agent_keeps_completed(clean_workflows):
     assert run_status == "completed"
     assert workflow_status == "completed"
 
-
 def test_workflow_error_is_recorded(clean_workflows, monkeypatch):
-    """Workflow.error maydoni xatoni saqlashi kerak."""
     from app.services import agents
 
     def _boom(*args, **kwargs):

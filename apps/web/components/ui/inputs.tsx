@@ -3,7 +3,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { ChevronDown, LoaderCircle, Search, X } from "lucide-react";
 
-/* ---------- FormField (label + error + hint) ---------- */
 export function Field({
   label, required, error, hint, children, htmlFor,
 }: {
@@ -25,7 +24,6 @@ export function Field({
   );
 }
 
-/* ---------- SearchSelect (qidiruvli tanlash — WAI-ARIA combobox) ---------- */
 export type Option = { value: string; label: string; sub?: string };
 
 export function SearchSelect({
@@ -62,12 +60,10 @@ export function SearchSelect({
     );
   }, [options, query]);
 
-  // Har doim birinchi variant tanlangan bo‘lsin
   useEffect(() => {
     setHl((h) => Math.min(h, Math.max(0, filtered.length - 1)));
   }, [filtered.length]);
 
-  // Faol variant ko‘rinishga tushsin
   useEffect(() => {
     if (!open) return;
     listRef.current?.querySelector<HTMLElement>(`#${CSS.escape(optionId(hl))}`)?.scrollIntoView({ block: "nearest" });

@@ -1,18 +1,3 @@
-"""O-15: Excel/CSV eksportida formula inyeksiyasi (CSV injection).
-
-Muammo:
-- Fuqaro F.I.Sh., telefon, izoh maydonlari to'g'ridan-to'g'ri Excel/CSV'ga
-  yoziladi. Agar maydon `=`, `+`, `-`, `@` bilan boshlansa (masalan
-  `=cmd|' /C calc'!A0` — ma'lumot import orqali kiritilgan), Excel ochilganda
-  formula bajariladi.
-- `openpyxl` `=` bilan boshlanuvchi satrni avtomatik **formula** sifatida
-  yozadi (`<f>...</f>`), ya'ni fayl fayl tarkibiga qarab kod bajarishga
-  tayyor bo'ladi.
-
-To'g'rilash: `_safe_cell()` — formula belgisi bilan boshlanuvchi satrlar
-`' ` (apostrof) bilan niqolanadi; raqam/sana qiymatlar o'zgarishsiz qoladi.
-"""
-
 from __future__ import annotations
 
 import csv
@@ -25,13 +10,9 @@ from sqlalchemy import delete, select
 from app.core.db import SessionLocal
 from app.models import Citizen, Report
 
-# Excel faqat **boshida** formula belgisi turgan qiymatni bajaradi:
-# "O15 sinov =1+1" — matn, "=1+1" — formula. Shu sababli zararli qiymat
-# boshqaruv belgisi bilan boshlanishi kerak.
 MALICIOUS_NAME = "=cmd|' /C calc'!A0 O15sinov"
 MALICIOUS_NOTE = "@SUM(1+1)*cmd|' /C calc'!A0"
 TEST_MARKER = "O15sinov"
-
 
 @pytest.fixture()
 def clean_rows():
@@ -49,7 +30,6 @@ def clean_rows():
     yield
     _cleanup()
 
-
 def _make_citizen() -> str:
     with SessionLocal() as db:
         citizen = Citizen(
@@ -64,7 +44,6 @@ def _make_citizen() -> str:
         citizen_id = citizen.id
         db.commit()
         return citizen_id
-
 
 def _make_report(narrative: str) -> str:
     with SessionLocal() as db:
@@ -87,12 +66,7 @@ def _make_report(narrative: str) -> str:
         db.commit()
         return report_id
 
-
-# --------------------------------------------------------- _safe_cell qoidalari
-
-
 def test_safe_cell_escapes_every_formula_prefix():
-    """Barcha formula belgilari niqolanishi kerak."""
     from app.core.downloads import safe_cell
 
     for prefix in ("=", "+", "-", "@", "\t", "\r"):
@@ -102,22 +76,14 @@ def test_safe_cell_escapes_every_formula_prefix():
         assert result.startswith("'"), f"niqolanmadi: {prefix!r} -> {result!r}"
         assert result[1:] == value, f"qiymat o'zgarib ketdi: {result!r}"
 
-
 def test_safe_cell_keeps_inner_formula_char():
-    """Formula belgisi **boshida** bo'lmasa — qiymat o'zgarishsiz.
-
-    Excel faqat boshida `=` turgan qiymatni formula sifatida qaytaradi;
-    "O15 sinov =1+1" oddiy matndir.
-    """
     from app.core.downloads import safe_cell
 
     assert safe_cell("O15 sinov =1+1") == "O15 sinov =1+1"
     assert safe_cell("Alisher Karimov") == "Alisher Karimov"
     assert safe_cell("Telefon: +998 90 123 45 67") == "Telefon: +998 90 123 45 67"
 
-
 def test_safe_cell_keeps_numbers_numeric():
-    """Raqamlar satrga aylantirilmasligi kerak (Excel'da son qoladi)."""
     from app.core.downloads import safe_cell
 
     assert safe_cell(5) == 5
@@ -125,20 +91,13 @@ def test_safe_cell_keeps_numbers_numeric():
     assert safe_cell(12.5) == 12.5
     assert safe_cell(None) == ""
 
-
 def test_safe_cell_keeps_dates_as_dates():
-    """Sana qiymati matnga aylantirilmasligi kerak."""
     from app.core.downloads import safe_cell
 
     value = date(1990, 5, 15)
     assert safe_cell(value) == value
 
-
-# ------------------------------------------------------------------ CSV eksport
-
-
 def test_csv_export_escapes_formula_in_name(clean_rows):
-    """CSV eksportida formula niqolanishi kerak."""
     from app.services import documents as service
 
     citizen_id = _make_citizen()
@@ -159,9 +118,7 @@ def test_csv_export_escapes_formula_in_name(clean_rows):
     assert row[name_index][1:] == MALICIOUS_NAME
     assert row[note_index].startswith("'"), f"Izoh niqolanmadi: {row[note_index]!r}"
 
-
 def test_csv_export_keeps_plain_names_intact(clean_rows):
-    """Oddiy ism apostrof bilan buzilmasligi kerak."""
     from app.services import documents as service
 
     with SessionLocal() as db:
@@ -184,9 +141,7 @@ def test_csv_export_keeps_plain_names_intact(clean_rows):
     assert matched
     assert matched[0][name_index] == "O15sinov Alisher Karimov"
 
-
 def test_export_citizens_csv_helper_is_safe(clean_rows):
-    """`export_citizens_csv` yordamchisi ham xavfsiz bo'lishi kerak."""
     from app.services import documents as service
 
     citizen_id = _make_citizen()
@@ -199,12 +154,7 @@ def test_export_citizens_csv_helper_is_safe(clean_rows):
     assert matched
     assert matched[0][name_index].startswith("'")
 
-
-# ----------------------------------------------------------------- XLSX eksport
-
-
 def test_xlsx_export_does_not_write_formula(clean_rows):
-    """XLSX'da formula yozilmasligi kerak (openpyxl `<f>` yozmasin)."""
     from openpyxl import load_workbook
 
     from app.services import documents as service
@@ -232,9 +182,7 @@ def test_xlsx_export_does_not_write_formula(clean_rows):
         assert not str(cell.value).startswith("="), f"formula boshlandi: {cell.value!r}"
         assert str(cell.value).startswith("'"), f"niqolanmadi: {cell.value!r}"
 
-
 def test_xlsx_export_keeps_numeric_cells_numeric(clean_rows):
-    """Raqamli ustun raqam qolishi kerak (matnga aylantirilmasin)."""
     from openpyxl import load_workbook
 
     from app.services import documents as service
@@ -253,9 +201,7 @@ def test_xlsx_export_keeps_numeric_cells_numeric(clean_rows):
     ]
     assert numeric, "sonlar ustuni raqam sifatida saqlanmadi"
 
-
 def test_report_export_does_not_write_formula(clean_rows):
-    """Hisobot eksportida formula yozilmasligi kerak."""
     from openpyxl import load_workbook
 
     from app.services import reports as report_service
@@ -274,9 +220,7 @@ def test_report_export_does_not_write_formula(clean_rows):
     ]
     assert not formulas, f"formulalar yozildi: {formulas}"
 
-
 def test_report_export_keeps_plain_narrative(clean_rows):
-    """Oddiy xulosa o'zgarishsiz qolishi kerak."""
     from openpyxl import load_workbook
 
     from app.services import reports as report_service

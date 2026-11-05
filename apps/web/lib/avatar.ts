@@ -1,8 +1,3 @@
-/**
- * Avatar tizimi (audit 7.8) — F.I.Sh. dan initsial va barqaror rang hash'i.
- * Rang har bir fuqaro uchun bir xil qoladi (id yoki F.I.Sh. bo‘yicha hash).
- */
-
 const PALETTE = ["avatar-0", "avatar-1", "avatar-2", "avatar-3", "avatar-4", "avatar-5"];
 
 function hash(text: string): number {
@@ -14,7 +9,6 @@ function hash(text: string): number {
   return Math.abs(h);
 }
 
-/** Ismdan 2 harfli initsial: "Alisher Karimov" → "AK", "Nodira" → "N" */
 export function initials(fullName?: string | null): string {
   if (!fullName) return "?";
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
@@ -23,14 +17,12 @@ export function initials(fullName?: string | null): string {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
-/** Barqaror rang klassi (hash asosida) */
 export function avatarTone(seed?: string | null): string {
   const key = (seed ?? "").trim();
   if (!key) return PALETTE[0];
   return PALETTE[hash(key) % PALETTE.length];
 }
 
-/** To‘liq avatar: initsial + barqaror rang */
 export function avatar(seed?: string | null, fullName?: string | null, large = false): {
   className: string;
   text: string;

@@ -15,7 +15,6 @@ from app.services import reports as service
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
-
 @router.get("")
 def list_reports(
     type: str | None = None,
@@ -27,7 +26,6 @@ def list_reports(
 ):
     rows, meta = service.list_reports(db, type=type, status=status, page=page, page_size=page_size)
     return {"items": rows, "meta": meta.model_dump()}
-
 
 @router.post("", status_code=201)
 def generate_report(
@@ -41,7 +39,6 @@ def generate_report(
     )
     return service.get_report(db, report.id)
 
-
 @router.get("/{report_id}")
 def get_report(
     report_id: str,
@@ -50,15 +47,12 @@ def get_report(
 ):
     return service.get_report(db, report_id)
 
-
 @router.post("/{report_id}/approve")
 def approve_report(
     report_id: str,
     payload: ReportApproveRequest,
     request: Request,
     db: Session = Depends(get_db),
-    # O-16: tasdiqlash — alohida ruxsat. Hisobotni yozgan xodim uni
-    # o'zi tasdiqlay olmaydi ("segregation of duties").
     user: User = Depends(require_csrf_and_permission("reports.approve")),
 ):
     service.approve_report(
@@ -70,12 +64,9 @@ def approve_report(
     )
     return service.get_report(db, report_id)
 
-
 @router.get("/{report_id}/export")
 def export_report(
     report_id: str,
-    # O-17: format `Literal` bilan tekshiriladi — FastAPI noma'lum formatda
-    # avtomatik 422 beradi (500 emas).
     format: Literal["xlsx", "docx", "pdf"] = Query("docx"),
     db: Session = Depends(get_db),
     _=Depends(require_permission("reports.export")),

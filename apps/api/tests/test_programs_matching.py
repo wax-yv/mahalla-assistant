@@ -1,16 +1,3 @@
-"""N-10: dastur mosligi — bank aniqlash, talablar semantikasi, poyga.
-
-Muammo (audit N-10):
-- `detect_organization` substring bilan qisqa aliaslarni ("brb", "nbu")
-  tasodifiy so'zlarda ham topardi;
-- `requires_business` bajarilmaganligi "ma'lumot yetarli emas" deyilardi —
-  "mos kelmaydi" bo'lishi kerak;
-- tug'ilgan sana/telefon dastur talab qilmasa ham "yetishmaydi" ro'yxatiga
-  qo'shilardi;
-- `save_preference` select->insert poygada dublikat yozuv yaratardi;
-- `compare()` topilmagan ID'larni jimgina tashlab yuborardi.
-"""
-
 from __future__ import annotations
 
 from datetime import date
@@ -22,7 +9,6 @@ from app.core.db import SessionLocal
 from app.models import AuditLog, Citizen, MemoryItem, Program
 
 MARKER = "N10sinov"
-
 
 def _cleanup() -> None:
     with SessionLocal() as db:
@@ -41,13 +27,11 @@ def _cleanup() -> None:
         db.execute(delete(Citizen).where(Citizen.id.in_(citizens)))
         db.commit()
 
-
 @pytest.fixture()
 def clean():
     _cleanup()
     yield
     _cleanup()
-
 
 def _make_program(name: str, organization: str, eligibility: dict | None = None) -> str:
     with SessionLocal() as db:
@@ -61,7 +45,6 @@ def _make_program(name: str, organization: str, eligibility: dict | None = None)
         db.add(program)
         db.commit()
         return program.id
-
 
 def _make_citizen(**kwargs) -> str:
     values = {
@@ -78,16 +61,13 @@ def _make_citizen(**kwargs) -> str:
         db.commit()
         return citizen.id
 
-
 def test_detect_organization_uses_word_boundary(clean):
-    """`brb` tasodifiy so'z ichida mos kelmaydi."""
     from app.services import programs as service
 
     _make_program(f"{MARKER} ipoteka", "Biznesni rivojlantirish banki")
     with SessionLocal() as db:
         assert service.detect_organization(db, "brb uchun kredit") is not None
         assert service.detect_organization(db, "brab so'zi boshqa narsa") is None
-
 
 def test_detect_organization_full_name(clean):
     from app.services import programs as service
@@ -98,9 +78,7 @@ def test_detect_organization_full_name(clean):
     assert result is not None
     assert result["organization"] == "Agrobank"
 
-
 def test_requires_business_failure_is_not_matchable(clean):
-    """Tadbirkorlik talabi bajarilmasa — 'mos kelmaydi'."""
     from app.services import programs as service
 
     program_id = _make_program(
@@ -114,9 +92,7 @@ def test_requires_business_failure_is_not_matchable(clean):
     assert result["result"] == "mos kelmaydi"
     assert "tadbirkorlik ro'yxatdan o'tkazilganligi" not in result["missing_fields"]
 
-
 def test_missing_fields_not_added_when_not_required(clean):
-    """Sana/telefon talab qilinmasa 'yetishmaydi' ro'yxatiga qo'shilmasin."""
     from app.services import programs as service
 
     program_id = _make_program(f"{MARKER} oddiy", f"{MARKER} bank", eligibility={})
@@ -126,9 +102,7 @@ def test_missing_fields_not_added_when_not_required(clean):
     assert result["result"] == "mos kelishi mumkin"
     assert result["missing_fields"] == []
 
-
 def test_missing_birth_date_only_when_age_required(clean):
-    """Yosh chegarasi bor dasturda sanasiz fuqaro — 'ma'lumot yetarli emas'."""
     from app.services import programs as service
 
     program_id = _make_program(
@@ -142,9 +116,7 @@ def test_missing_birth_date_only_when_age_required(clean):
     assert result["result"] == "ma'lumot yetarli emas"
     assert "tug'ilgan sana" in result["missing_fields"]
 
-
 def test_save_preference_upsert(clean):
-    """Afzallik ikki marta saqlansa — yangilangan yozuv bitta bo'ladi."""
     from app.services import programs as service
 
     with SessionLocal() as db:
@@ -168,9 +140,7 @@ def test_save_preference_upsert(clean):
     assert len(rows) == 1
     assert rows[0].value["organization"] == "Kapitalbank"
 
-
 def test_compare_rejects_unknown_ids(clean):
-    """Topilmagan dastur ID — aniq 422 (jim skip yo'q)."""
     from app.core.errors import APIError
     from app.services import programs as service
 

@@ -1,11 +1,3 @@
-"""N-11: `rollback_batch` — xatolik faqat bitta qatorni bekor qilishi kerak.
-
-Muammo (audit N-11): qator ichida xatolik bo'lsa `db.rollback()` butun
-tranzaksiyani qaytarardi — avvalgi delete/restore yo'qolardi, `batch`
-obyekt sessiyadan detach bo'lib, keyingi `batch.status=...` yozuvi
-buzilardi. Endi har qator `begin_nested()` savepoint ichida bajariladi.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -15,7 +7,6 @@ from app.core.db import SessionLocal
 from app.models import AuditLog, Citizen, Document, ImportBatch, ImportChange
 
 MARKER = "N11sinov"
-
 
 def _cleanup() -> None:
     with SessionLocal() as db:
@@ -35,16 +26,13 @@ def _cleanup() -> None:
         db.execute(delete(Citizen).where(Citizen.id.in_(citizens)))
         db.commit()
 
-
 @pytest.fixture()
 def clean():
     _cleanup()
     yield
     _cleanup()
 
-
 def _make_batch_with_citizens(count: int = 2) -> tuple[str, list[str]]:
-    """`count` ta yaratilgan fuqaro bo'lgan `committed` batch qaytaradi."""
     with SessionLocal() as db:
         document = Document(
             filename=f"{MARKER}.xlsx",
@@ -80,9 +68,7 @@ def _make_batch_with_citizens(count: int = 2) -> tuple[str, list[str]]:
         db.commit()
         return batch.id, citizen_ids
 
-
 def test_rollback_after_success_deletes_created(clean):
-    """Oddiy holat: yaratilgan fuqaro o'chadi, batch `rolled_back`."""
     from app.services.documents import rollback_batch
 
     batch_id, citizen_ids = _make_batch_with_citizens()
@@ -97,16 +83,12 @@ def test_rollback_after_success_deletes_created(clean):
         assert batch is not None
         assert batch.status == "rolled_back"
 
-
 def test_rollback_survives_row_failure(clean):
-    """Bir qator xato bersa — qolgan qatorlar va batch holati saqlanadi."""
     from app.services.documents import rollback_batch
 
     batch_id, citizen_ids = _make_batch_with_citizens()
 
     with SessionLocal() as db:
-        # Birinchi `db.get` chaqiruvi xato qaytarsin — eski kodda butun
-        # tranzaksiya bekor qilinardi, endi faqat shu qator.
         original_get = db.get
         calls = {"count": 0}
 
@@ -123,13 +105,11 @@ def test_rollback_survives_row_failure(clean):
             db.get = original_get  # type: ignore[method-assign]
 
         assert result["batch"]["status"] == "rolled_back"
-        # Xatodan keyin ham tranzaksiya ishlayapti — commit o'tadi.
         db.commit()
 
     with SessionLocal() as db:
         batch = db.get(ImportBatch, batch_id)
         assert batch is not None
         assert batch.status == "rolled_back"
-        # Bitta qator xato berdi, ikkinchisi o'chirildi.
         remaining = [cid for cid in citizen_ids if db.get(Citizen, cid) is not None]
         assert len(remaining) == 1

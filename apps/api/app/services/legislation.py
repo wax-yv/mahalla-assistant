@@ -41,28 +41,20 @@ STOP = {
     "ni", "ning", "bir", "eng", "haqida", "bo'yicha", "holda", "olar", "edi",
 }
 
-
 MAX_DOC_BYTES = 3 * 1024 * 1024
 MAX_REDIRECTS = 3
-# J-12: saqlanadigan qonunchilik versiyalari soni (faqat oxirgi N).
 MAX_VERSIONS = 3
-# J-13: so'rov ichidagi sinxron uchun umumiy vaqt chegarasi (s).
 SYNC_BUDGET_SECONDS = 20
-# Bitta Lex.uz so'rovi uchun maksimal kutish (s) — qoldiq vaqt bilan cheklangan.
 LEX_REQUEST_TIMEOUT = 12
 
-
 def _client(timeout: float = LEX_REQUEST_TIMEOUT) -> httpx.Client:
-    # Redirect'lar qo'lda kuzatiladi — har safar manzil qayta tekshiriladi.
     return httpx.Client(
         timeout=max(1.0, float(timeout)),
         follow_redirects=False,
         headers={"User-Agent": USER_AGENT, "Accept-Language": "uz,ru;q=0.8,en;q=0.5"},
     )
 
-
 def _read_capped(response: httpx.Response, limit: int = MAX_DOC_BYTES) -> bytes:
-    """Javob hajmini cheklaydi (zip-bomba / katta javob himoyasi)."""
     declared = response.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > limit:
         raise service_unavailable("Hujjat hajmi chegaradan oshdi.")
@@ -73,11 +65,9 @@ def _read_capped(response: httpx.Response, limit: int = MAX_DOC_BYTES) -> bytes:
             raise service_unavailable("Hujjat hajmi chegaradan oshdi.")
     return bytes(buffer)
 
-
 def _fetch_checked(
     url: str, *, document: bool, timeout: float = LEX_REQUEST_TIMEOUT
 ) -> tuple[str, str]:
-    """Ruxsat etilgan manzildan HTML yuklaydi (redirect nazorati bilan)."""
     validate = validate_lex_url if document else validate_lex_host
     current = validate(url)
     with _client(timeout) as client:
@@ -105,7 +95,6 @@ def _fetch_checked(
             return current, data.decode("utf-8", errors="replace")
     raise service_unavailable("Juda ko'p qayta yo'naltirildi — manzil rad etildi.")
 
-
 def _clean_lines(text: str) -> str:
     lines = []
     for line in text.splitlines():
@@ -118,7 +107,6 @@ def _clean_lines(text: str) -> str:
             continue
         lines.append(value)
     return "\n".join(lines)
-
 
 def _parse_search(html: str) -> list[dict[str, Any]]:
     soup = BeautifulSoup(html, "lxml")
@@ -146,7 +134,6 @@ def _parse_search(html: str) -> list[dict[str, Any]]:
         )
     return results
 
-
 def search_lex(
     query: str, limit: int = 5, timeout: float = LEX_REQUEST_TIMEOUT
 ) -> list[dict[str, Any]]:
@@ -162,7 +149,6 @@ def search_lex(
         )
     return data[: max(1, min(20, limit))]
 
-
 def _parse_date(text: str) -> date | None:
     match = DATE_RE.search(text or "")
     if not match:
@@ -173,8 +159,6 @@ def _parse_date(text: str) -> date | None:
     except ValueError:
         return None
 
-
-# O'zbek oy nomlari (kuchga kirish sanasini o'qish uchun).
 UZ_MONTHS = {
     "yanvar": 1,
     "fevral": 2,
@@ -196,14 +180,7 @@ EFFECTIVE_RE = re.compile(
 )
 EFFECTIVE_DATE_RE = re.compile(r"(\d{4})-yil\s+(\d{1,2})-([a-z]+)dan", re.IGNORECASE)
 
-
 def _parse_effective_date(text: str) -> date | None:
-    """Kuchga kirish sanasini o'qiydi (D-7).
-
-    Matn ko'rinishi: `2024-yil 1-yanvardan e'tiboran kuchga kiradi`.
-    Eski kod matn topilganda ham `effective = None` qo'yardi — sana
-    hech qachon saqlanmasdi.
-    """
     for pattern in (EFFECTIVE_RE, EFFECTIVE_DATE_RE):
         match = pattern.search(text or "")
         if not match:
@@ -218,14 +195,7 @@ def _parse_effective_date(text: str) -> date | None:
             continue
     return None
 
-
 def _legal_status_from_html(soup: BeautifulSoup) -> str:
-    """Hujjat holatini **aniq DOM elementidan** o'qiydi (D-6).
-
-    Eski kod butun HTML matnida `status_code_y` satrini izlardi — CSS/JS
-    ham o'sha satrni o'z ichiga olsa, hujjat noto'g'ri "amaldagi" deb
-    belgilanardi.
-    """
     state = soup.select_one(".lx_act_state i")
     if state is None:
         return "tekshirilgan"
@@ -233,7 +203,6 @@ def _legal_status_from_html(soup: BeautifulSoup) -> str:
     if "status_code_y" in classes:
         return "amaldagi"
     return "tekshirilgan"
-
 
 def fetch_document(url: str, timeout: float = LEX_REQUEST_TIMEOUT) -> dict[str, Any]:
     final_url, html = _fetch_checked(url, document=True, timeout=timeout)
@@ -267,14 +236,10 @@ def fetch_document(url: str, timeout: float = LEX_REQUEST_TIMEOUT) -> dict[str, 
         "adoption_date": _parse_date(header),
         "effective_date": effective,
         "content_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-        # D-6: holat aniq DOM elementidan o'qiladi — butun HTML'da satr
-        # izlash CSS/JS tasodifiy mosligiga olib kelardi.
         "legal_status": _legal_status_from_html(soup),
     }
 
-
 ARTICLE_RE = re.compile(r"^\s*(\d{1,4}(?:-\d{1,3})?)-modda\b", re.IGNORECASE)
-
 
 def split_chunks(text: str, max_len: int = 1100) -> list[dict[str, str]]:
     sections: list[dict[str, str]] = []
@@ -311,7 +276,6 @@ def split_chunks(text: str, max_len: int = 1100) -> list[dict[str, str]]:
             chunks.append({**section, "content": buffer.strip()})
     return chunks or [{"article": "", "heading": text[:120], "content": text[:max_len]}]
 
-
 def ingest_document(
     db: Session,
     url: str,
@@ -319,14 +283,6 @@ def ingest_document(
     actor: str | None = None,
     timeout: float = LEX_REQUEST_TIMEOUT,
 ) -> LegislationDocument:
-    """Hujjatni sinxronlaydi.
-
-    J-12:
-    - kontent o'zgarmagan bo'lsa — faqat `retrieved_at` yangilanadi, yangi
-      versiya yaratilmaydi va chunk'lar qayta yozilmaydi;
-    - saqlanadigan versiyalar soni cheklangan (`MAX_VERSIONS` = 3);
-    - 400 KB `raw_html` bazada saqlanmaydi.
-    """
     payload = fetch_document(url, timeout=timeout)
     now = datetime.now(timezone.utc)
     document = db.execute(
@@ -345,10 +301,8 @@ def ingest_document(
     document.legal_status = payload["legal_status"]
     document.retrieved_at = now
     document.version_identifier = payload["content_hash"][:16]
-    # J-12: 400 KB HTML bazada saqlanmaydi (faqat toza matn saqlanadi).
     document.raw_html = ""
     if unchanged:
-        # Kontent o'zgarmagan — versiya va chunk'lar qayta yozilmaydi.
         document.content_hash = payload["content_hash"]
         db.flush()
         write_audit(
@@ -400,8 +354,6 @@ def ingest_document(
                 search_text=f"{document.title} {chunk['article']} {chunk['heading']} {chunk['content']}".lower(),
             )
         )
-    # J-12: faqat oxirgi N versiyani saqlaymiz (eski versiyalar va ularning
-    # chunk'lari o'chiriladi — baza bepul tarifda tez to'lmasligi uchun).
     all_versions = db.execute(
         select(LegislationVersion)
         .where(LegislationVersion.document_id == document.id)
@@ -432,7 +384,6 @@ def ingest_document(
     db.refresh(document)
     return document
 
-
 def sync_query(
     db: Session,
     query: str,
@@ -440,12 +391,6 @@ def sync_query(
     actor: str | None = None,
     budget_seconds: float = SYNC_BUDGET_SECONDS,
 ) -> list[LegislationDocument]:
-    """Lex.uz'da qidirib, topilgan hujjatlarni bazaga kiritadi.
-
-    J-13: umumiy vaqt chegarasi (`budget_seconds`, default 20 s) — so'rov
-    ichida uzoq turib qolmaslik uchun. Qoldiq vaqt har so'rovga timeout
-    sifatida beriladi va chegaraga yaqinlashganda sinxron to'xtatiladi.
-    """
     deadline = time.monotonic() + max(1.0, float(budget_seconds))
     results = search_lex(
         query,
@@ -468,39 +413,23 @@ def sync_query(
                     timeout=max(1.0, min(LEX_REQUEST_TIMEOUT, remaining)),
                 )
             )
-        except Exception as error:  # one broken page must not stop the batch
+        except Exception as error:
             db.rollback()
             errors.append(f"{item['title'][:80]}: {error}")
     if not documents and errors:
         raise service_unavailable("Lex.uz hujjatlari yuklanmadi. " + " | ".join(errors[:2]))
     return documents
 
-
-# J-11: tokenlar — lotin, kirill (rus/o'zbek) va raqamlarni qamrab oladi.
 TOKEN_RE = re.compile(r"[0-9]+|[a-zа-яёўқғҳʻʼ\u2019']{2,}", re.IGNORECASE)
-# Oddiy qo'shimcha kesish (stemming'siz) — J-11.
-# Uzunroq qo'shimchalar avval tekshiriladi: "ning" -> "lar" ketma-ketligi.
 SUFFIXES = ("ning", "lari", "lar", "dan", "ga", "da", "ni")
-# Kesilgandan keyin qoladigan minimal uzunlik (qisqa so'zlar buzilmasin).
 MIN_STEM_LEN = 4
-# "moddada", "moddasi", "moddadagi" kabi shakllar bitta asosiy shaklga.
 MODDA_FORMS_RE = re.compile(r"^modda.*$")
-# Modda raqamini to'g'ridan-to'g'ri topish — J-11.
 ARTICLE_QUERY_RE = re.compile(r"(\d{1,4}(?:-\d{1,3})?)\s*-?\s*modda", re.IGNORECASE)
-# SQL'da oldindan filtr — barcha chunk'lar RAM'ga yuklanmasligi kerak (J-11).
 SEARCH_CANDIDATE_LIMIT = 200
 
-
 def _stem(token: str) -> str:
-    """Oddiy qo'shimcha kesish (`fuqarolaring` -> `fuqaro`).
-
-    O'zbek tilidagi egalik + ko'plik qo'shimchalari ketma-ket keladi
-    (`fuqarolarning` = `fuqaro` + `lar` + `ning`), shuning uchun kesish
-    bir necha marta takrorlanadi. So'zning oxirgi 5 harfi saqlanadi —
-    aks holda `modda` -> `modd` kabi buzilishlar bo'lardi.
-    """
     result = token
-    for _ in range(3):  # cheksiz siklga tushmaslik uchun
+    for _ in range(3):
         if len(result) <= 5:
             break
         changed = False
@@ -515,9 +444,7 @@ def _stem(token: str) -> str:
             break
     return result
 
-
 def _tokens(text: str) -> list[str]:
-    """Savol kalitlari — lotin/kirill so'zlar va raqamlar."""
     tokens: list[str] = []
     for raw in TOKEN_RE.findall((text or "").lower()):
         if raw.isdigit():
@@ -528,7 +455,6 @@ def _tokens(text: str) -> list[str]:
         if raw in STOP:
             continue
         if MODDA_FORMS_RE.match(raw):
-            # "moddada", "moddasi", "moddadagi" -> "modda"
             tokens.append("modda")
             continue
         stemmed = _stem(raw)
@@ -537,25 +463,13 @@ def _tokens(text: str) -> list[str]:
         tokens.append(stemmed)
     return tokens
 
-
 def _article_from_query(query: str) -> str | None:
-    """Savoldagi modda raqamini ajratadi ("19-modda" -> "19-modda")."""
     match = ARTICLE_QUERY_RE.search(query or "")
     if not match:
         return None
     return f"{match.group(1)}-modda"
 
-
 def search_chunks(db: Session, query: str, limit: int = 6) -> list[dict[str, Any]]:
-    """Manbalar ichidan qidiruv.
-
-    J-11: barcha chunk'lar RAM'ga yuklanmasdi — SQL'da oldindan filtr
-    (ilike + LIMIT) qilinadi, keyin Python'da ball qo'yiladi. Modda raqami
-    ("19-modda") to'g'ridan-to'g'ri `article` bo'yicha qidiriladi.
-
-    Moddaga mos qatorlar alohida so'rov bilan olinadi — aks holda umumiy
-    `LIMIT` ularni siqib tashlash mumkin edi.
-    """
     tokens = _tokens(query)
     article = _article_from_query(query)
     if not tokens and not article:
@@ -579,8 +493,6 @@ def search_chunks(db: Session, query: str, limit: int = 6) -> list[dict[str, Any
             rows.append(row)
 
     if unique_tokens:
-        # `search_text` bo'sh bo'lishi mumkin — heading va content ham
-        # tekshiriladi (dialektga bog'liq `concat` ishlatilmaydi).
         token_conditions = []
         for token in unique_tokens[:8]:
             pattern = like_pattern(token)
@@ -615,7 +527,6 @@ def search_chunks(db: Session, query: str, limit: int = 6) -> list[dict[str, Any
         if not matched and not article_hit:
             continue
         if article_hit:
-            # So'roqda aniq modda ko'rsatilgan bo'lsa — u oldinga chiqadi.
             score += 12.0
         if phrase and phrase in haystack:
             score += 6.0
@@ -639,7 +550,6 @@ def search_chunks(db: Session, query: str, limit: int = 6) -> list[dict[str, Any
         )
     scored.sort(key=lambda item: item["score"], reverse=True)
     return scored[:limit]
-
 
 def document_detail(db: Session, document_id: str) -> dict[str, Any]:
     document = db.get(LegislationDocument, document_id)
@@ -666,24 +576,16 @@ def document_detail(db: Session, document_id: str) -> dict[str, Any]:
         "source_url": document.source_url,
     }
 
-
 QUOTE_RE = re.compile(r"[«\"“]([^»\"”]{8,})[»\"”]")
 CITATION_RE = re.compile(r"\[(\d{1,3})\]")
 
-
 def _normalize_for_check(text: str) -> str:
-    """Bo'shliq va apostrof turlarini birlashtiradi (solishtirish uchun)."""
     value = (text or "").lower()
     value = re.sub(r"[ʻʼ‘’«»\"`]", "'", value)
     value = re.sub(r"\s+", " ", value)
     return value.strip()
 
-
 def verify_answer(answer: str, context: str, source_count: int) -> tuple[bool, list[str]]:
-    """Javobdagi iqtiboslar va manba havolalarini manba bilan solishtiradi.
-
-    Qaytaradi: (verified, ogohlantirishlar).
-    """
     warnings: list[str] = []
     verified = True
     haystack = _normalize_for_check(context)
@@ -710,7 +612,6 @@ def verify_answer(answer: str, context: str, source_count: int) -> tuple[bool, l
 
     return verified, warnings
 
-
 SYSTEM = """Siz O'zbekiston qonunchiligi bo'yicha mahalla xodimi uchun yuridik tahlilchi assistentsiz.
 Faqat o'zbek lotin tilida yozing. Faqat BERILGAN manbalar asosida ishlang.
 
@@ -728,7 +629,6 @@ QAT'IY QOIDALAR:
 - Oxirida doim: "Rasmiy tasdiq uchun Lex.uz dagi amaldagi tahrirni tekshiring."
 - Umumiy hajm: 6-10 gap."""
 
-
 def ask(
     db: Session,
     question: str,
@@ -736,20 +636,9 @@ def ask(
     use_ai: bool = True,
     sync_if_empty: bool = False,
     budget_seconds: float = SYNC_BUDGET_SECONDS,
-    # D-8: suhbatda tanlangan provayder/model hujjat javobiga ham qo'llanadi.
     preferred_provider: str | None = None,
     preferred_model: str | None = None,
 ) -> dict[str, Any]:
-    """Savolga qonunchilik manbalari asosida javob beradi.
-
-    J-13:
-    - **Avtomatik sinxron o'chirilgan** (`sync_if_empty=False`): so'rov ichida
-      Lex.uz'ga so'rov yuborilmaydi — bu so'rovni kechiktirardi, bazani
-      ifloslantirardi va foydalanuvchi savoli matnini (fuqaro ismi bo'lishi
-      mumkin) tashqi saytga olib chiqardi.
-    - Sinxron faqat foydalanuvchi **aniq so'raganda** (`sync_if_empty=True`)
-      va umumiy vaqt chegarasi (`budget_seconds`) bilan bajariladi.
-    """
     question = (question or "").strip()
     if len(question) < 3:
         raise bad_request("Savol matni juda qisqa.")
@@ -854,7 +743,6 @@ def ask(
         "synced": synced,
     }
 
-
 def list_documents(db: Session, q: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
     stmt = select(LegislationDocument).order_by(LegislationDocument.retrieved_at.desc()).limit(limit)
     if q:
@@ -871,7 +759,6 @@ def list_documents(db: Session, q: str | None = None, limit: int = 50) -> list[d
         {**legislation_document_out(row), "chunk_count": int(counts.get(row.id, 0))}
         for row in rows
     ]
-
 
 def status(db: Session) -> dict[str, Any]:
     documents = int(

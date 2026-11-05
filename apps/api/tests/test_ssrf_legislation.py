@@ -1,12 +1,9 @@
-"""K-3: SSRF himoyasi — tashqi URL faqat ruxsat etilgan manzildan yuklanadi."""
-
 from __future__ import annotations
 
 import pytest
 
 from app.core.errors import APIError
 from app.core.urls import validate_lex_host, validate_lex_url
-
 
 @pytest.mark.parametrize(
     "url",
@@ -27,7 +24,6 @@ def test_rejected_urls(url: str):
         validate_lex_url(url)
     assert error.value.status_code == 422
 
-
 @pytest.mark.parametrize(
     "url",
     [
@@ -41,17 +37,14 @@ def test_rejected_urls(url: str):
 def test_allowed_urls(url: str):
     assert validate_lex_url(url) == url
 
-
 def test_non_document_path_is_rejected():
     with pytest.raises(APIError):
         validate_lex_url("https://lex.uz/uz/search/all?query=test")
     with pytest.raises(APIError):
         validate_lex_url("https://lex.uz/")
 
-
 def test_host_validation_allows_other_lex_paths():
     assert validate_lex_host("https://lex.uz/uz/search/all?query=test")
-
 
 def test_sync_request_schema_rejects_ssrf_url():
     from app.schemas import LegislationSyncRequest
@@ -60,16 +53,13 @@ def test_sync_request_schema_rejects_ssrf_url():
         LegislationSyncRequest(url="http://127.0.0.1:8765/internal-admin")
     assert error.value.status_code == 422
 
-
 def test_sync_request_schema_accepts_lex_url():
     from app.schemas import LegislationSyncRequest
 
     request = LegislationSyncRequest(url="https://lex.uz/uz/docs/123")
     assert request.url == "https://lex.uz/uz/docs/123"
 
-
 def test_fetch_document_validates_before_network(client, monkeypatch):
-    """Tarmoqqa chiqishdan oldin manzil rad etilishi kerak."""
     from app.services import legislation as service
 
     called = {"hit": False}
@@ -83,7 +73,6 @@ def test_fetch_document_validates_before_network(client, monkeypatch):
         service.fetch_document("http://127.0.0.1:8765/internal-admin")
     assert called["hit"] is False
 
-
 def test_sync_endpoint_rejects_ssrf_url(auth):
     api_client, token = auth
     response = api_client.post(
@@ -93,9 +82,7 @@ def test_sync_endpoint_rejects_ssrf_url(auth):
     )
     assert response.status_code in (401, 403, 422), response.text
 
-
 def test_https_redirect_to_internal_is_blocked(auth, monkeypatch):
-    """Redirect orqali ichki manzilga o'tishga urinish rad etilishi kerak."""
     import httpx
 
     from app.services import legislation as service

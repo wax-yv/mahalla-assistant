@@ -1,13 +1,3 @@
-"""J-12: qonunchilik sinxronlash — versiyalar soni va `raw_html` hajmi.
-
-Muqova:
-- Har sinxronlashda yangi `LegislationVersion` (to'liq `raw_text`) yaratilardi
-  va chunk'lar qayta qayta yozilardi — kontent o'zgarmagan bo'lsa ham.
-- `document.raw_html` ga 400 KB HTML saqlanardi (bazaning bepul tarifi
-  tez to'ladi).
-- Versiyalar soni cheklanmagan edi — tarix yig'ilib borardi.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -18,7 +8,6 @@ from app.models import LegislationChunk, LegislationDocument, LegislationVersion
 from app.services import legislation as service
 
 DOC_URL = "https://lex.uz/docs/J12-sinov-hujjati"
-
 
 @pytest.fixture()
 def clean_legislation():
@@ -43,7 +32,6 @@ def clean_legislation():
     yield
     _cleanup()
 
-
 def _payload(text: str, title: str = "J12 sinov hujjati") -> dict:
     import hashlib
 
@@ -61,7 +49,6 @@ def _payload(text: str, title: str = "J12 sinov hujjati") -> dict:
         "legal_status": "amaldagi",
     }
 
-
 def _ingest(monkeypatch, text: str, title: str = "J12 sinov hujjati"):
     payload = _payload(text, title)
     monkeypatch.setattr(
@@ -71,9 +58,7 @@ def _ingest(monkeypatch, text: str, title: str = "J12 sinov hujjati"):
         document = service.ingest_document(db, DOC_URL, actor="tester")
         return document.id
 
-
 def test_unchanged_content_creates_no_new_version(clean_legislation, monkeypatch):
-    """Kontent o'zgarmasa — yangi versiya qatori yaratilmasligi kerak."""
     _ingest(monkeypatch, "birinchi kontent")
     _ingest(monkeypatch, "birinchi kontent")
 
@@ -91,9 +76,7 @@ def test_unchanged_content_creates_no_new_version(clean_legislation, monkeypatch
     assert len(versions) == 1, f"kutilgan 1 versiya, topildi: {len(versions)}"
     assert chunks, "chunk'lar saqlanib qolishi kerak"
 
-
 def test_unchanged_content_only_updates_retrieved_at(clean_legislation, monkeypatch):
-    """Kontent o'zgarmasa — faqat `retrieved_at` yangilanadi."""
     _ingest(monkeypatch, "birinchi kontent")
     with SessionLocal() as db:
         doc = db.execute(
@@ -120,9 +103,7 @@ def test_unchanged_content_only_updates_retrieved_at(clean_legislation, monkeypa
         assert doc.retrieved_at >= first_retrieved
         assert version.is_current is True
 
-
 def test_changed_content_creates_new_version(clean_legislation, monkeypatch):
-    """Kontent o'zgarsa — yangi versiya yaratilishi kerak."""
     _ingest(monkeypatch, "birinchi kontent")
     _ingest(monkeypatch, "ikkinchi kontent boshqacha")
 
@@ -138,9 +119,7 @@ def test_changed_content_creates_new_version(clean_legislation, monkeypatch):
     assert len(versions) == 2, f"kutilgan 2 versiya, topildi: {len(versions)}"
     assert len(current) == 1, "faqat bitta joriy versiya bo'lishi kerak"
 
-
 def test_only_last_three_versions_are_kept(clean_legislation, monkeypatch):
-    """Faqat oxirgi 3 versiya saqlanishi kerak."""
     for index in range(5):
         _ingest(monkeypatch, f"kontent-{index}-boshqacha")
 
@@ -156,9 +135,7 @@ def test_only_last_three_versions_are_kept(clean_legislation, monkeypatch):
 
     assert count == 3, f"kutilgan 3 versiya, topildi: {count}"
 
-
 def test_raw_html_is_not_stored(clean_legislation, monkeypatch):
-    """400 KB `raw_html` bazada saqlanmasligi kerak."""
     _ingest(monkeypatch, "birinchi kontent")
 
     with SessionLocal() as db:

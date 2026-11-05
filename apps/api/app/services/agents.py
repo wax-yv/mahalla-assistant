@@ -79,22 +79,17 @@ STOPWORDS = {
     "ayting", "ko'rsating", "bering", "qilib", "bo'ladi", "edi", "ekan",
 }
 
-
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
-
 def _release_savepoint(db: Session, savepoint: Any) -> None:
-    """Savepointni bo'shatadi (ichida commit bo'lgan bo'lsa — e'tiborsiz)."""
     try:
         if savepoint.is_active:
             savepoint.commit()
     except Exception:
         pass
 
-
 def _rollback_savepoint(db: Session, savepoint: Any) -> None:
-    """Savepointgacha qaytaradi — agent xatosi boshqa agentlarga ta'sir qilmaydi."""
     try:
         if savepoint.is_active:
             savepoint.rollback()
@@ -104,14 +99,11 @@ def _rollback_savepoint(db: Session, savepoint: Any) -> None:
         except Exception:
             pass
 
-
-# Oddiy salomlashish — deterministik javob beriladi (LLM chaqirilmaydi).
 GREETING_RE = re.compile(
     r"\b(salom|assalomu|assalomu alaykum|hayrli|salomlayman|hello|hi|good morning|good evening)\b",
     re.IGNORECASE,
 )
 
-# "Menga qanday yordam bera olasan?" — imkoniyatlar ro'yxati.
 CAPABILITY_RE = re.compile(
     r"(\bqanday\s+yordam\b|\byordam\s+ber(a|eb)\s+olasan\b|\byordam\s+ber(a|eb)\s+olasisiz\b|"
     r"\bnima\s+qila\s+olasan\b|\bnima\s+qila\s+olasisiz\b|\bnimaga\s+qodirsiz\b|"
@@ -119,10 +111,10 @@ CAPABILITY_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Raqam/ro'yxat savollari — majburan data_stats agentiga yuboriladi.
 DATA_COUNT_WORDS: tuple[str, ...] = (
     "nechta", "qancha", "soni", "necha nafar", "necha kishi", "nechta nafar",
     "umumiy son", "aniq son", "nechchi", "taqsimot", "miqdori", "raqami",
+    "eng ko'p", "eng katta", "o'rtacha",
 )
 DATA_LIST_WORDS: tuple[str, ...] = (
     "ro'yxat", "ro'yxati", "ro'yxatini", "ro'yxatiga", "ism-familiya", "ism familiya",
@@ -130,7 +122,6 @@ DATA_LIST_WORDS: tuple[str, ...] = (
     "fuqarolar ro'yxati", "kim bor", "ismini ayt", "ism-familiyasini",
 )
 
-# Boshqa agentlarga tegishli so'zlar — data_stats'ga majburlashda hisobga olinadi.
 FOREIGN_SUBJECT_WORDS: tuple[str, ...] = (
     "murojaat", "murojaatlar", "vazifa", "vazifalar", "hujjat", "hujjatlar",
     "hisobot", "hisobotlar", "agent", "agentlar", "qonun", "qonunchilik",
@@ -138,40 +129,28 @@ FOREIGN_SUBJECT_WORDS: tuple[str, ...] = (
     "jarayon", "fuqaro hujjati", "pasport",
 )
 
-
 def detect_intent(message: str) -> tuple[str, list[str]]:
-    """Savolni agentga yo'naltiradi.
-
-    Tartib muhim: salomlashish -> fayl+hisobot -> qonunchilik/kredit ->
-    majburlangan statistika -> umumiy kalit so'zlash.
-    """
     text = (message or "").lower()
-    text = re.sub("[ʻʼ‘’']", "'", text)  # apostrof turlarini birlashtirish
+    text = re.sub("[ʻʼ‘’']", "'", text)
 
-    # 1. Salomlashish va imkoniyat so'ragan — deterministik javob.
     if GREETING_RE.search(text) and len(text.split()) <= 12:
         return "greeting", ["greeting"]
     if CAPABILITY_RE.search(text) and len(text.split()) <= 16:
         return "greeting", ["greeting"]
 
-    # 2. Import/fayl kontekstida "hisobot/xatolik/tahlil" so'zlari hujjat agentiga tegishli.
     file_words = ("import", "excel", "xlsx", "csv", "fayl", "yukla", "hujjat yukla")
     report_words = ("hisobot", "xatolik", "xato", "tahlil", "tekshir", "dublikat", "sifat")
     if any(word in text for word in file_words) and any(word in text for word in report_words):
         return "document", ["document"]
 
-    # 3. Qonunchilik va kredit — aniq so'zlar bo'lsa, statistika ustidan ustun.
     if any(word in text for word in ("qonun", "modda", "lex.uz", "lexuz", "farmon",
                                       "kodeks", "konstitutsiya", "qonunchilik")):
         return "legislation", ["legislation"]
     if any(word in text for word in ("kredit", "subsidiya", "ipoteka", "foizsiz yordam")):
         return "credit_subsidy", ["credit_subsidy"]
 
-    # 4. Son/ro'yxat/yosh-oralig'i savollari — majburan deterministik statistika agentiga.
     wants_count = any(word in text for word in DATA_COUNT_WORDS)
     wants_list = any(word in text for word in DATA_LIST_WORDS)
-    # Yosh oralig'i: "0 yoshdan 10 yoshgacha?", "6 yoshdan katta" va h.k.
-    # (avval bunday savollar smalltalk'ga ketardi — javobsiz qolardi).
     age_range_query = bool(
         re.search(r"\d{1,2}\s*(?:yoshgacha|yoshdan)|\d{1,2}\s*[-–]\s*\d{1,2}\s*yosh", text)
     )
@@ -179,7 +158,6 @@ def detect_intent(message: str) -> tuple[str, list[str]]:
     if (wants_count or wants_list or age_range_query) and not has_foreign:
         return "data_stats", ["data_stats"]
 
-    # 5. Umumiy kalit so'zlash.
     scores: dict[str, int] = {}
     for intent, keywords in INTENT_RULES:
         score = 0
@@ -197,22 +175,15 @@ def detect_intent(message: str) -> tuple[str, list[str]]:
         return "multi", [primary, *secondary[:2]]
     return primary, [primary]
 
-
 def _clean_query(message: str) -> str:
     value = re.sub(r"[?.!,;:]+", " ", message or "")
     words = [word for word in value.split() if word.lower() not in STOPWORDS]
     return " ".join(words).strip()
 
-
 def _org_list(db: Session) -> list[str]:
     return [item["name"] for item in programs.organizations(db)]
 
-
-# O-7: nom izlash uchun so'z chegarasi. Bitta so'z (ism) bilan qidirish
-# "Alisher" -> "Aliyev" kabi noto'g'ri odamni tanlab qo'yishi mumkin.
-# Kamida 2 token (familiya + ism) talab qilinadi.
 NAME_TOKEN_MIN = 2
-# Ismdagi so'zlar (nom izlashda ishlatilmaydi — umumiy so'zlar).
 NAME_STOPWORDS = {
     "fuqaro", "fuqarolar", "fuqaroning", "kishi", "shaxs", "inson", "ma'lumot",
     "malumot", "telefon", "raqam", "manzil", "oilasi", "oila", "yili", "yoshida",
@@ -220,12 +191,9 @@ NAME_STOPWORDS = {
     "aytib", "bering", "ko'rsating", "topib", "izohlash", "holati", "pasport",
     "jami", "jamiy", "ro'yxat", "ro'yxati",
 }
-# Nom tokenini topish uchun regex (kirill ham qamrab olinadi).
 NAME_TOKEN_RE = re.compile(r"[A-Za-zА-Яа-яЁёʻʼ'’][A-Za-zА-Яа-яЁёʻʼ'’-]+")
 
-
 def _name_tokens(text: str) -> list[str]:
-    """Matndan nom tokenlarini ajratadi (kirill ham, apostrofli ham)."""
     normalized = re.sub(r"[ʻʼ‘’']", "'", text or "")
     tokens: list[str] = []
     for raw in NAME_TOKEN_RE.findall(normalized):
@@ -238,17 +206,7 @@ def _name_tokens(text: str) -> list[str]:
             tokens.append(token)
     return tokens
 
-
 def _citizen_search(db: Session, message: str) -> list[Citizen]:
-    """Fuqaroni ism yoki telefon bo'yicha qidiradi.
-
-    O-7:
-    - telefon (9+ raqam) — aniq qidiriladi;
-    - ism — kamida **2 token** (familiya + ism) talab qilinadi va ikkala token
-      ham `full_name` ichida bo'lishi shart; bitta token bilan tasodifiy moslik
-      ("Ali" -> "Alisher", "Aliyev") chiqmaydi;
-    - kirill ismlar ham qo'llab-quvvatlanadi.
-    """
     text = message.strip()
     digits = re.sub(r"\D", "", text)
     if len(digits) >= 9:
@@ -266,7 +224,6 @@ def _citizen_search(db: Session, message: str) -> list[Citizen]:
             return list(rows)
     tokens = _name_tokens(text)
     if len(tokens) < 2:
-        # Bitta token bilan qidirish — tasodifiy moslik xavfi yuqori.
         return []
     base = (
         select(Citizen)
@@ -277,8 +234,6 @@ def _citizen_search(db: Session, message: str) -> list[Citizen]:
         Citizen.full_name.ilike(like_pattern(token), escape="\\") for token in tokens[:6]
     ]
     rows = db.execute(base.where(or_(*conditions)).limit(60)).scalars().all()
-    # Kamida 2 token mos kelishi kerak (familiya + ism) — bitta token bilan
-    # tasodifiy moslik ("Ali" -> "Alisher") chiqmaydi.
     matched = []
     for citizen in rows:
         haystack = (citizen.full_name or "").lower()
@@ -296,7 +251,6 @@ def _citizen_search(db: Session, message: str) -> list[Citizen]:
             return list(rows)
     return []
 
-
 def _address_text(citizen: Citizen) -> str:
     family = citizen.family
     if not family or not family.house:
@@ -306,14 +260,11 @@ def _address_text(citizen: Citizen) -> str:
     mahalla = street.mahalla if street else None
     return f"{mahalla.name if mahalla else ''}, {street.name if street else ''}, {house.house_number}-uy"
 
-
 def _money(value: int) -> str:
     return f"{value:,}".replace(",", " ")
 
-
 def _agent_error_message(error: Exception) -> str:
     return f"{type(error).__name__}: {error}"[:500]
-
 
 def _task_brief(task: Task) -> dict[str, Any]:
     return {
@@ -326,7 +277,6 @@ def _task_brief(task: Task) -> dict[str, Any]:
         "category": task.category,
     }
 
-
 def _case_brief(case: Case) -> dict[str, Any]:
     return {
         "id": case.id,
@@ -338,7 +288,6 @@ def _case_brief(case: Case) -> dict[str, Any]:
         "citizen": case.citizen.full_name if getattr(case, "citizen", None) else None,
     }
 
-
 def _describe_task_lines(tasks: list[Task], limit: int = 6) -> str:
     lines = []
     for task in tasks[:limit]:
@@ -346,7 +295,6 @@ def _describe_task_lines(tasks: list[Task], limit: int = 6) -> str:
         who = f" — {task.citizen.full_name}" if getattr(task, "citizen", None) else ""
         lines.append(f"• {task.title}{who} (muddat: {due}, holat: {task.status})")
     return "\n".join(lines)
-
 
 def _plan_facts(db: Session) -> dict[str, Any]:
     today = today_local()
@@ -382,7 +330,6 @@ def _plan_facts(db: Session) -> dict[str, Any]:
         "urgent_cases": urgent_cases,
         "recent_logs": recent_logs,
     }
-
 
 def _plan_control(db: Session, message: str, context: dict[str, Any]) -> dict[str, Any]:
     facts = _plan_facts(db)
@@ -448,7 +395,6 @@ def _plan_control(db: Session, message: str, context: dict[str, Any]) -> dict[st
         "warnings": [],
     }
 
-
 def _citizen_profile(db: Session, citizen: Citizen) -> dict[str, Any]:
     family = citizen.family
     members = []
@@ -481,7 +427,6 @@ def _citizen_profile(db: Session, citizen: Citizen) -> dict[str, Any]:
         ],
     }
 
-
 def _citizen_lookup(db: Session, message: str, context: dict[str, Any]) -> dict[str, Any]:
     matches = _citizen_search(db, message)
     if not matches:
@@ -497,8 +442,6 @@ def _citizen_lookup(db: Session, message: str, context: dict[str, Any]) -> dict[
             "warnings": ["Fuqaro bazasidan aniq mos yozuv topilmadi."],
         }
     if len(matches) > 1:
-        # O-7: jami son to'g'ri ko'rsatiladi (limit kesganini "jami" deb
-        # aytmaymiz) va nomzodlar ro'yxati beriladi.
         lines = [
             f"Bir nechta mos fuqaro topildi ({len(matches)} ta). "
             "Qaysi biri kerakligini aniqlashtiring:",
@@ -529,7 +472,6 @@ def _citizen_lookup(db: Session, message: str, context: dict[str, Any]) -> dict[
     citizen = matches[0]
     profile = _citizen_profile(db, citizen)
     address = profile["address"]
-    # O-7: bitta nomzodda ham topilgan shaxsni aniq tasdiqlaymiz.
     born = citizen.birth_date.strftime("%d.%m.%Y") if citizen.birth_date else "ko'rsatilmagan"
     lines = [
         f"Topildi: {citizen.full_name} ({citizen.id})",
@@ -564,7 +506,6 @@ def _citizen_lookup(db: Session, message: str, context: dict[str, Any]) -> dict[
         "warnings": [],
     }
 
-
 def _period_for(message: str) -> tuple[date, date, str]:
     today = today_local()
     text = message.lower()
@@ -578,7 +519,6 @@ def _period_for(message: str) -> tuple[date, date, str]:
     if "yil" in text:
         return today.replace(month=1, day=1), today, "shu yil"
     return today, today, "bugun"
-
 
 def _reporting(db: Session, message: str, context: dict[str, Any]) -> dict[str, Any]:
     start, end, label = _period_for(message)
@@ -629,7 +569,6 @@ def _reporting(db: Session, message: str, context: dict[str, Any]) -> dict[str, 
         "warnings": ["Ko'rsatkichlar demo ma'lumotlar bazasidan hisoblandi."],
     }
 
-
 def _legislation_agent(db: Session, message: str, context: dict[str, Any]) -> dict[str, Any]:
     question = re.sub(
         r"^(qonunchilik|qonun|lex\.uz|lexuz)\s*(bo'yicha|haqida)?\s*[:\-]?\s*",
@@ -655,7 +594,6 @@ def _legislation_agent(db: Session, message: str, context: dict[str, Any]) -> di
         "confidence": "medium" if result.get("verified") else "needs_review",
         "warnings": result.get("warnings", []),
     }
-
 
 def _credit_subsidy(db: Session, message: str, context: dict[str, Any]) -> dict[str, Any]:
     conversation_id = context.get("conversation_id")
@@ -712,8 +650,6 @@ def _credit_subsidy(db: Session, message: str, context: dict[str, Any]) -> dict[
         matches = [item for item in matched if item["program_name"] in {row["name"] for row in rows}]
     lines = [f"{organization} bo'yicha ma'lumot:"]
     if citizen:
-        # O-7: topilgan shaxsni aniq tasdiqlaymiz (noto'g'ri odamga
-        # muvofiqlik chiqmasligi uchun).
         born = (
             citizen.birth_date.strftime("%d.%m.%Y") if citizen.birth_date else "ko'rsatilmagan"
         )
@@ -743,7 +679,6 @@ def _credit_subsidy(db: Session, message: str, context: dict[str, Any]) -> dict[
             lines.append(f"• {item['program_name']}: {item['result']} — {'; '.join(item['reasons'][:2])}")
     lines.append("")
     lines.append("Yakuniy shartlar bank filialida yoki rasmiy saytda tasdiqlanishi shart.")
-    # O-8: tanlov yozuvi yashirilmaydi — foydalanuvchiga ochiq aytiladi.
     lines.append(
         f"Tanlovingizni eslab qoldim: «{organization}». Keyingi savollarda shu "
         "tashkilot bo'yicha javob beraman (boshqa tashkilotni so'rasangiz, "
@@ -767,7 +702,6 @@ def _credit_subsidy(db: Session, message: str, context: dict[str, Any]) -> dict[
             "programs": rows,
             "matches": matches,
             "citizen": citizen_out(citizen) if citizen else None,
-            # O-8: saqlangan tanlov foydalanuvchiga ko'rsatiladi.
             "preference_saved": {
                 "organization": organization,
                 "program_name": rows[0]["name"] if len(rows) == 1 else None,
@@ -779,7 +713,6 @@ def _credit_subsidy(db: Session, message: str, context: dict[str, Any]) -> dict[
             "Dastur shartlari demo bazasidan olingan. Rasmiy tasdiq uchun bank filialiga murojaat qiling."
         ],
     }
-
 
 IMPORT_ERROR_LABELS = {
     "AMBIGUOUS_DATE": "Sana formati noaniq (kun/oy tartibi)",
@@ -794,7 +727,6 @@ IMPORT_ERROR_LABELS = {
     "MISSING_COLUMN": "Majburiy ustun topilmadi",
     "PARSE_NOTE": "Fayl o'qish izohi",
 }
-
 
 def _import_report(db: Session) -> dict[str, Any] | None:
     batch = db.execute(
@@ -835,7 +767,6 @@ def _import_report(db: Session) -> dict[str, Any] | None:
         "committed_at": batch.committed_at.isoformat() if batch.committed_at else None,
     }
 
-
 def _format_import_report(report: dict[str, Any]) -> str:
     status_labels = {
         "validated": "tekshiruvdan o'tdi — tasdiqlash mumkin",
@@ -866,7 +797,6 @@ def _format_import_report(report: dict[str, Any]) -> str:
         lines.append("")
         lines.append("Tavsiya: ko'rsatilgan qatorlarni faylda tuzatib qayta yuklang. Tizim mavjud fuqarolarni yangilaydi, yangilarini qo'shadi; noqulay natija bo'lsa importni bekor qilish mumkin.")
     return "\n".join(lines)
-
 
 def _document_agent(db: Session, message: str, context: dict[str, Any]) -> dict[str, Any]:
     text = message.lower()
@@ -956,7 +886,6 @@ def _document_agent(db: Session, message: str, context: dict[str, Any]) -> dict[
         "warnings": [],
     }
 
-
 def _agents_status(db: Session, message: str, context: dict[str, Any]) -> dict[str, Any]:
     status = agent_status(db)
     lines = ["Agentlar holati (bugungi kun):", ""]
@@ -989,7 +918,6 @@ def _agents_status(db: Session, message: str, context: dict[str, Any]) -> dict[s
         "warnings": [],
     }
 
-
 GREETING_CAPABILITIES = """Salom! Men «Mahalla Assistant» — mahalla ish assistentiman. Quyidagilar bo'yicha yordam bera olaman:
 
 - **Fuqaro va oilalar** — ism-familiya, ko'cha, yosh, ijtimoiy holat bo'yicha aniq ro'yxat va son
@@ -1002,11 +930,9 @@ GREETING_CAPABILITIES = """Salom! Men «Mahalla Assistant» — mahalla ish assi
 
 Savolni oddiy tilda yozing — kerakli bo'limni o'zim tanlayman va raqamlarni bazadan aniq hisoblab beraman."""
 
-
 def _greeting(
     db: Session, message: str, context: dict[str, Any], preferred_model: str | None = None
 ) -> dict[str, Any]:
-    """Salomlashishga deterministik javob (tashqi modelga murojaat qilinmaydi)."""
     return {
         "text": GREETING_CAPABILITIES,
         "sources": [],
@@ -1015,7 +941,6 @@ def _greeting(
         "confidence": "high",
         "warnings": [],
     }
-
 
 HANDLERS = {
     "greeting": _greeting,
@@ -1042,18 +967,9 @@ INTENT_AGENT = {
     "multi": "orchestrator",
 }
 
-
-# agent_status agent_status() funksiyasidan keyin aniqlanadi — forward reference muammosi yo'q (chaqiruv vaqtida bog'lanadi)
-
-
 def _previous_data_facets(
     db: Session, conversation_id: str | None
 ) -> "data_query.Facets | None":
-    """Suhbatdagi oxirgi statistik savol filtrlarini qaytaradi.
-
-    Ketma-ket savollarda («2 guruh nogironlarining ro'yxatini chiqarib ber»
-    -> «ism familiyalarini ayt») kontekst saqlanadi.
-    """
     if not conversation_id:
         return None
     workflow = db.execute(
@@ -1072,14 +988,7 @@ def _previous_data_facets(
     data = result.get("data") or {}
     return data_query.facets_from_payload(data)
 
-
 def _data_stats(db: Session, message: str, context: dict[str, Any]) -> dict[str, Any]:
-    """Aniq statistik javob — barcha raqamlar jonli SQL so'rovi bilan olinadi.
-
-    Barcha mantiq `app.services.data_query` modulida: filtr qiymatlari bazadan
-    `DISTINCT` bilan topiladi, shuning uchun baza o'zgartirilsa ham javob
-    har doim aniq va to'g'ri bo'ladi.
-    """
     previous = _previous_data_facets(db, context.get("conversation_id"))
     answer = data_query.build_answer(db, message, base_facets=previous)
     payload = answer.payload
@@ -1099,9 +1008,7 @@ def _data_stats(db: Session, message: str, context: dict[str, Any]) -> dict[str,
         "warnings": answer.warnings,
     }
 
-
 HANDLERS["data_stats"] = _data_stats
-
 
 SMALLTALK_SYSTEM = """Siz «Mahalla Assistant» — O'zbekiston mahallasi uchun rasmiy ish assistentisiz.
 Faqat o'zbek lotin tilida, qisqa va xushmuomala javob bering (2-4 gap).
@@ -1128,7 +1035,6 @@ MUHIM CHEKLOVLAR:
   hujjat import/eksport.
 - Foydalanuvchini «siz» deb hurmat bilan chaqiring."""
 
-
 def _smalltalk(
     db: Session,
     message: str,
@@ -1145,7 +1051,6 @@ def _smalltalk(
         agent="orchestrator",
         max_tokens=350,
         temperature=0.3,
-        # D-8: UI'dagi provayder/model tanlovi hurmat qilinadi.
         preferred_provider=preferred_provider or context.get("preferred_provider"),
         preferred_model=preferred_model or context.get("preferred_model"),
     )
@@ -1164,13 +1069,11 @@ def _smalltalk(
         "fallback_used": result.fallback_used,
     }
 
-
 def _conversation_title(message: str) -> str:
     clean = re.sub(r"\s+", " ", message).strip()
     if not clean:
         return "Yangi suhbat"
     return clean[:70] + ("…" if len(clean) > 70 else "")
-
 
 def _get_or_create_conversation(
     db: Session,
@@ -1183,14 +1086,12 @@ def _get_or_create_conversation(
         conversation = db.get(Conversation, conversation_id)
         if conversation is not None:
             if not _conversation_visible(conversation, actor, is_admin):
-                # Boshqa foydalanuvchining suhbatiga kirish — 404 (IDOR yashiriladi)
                 raise not_found("Suhbat topilmadi.")
             return conversation
     conversation = Conversation(title=_conversation_title(message), user_id=actor)
     db.add(conversation)
     db.flush()
     return conversation
-
 
 def _draft_row(
     db: Session, workflow: AgentWorkflow, run: AgentRun | None, draft: dict[str, Any]
@@ -1205,7 +1106,6 @@ def _draft_row(
     db.add(row)
     db.flush()
     return row
-
 
 def chat(
     db: Session,
@@ -1241,11 +1141,9 @@ def chat(
     )
     db.add(workflow)
     db.flush()
-    # MD 4.3/4.5: multi-intent bo'lsa bir nechta agent ketma-ket ishlaydi (maks. 3).
     primary_intent = intents[0] if intents else intent
     agents_to_run: list[str] = intents[:3] if intent == "multi" else [primary_intent]
     if "data_stats" in agents_to_run and len(agents_to_run) > 1:
-        # statistik javob berilganda shaxs-qidiruv shovqini kerak emas
         agents_to_run = [a for a in agents_to_run if a != "citizen_lookup"]
     warning_messages: list[str] = []
     combined_text: list[str] = []
@@ -1276,8 +1174,6 @@ def chat(
         db.add(run)
         db.flush()
         started = time.perf_counter()
-        # J-5: har agent savepoint (ichki tranzaksiya) ichida ishga tushadi —
-        # xatoda butun suhbat buzilmaydi, faqat shu agentning ishi bekor qilinadi.
         savepoint = db.begin_nested()
         failed = False
         try:
@@ -1296,8 +1192,6 @@ def chat(
                     {
                         "conversation_id": conversation.id,
                         "actor": actor,
-                        # D-8: UI'da tanlangan provayder/model agentlarga
-                        # uzatiladi — aks holda tanlov e'tiborsiz qoladi.
                         "preferred_provider": preferred_provider,
                         "preferred_model": preferred_model,
                     },
@@ -1319,7 +1213,6 @@ def chat(
             _release_savepoint(db, savepoint)
         elapsed = int((time.perf_counter() - started) * 1000)
         if failed:
-            # J-5: muvaffaqiyatsiz agent "completed" emas — "failed".
             run.status = "failed"
             run.error = error_message[:500]
             failed_agents += 1
@@ -1359,13 +1252,12 @@ def chat(
         "confidence": lowest_confidence,
         "warnings": [],
     }
-    run = None  # run endi har agent uchun alohida; quyida faqat workflow yangilanadi
+    run = None
     draft_rows = []
     for draft in result.get("drafts", []):
         step_run = draft.pop("_run", None)
         draft_rows.append(_draft_row(db, workflow, step_run, draft))
     all_warnings = list(dict.fromkeys(warning_messages))
-    # J-5: workflow holati haqiqiy natijani aks ettiradi.
     if failed_agents and failed_agents >= len(agents_to_run):
         workflow.status = "failed"
         workflow.error = "; ".join(all_warnings)[:500]
@@ -1420,35 +1312,27 @@ def chat(
         "requires_approval": workflow.requires_approval,
     }
 
-
 def _conversation_visible(
     conversation: Conversation, user_id: str | None, is_admin: bool
 ) -> bool:
-    """Suhbat egaligi: egasi yoki admin. `user_id IS NULL` — faqat admin."""
     if is_admin:
         return True
     if conversation.user_id is None:
         return False
     return conversation.user_id == user_id
 
-
 def _owned_conversation(
     db: Session, conversation_id: str, user_id: str | None, is_admin: bool
 ) -> Conversation:
-    """Suhbatni yuklaydi va egaligini tekshiradi (IDOR himoyasi)."""
     conversation = db.get(Conversation, conversation_id)
     if conversation is None or not _conversation_visible(conversation, user_id, is_admin):
-        # IDOR oshkor qilinmasin — 404
         raise not_found("Suhbat topilmadi.")
     return conversation
-
 
 def ensure_conversation_access(
     db: Session, conversation_id: str, user_id: str | None, is_admin: bool
 ) -> Conversation:
-    """Suhbatga kirish huquqini tekshiradi (404 — IDOR oshkor qilinmaydi)."""
     return _owned_conversation(db, conversation_id, user_id, is_admin)
-
 
 def list_conversations(
     db: Session,
@@ -1456,12 +1340,6 @@ def list_conversations(
     user_id: str | None = None,
     is_admin: bool = False,
 ) -> list[dict[str, Any]]:
-    """Suhbatlar ro'yxati — bitta so'rov (N-1).
-
-    Avval har suhbat uchun 2 ta so'rov (xabarlar soni + oxirgi xabar)
-    bajarilardi — 40 ta suhbat = 80 ta so'rov. Endi korrelyatsiyalangan
-    skal-subso'rovlar bilan bitta SQL da olinadi.
-    """
     stmt = select(
         Conversation.id,
         Conversation.title,
@@ -1482,7 +1360,6 @@ def list_conversations(
         .label("last_message"),
     ).where(Conversation.archived_at.is_(None))
     if not is_admin:
-        # Faqat o'z suhbatlari (egasi aniqlanmaganlar faqat admin uchun).
         stmt = stmt.where(Conversation.user_id == user_id)
     rows = db.execute(stmt.order_by(Conversation.updated_at.desc()).limit(limit)).all()
     return [
@@ -1497,7 +1374,6 @@ def list_conversations(
         }
         for row in rows
     ]
-
 
 def get_conversation(
     db: Session,
@@ -1547,7 +1423,6 @@ def get_conversation(
         "workflows": len(workflows),
     }
 
-
 def create_conversation(
     db: Session, title: str = "Yangi suhbat", user_id: str | None = None
 ) -> Conversation:
@@ -1557,7 +1432,6 @@ def create_conversation(
     db.refresh(conversation)
     return conversation
 
-
 def delete_conversation(
     db: Session,
     conversation_id: str,
@@ -1565,10 +1439,6 @@ def delete_conversation(
     is_admin: bool = False,
     purge: bool = False,
 ) -> dict[str, Any]:
-    """Suhbatni arxivlaydi. To'liq o'chirish (purge) faqat admin uchun.
-
-    O'chirish o'rniga arxivlash: audit izi va workflowlar saqlanadi.
-    """
     conversation = _owned_conversation(db, conversation_id, user_id, is_admin)
     if purge:
         if not is_admin:
@@ -1588,9 +1458,7 @@ def delete_conversation(
     db.commit()
     return {"ok": True, "archived": conversation_id, "purged": False}
 
-
 def _purge_conversation(db: Session, conversation: Conversation) -> dict[str, Any]:
-    """Suhbatni xabarlari va draftlari bilan butunlay o'chirish (faqat admin)."""
     conversation_id = conversation.id
     workflows = db.execute(
         select(AgentWorkflow).where(AgentWorkflow.conversation_id == conversation_id)
@@ -1619,7 +1487,6 @@ def _purge_conversation(db: Session, conversation: Conversation) -> dict[str, An
     db.commit()
     return {"ok": True, "deleted": conversation_id, "purged": True}
 
-
 def archive_conversation(
     db: Session,
     conversation_id: str,
@@ -1631,7 +1498,6 @@ def archive_conversation(
     db.commit()
     db.refresh(conversation)
     return conversation
-
 
 def _draft_out(draft: DraftAction) -> dict[str, Any]:
     return {
@@ -1648,23 +1514,15 @@ def _draft_out(draft: DraftAction) -> dict[str, Any]:
         "error": draft.error,
     }
 
-
 def list_drafts(db: Session, status: str | None = "pending", limit: int = 50) -> list[dict[str, Any]]:
     stmt = select(DraftAction).order_by(DraftAction.created_at.desc()).limit(limit)
     if status:
         stmt = stmt.where(DraftAction.status == status)
     return [_draft_out(row) for row in db.execute(stmt).scalars().all()]
 
-
 def _execute_draft(
     db: Session, draft: DraftAction, actor: str, request_id: str | None
 ) -> dict[str, Any]:
-    """Draft amalini bajaradi.
-
-    J-4: ichki servislar `commit=False` bilan chaqiriladi — barcha o'zgarishlar
-    bitta tranzaksiyada saqlanadi. Shunda keyingi qadam yiqilsa yarim
-    bajarilgan vazifa qolmaydi.
-    """
     payload = draft.payload or {}
     if draft.action_type == "create_task":
         task = cases.create_task(db, TaskCreate(**payload), actor, request_id, commit=False)
@@ -1721,19 +1579,11 @@ def _execute_draft(
         }
     raise bad_request(f"«{draft.action_type}» amali qo'llab-quvvatlanmaydi.")
 
-
-# J-4: "executing" holatida qolib ketgan draftni qayta urinish mumkin.
 STALE_EXECUTING_MINUTES = 10
-
 
 def _claim_draft(
     db: Session, draft_id: str, actor: str, *, retry: bool
 ) -> DraftAction:
-    """Draftni atomik ravishda `executing` holatiga oladi.
-
-    `UPDATE ... WHERE status='pending'` — qo'sh bosish yoki qayta yuborishda
-    faqat bitta so'rov bajariladi (qolganlari 409 oladi).
-    """
     now = _now()
     conditions = [DraftAction.id == draft_id]
     if retry:
@@ -1764,7 +1614,6 @@ def _claim_draft(
         raise not_found("Taklif etilgan amal topilmadi.")
     return claimed
 
-
 def decide_draft(
     db: Session,
     draft_id: str,
@@ -1780,7 +1629,6 @@ def decide_draft(
         raise not_found("Taklif etilgan amal topilmadi.")
 
     if not approve:
-        # Rad etish — atomik `pending` -> `rejected`.
         if draft.status != "pending":
             raise bad_request("Bu amal bo'yicha qaror allaqachon qabul qilingan.")
         result = db.execute(
@@ -1814,8 +1662,6 @@ def decide_draft(
         return _draft_out(draft)
 
     if retry and draft.status == "executing":
-        # Uzoq vaqtdan beri "executing" holatida qolib ketgan bo'lsa —
-        # qayta urinishga ruxsat beriladi.
         decided_at = draft.decided_at
         if decided_at is not None:
             age = _now() - decided_at
@@ -1829,8 +1675,6 @@ def decide_draft(
         draft.result = result
         draft.error = ""
     except Exception as error:
-        # Bajarish muvaffaqiyatsiz — tranzaksiya bekor qilinadi, draft
-        # "failed" holatiga o'tadi (qayta urinish mumkin).
         db.rollback()
         failed = db.get(DraftAction, draft_id)
         if failed is None:
@@ -1854,7 +1698,6 @@ def decide_draft(
     db.refresh(draft)
     return _draft_out(draft)
 
-
 def list_workflows(db: Session, limit: int = 50, status_filter: str | None = None) -> list[dict[str, Any]]:
     stmt = select(AgentWorkflow).order_by(AgentWorkflow.created_at.desc()).limit(limit)
     if status_filter:
@@ -1862,13 +1705,11 @@ def list_workflows(db: Session, limit: int = 50, status_filter: str | None = Non
     rows = db.execute(stmt).scalars().all()
     return [_workflow_out(db, row) for row in rows]
 
-
 def get_workflow(db: Session, workflow_id: str) -> dict[str, Any]:
     workflow = db.get(AgentWorkflow, workflow_id)
     if workflow is None:
         raise not_found("Agent ish oqimi topilmadi.")
     return _workflow_out(db, workflow, include_runs=True)
-
 
 def _workflow_out(db: Session, workflow: AgentWorkflow, include_runs: bool = False) -> dict[str, Any]:
     runs = db.execute(
@@ -1942,7 +1783,6 @@ def _workflow_out(db: Session, workflow: AgentWorkflow, include_runs: bool = Fal
         ]
     return payload
 
-
 AGENT_DESCRIPTIONS = {
     "orchestrator": "So'rovni tahlil qiladi, tegishli agentni tanlaydi va javobni birlashtiradi.",
     "document": "Excel/CSV/Word hujjatlarini import qiladi, tekshiradi va eksport qiladi.",
@@ -1952,14 +1792,7 @@ AGENT_DESCRIPTIONS = {
     "plan_control": "Murojaatlar, vazifalar, muddatlar va ish yozuvlarini nazorat qiladi.",
 }
 
-
 def agent_status(db: Session) -> dict[str, Any]:
-    """Agent holati — 2 ta so'rov bilan (N-1).
-
-    Avval har agent uchun 3 ta so'rov (oxirgi, oxirgi 50 ta, tokenlar)
-    bajarilardi — ~18 ta so'rov har chatda. Endi oynaviy funksiya
-    (`row_number`) bilan oxirgi 50 ta yugurish bitta so'rovda olinadi.
-    """
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     agent_names = list(AGENT_LABELS.keys())
 

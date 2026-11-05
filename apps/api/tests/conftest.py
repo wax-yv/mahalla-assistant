@@ -8,23 +8,15 @@ from app.core.db import SessionLocal
 from app.main import app
 from app.models import RateLimit
 
-
 def clear_login_limit() -> None:
-    """Testlar uchun login hisoblagichini tozalash (N-13).
-
-    Faqat `login:*` kalitlari o'chiriladi — boshqa testlar yozgan
-    rate-limit yozuvlari (masalan, cron) buzilmasligi kerak.
-    """
     with SessionLocal() as db:
         db.execute(delete(RateLimit).where(RateLimit.key.like("login:%")))
         db.commit()
-
 
 @pytest.fixture(scope="session")
 def client():
     with TestClient(app) as test_client:
         yield test_client
-
 
 @pytest.fixture()
 def auth(client):

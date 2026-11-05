@@ -12,15 +12,12 @@ from app.services import agents as service
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
-
 class ConversationCreate(BaseModel):
     title: str = Field(default="Yangi suhbat", max_length=200)
-
 
 class DraftDecision(BaseModel):
     note: str = ""
     retry: bool = False
-
 
 @router.post("/chat")
 def chat(
@@ -55,7 +52,6 @@ def chat(
     }
     return result
 
-
 @router.get("/conversations")
 def conversations(
     limit: int = Query(40, ge=1, le=100),
@@ -67,7 +63,6 @@ def conversations(
             db, limit=limit, user_id=user.id, is_admin=user.role == "admin"
         )
     }
-
 
 @router.post("/conversations", status_code=201)
 def create_conversation(
@@ -86,7 +81,6 @@ def create_conversation(
         "last_message": None,
     }
 
-
 @router.get("/conversations/{conversation_id}")
 def conversation(
     conversation_id: str,
@@ -96,7 +90,6 @@ def conversation(
     return service.get_conversation(
         db, conversation_id, user_id=user.id, is_admin=user.role == "admin"
     )
-
 
 @router.delete("/conversations/{conversation_id}")
 def delete_conversation(
@@ -110,12 +103,10 @@ def delete_conversation(
         return service.delete_conversation(
             db, conversation_id, user_id=user.id, is_admin=is_admin, purge=True
         )
-    # Oddiy "o'chirish" — o'chirish emas, arxivlash (audit izi saqlanadi).
     result = service.delete_conversation(
         db, conversation_id, user_id=user.id, is_admin=is_admin, purge=False
     )
     return {"ok": True, "id": result.get("archived"), **result}
-
 
 @router.get("/drafts")
 def drafts(
@@ -125,7 +116,6 @@ def drafts(
     _=Depends(require_permission("agents.use")),
 ):
     return {"items": service.list_drafts(db, status=status, limit=limit)}
-
 
 @router.post("/drafts/{draft_id}/approve")
 def approve_draft(
@@ -145,7 +135,6 @@ def approve_draft(
         retry=payload.retry,
     )
 
-
 @router.post("/drafts/{draft_id}/reject")
 def reject_draft(
     draft_id: str,
@@ -163,7 +152,6 @@ def reject_draft(
         note=payload.note,
     )
 
-
 @router.get("/workflows")
 def workflows(
     limit: int = Query(50, ge=1, le=100),
@@ -173,7 +161,6 @@ def workflows(
 ):
     return {"items": service.list_workflows(db, limit=limit, status_filter=status)}
 
-
 @router.get("/workflows/{workflow_id}")
 def workflow(
     workflow_id: str,
@@ -181,7 +168,6 @@ def workflow(
     _=Depends(require_permission("agents.use")),
 ):
     return service.get_workflow(db, workflow_id)
-
 
 @router.get("/status")
 def status(db: Session = Depends(get_db), _=Depends(require_permission("agents.use"))):

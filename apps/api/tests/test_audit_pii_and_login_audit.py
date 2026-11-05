@@ -1,19 +1,3 @@
-"""O-14: audit loglarda PII niqoblash va muvaffaqiyatsiz login auditi.
-
-Muqova:
-- `model_snapshot` fuqaroning **barcha** ustunlarini (F.I.Sh., tug'ilgan
-  sana, telefon) nusxaladi. Audit jadvalida esa saqlash muddati yo'q —
-  shaxsiy ma'lumot yillar davomida to'planib qoladi.
-- Muvaffaqiyatsiz login umuman audit qilinmaydi: brute-force urinish izi
-  qolmaydi (K-2 hisoblagichi faqat sonni saqlaydi, kim/nima qilganini emas).
-
-To'g'rilash:
-- PII maydonlari audit yozuviga yozilishidan OLDIN niqolanadi
-  (telefon: oxirgi 4 ta raqam; tug'ilgan sana: yil; F.I.Sh.: bosh harflar);
-- muvaffaqiyatsiz (va bloklangan) login **alohida sessiyada** audit qilinadi
-  — chaqiruvchining tranzaksiyasi bekor qilinsa ham iz qoladi.
-"""
-
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
@@ -28,33 +12,22 @@ from app.models import AuditLog, Citizen
 TEST_USERNAME = "o14-kirish-sinovi"
 TEST_CITIZEN_NAME = "O14 sinov fuqarosi Alisher"
 
-
-# ---------------------------------------------------------------- niqoblash
-
-
 def test_phone_is_masked_keeping_last_four():
-    """Telefon auditda niqolanadi — oxirgi 4 ta raqam ko'rinadi."""
     result = sanitize({"phone": "+998901234567"})
     masked = result["phone"]
     assert masked != "+998901234567", "telefon niqolanmadi"
     assert masked.endswith("4567"), f"oxirgi 4 raqam saqlanmadi: {masked}"
     assert "90123" not in masked, f"raqamlar ochiq qoldi: {masked}"
 
-
 def test_birth_date_is_masked_keeping_year():
-    """Tug'ilgan sana auditda faqat yil sifatida qoladi."""
     result = sanitize({"birth_date": date(1990, 5, 15)})
     assert result["birth_date"] == "1990", result["birth_date"]
 
-
 def test_birth_date_string_is_masked():
-    """Sana matn ko'rinishida bo'lsa ham niqolanadi."""
     result = sanitize({"birth_date": "1990-05-15"})
     assert result["birth_date"] == "1990", result["birth_date"]
 
-
 def test_full_name_is_masked_to_initials():
-    """F.I.Sh. auditda bosh harflarga qisqaradi."""
     result = sanitize({"full_name": "Alisher Karimov"})
     masked = result["full_name"]
     assert masked != "Alisher Karimov", "ism niqolanmadi"
@@ -62,22 +35,14 @@ def test_full_name_is_masked_to_initials():
     assert "Karimov" not in masked, f"familiya ochiq qoldi: {masked}"
     assert masked.startswith("A."), f"bosh harf noto'g'ri: {masked}"
 
-
 def test_username_is_not_masked():
-    """Login nomi auditda ochiq qolishi kerak (brute-force izi uchun)."""
     result = sanitize({"username": "wax"})
     assert result["username"] == "wax"
 
-
 def test_non_pii_fields_are_untouched():
-    """PII bo'lmagan maydonlar o'zgarishsiz qoladi."""
     result = sanitize({"status": "open", "version": 3})
     assert result["status"] == "open"
     assert result["version"] == 3
-
-
-# --------------------------------------------------------------- audit yozuvi
-
 
 @pytest.fixture()
 def clean_audit_rows():
@@ -98,7 +63,6 @@ def clean_audit_rows():
     yield
     _cleanup()
 
-
 def _make_citizen() -> str:
     with SessionLocal() as db:
         citizen = Citizen(
@@ -113,15 +77,12 @@ def _make_citizen() -> str:
         db.commit()
         return citizen_id
 
-
 def _cleanup_citizen(citizen_id: str) -> None:
     with SessionLocal() as db:
         db.execute(delete(Citizen).where(Citizen.id == citizen_id))
         db.commit()
 
-
 def test_write_audit_masks_pii_in_snapshot(clean_audit_rows):
-    """`write_audit` yozuvida fuqaro PII niqolangan bo'lishi kerak."""
     citizen_id = _make_citizen()
     try:
         with SessionLocal() as db:
@@ -155,14 +116,7 @@ def test_write_audit_masks_pii_in_snapshot(clean_audit_rows):
     finally:
         _cleanup_citizen(citizen_id)
 
-
 def test_model_snapshot_keeps_exact_values(clean_audit_rows):
-    """`model_snapshot` aniq qiymatlarni saqlashi kerak.
-
-    Import rollback'i (`ImportChange.before`) shu qiymatlarni bazaga qaytaradi
-    — niqoblash unda ma'lumotni buzadi. Niqoblash faqat audit yozuvida
-    amalga oshadi.
-    """
     citizen_id = _make_citizen()
     try:
         with SessionLocal() as db:
@@ -176,13 +130,8 @@ def test_model_snapshot_keeps_exact_values(clean_audit_rows):
     finally:
         _cleanup_citizen(citizen_id)
 
-
-# ------------------------------------------------------- muvaffaqiyatsiz login
-
-
 @pytest.fixture(autouse=True)
 def _clean_login_limits(monkeypatch):
-    """Login hisoblagichini tozalaydi (K-2 testi bilan bir xil usul)."""
     from app.services import auth as auth_service
 
     fixed_window = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
@@ -193,7 +142,6 @@ def _clean_login_limits(monkeypatch):
     clear_login_limit()
     yield
     clear_login_limit()
-
 
 def _failure_audits() -> list[AuditLog]:
     with SessionLocal() as db:
@@ -207,9 +155,7 @@ def _failure_audits() -> list[AuditLog]:
             and str(row.new_value.get("username", "")).startswith(TEST_USERNAME)
         ]
 
-
 def test_failed_login_is_audited(client, clean_audit_rows):
-    """Muvaffaqiyatsiz login audit qilinishi kerak (alohida sessiyada)."""
     response = client.post(
         "/api/v1/auth/login",
         json={"username": TEST_USERNAME, "password": "noto'g'ri-parol"},
@@ -220,21 +166,16 @@ def test_failed_login_is_audited(client, clean_audit_rows):
     assert rows, "muvaffaqiyatsiz login audit qilinmadi"
     assert rows[-1].result == "failure"
 
-
 def test_failed_login_audit_survives_rollback(client, clean_audit_rows):
-    """Audit yozuvi commit qilingan bo'lishi kerak (rollback'dan o'tib ketadi)."""
     client.post(
         "/api/v1/auth/login",
         json={"username": TEST_USERNAME, "password": "noto'g'ri-parol"},
     )
-    # Yangi sessiyada o'qilishi kerak — ya'ni commit qilingan.
     rows = _failure_audits()
     assert rows, "audit yozuvi saqlanmadi"
     assert rows[-1].created_at is not None
 
-
 def test_failed_login_audit_records_username_and_reason(client, clean_audit_rows):
-    """Auditda urinish foydalanuvchi nomi va sabab bo'lishi kerak."""
     client.post(
         "/api/v1/auth/login",
         json={"username": TEST_USERNAME, "password": "noto'g'ri-parol"},
@@ -247,9 +188,7 @@ def test_failed_login_audit_records_username_and_reason(client, clean_audit_rows
     assert rows[-1].actor_type == "anonymous"
     assert rows[-1].ip, "IP manzili yozilmadi"
 
-
 def test_failed_login_audit_never_stores_password(client, clean_audit_rows):
-    """Parol hech qachon audit yozuviga yozilmasligi kerak."""
     client.post(
         "/api/v1/auth/login",
         json={"username": TEST_USERNAME, "password": "JUMBO-PAROL-123"},
@@ -259,9 +198,7 @@ def test_failed_login_audit_never_stores_password(client, clean_audit_rows):
     assert "JUMBO-PAROL-123" not in str(rows[-1].new_value)
     assert "JUMBO-PAROL-123" not in str(rows[-1].old_value)
 
-
 def test_blocked_login_is_audited(client, clean_audit_rows):
-    """Bloklangan (429) urinish ham audit qilinishi kerak."""
     for _ in range(8):
         response = client.post(
             "/api/v1/auth/login",
@@ -280,9 +217,7 @@ def test_blocked_login_is_audited(client, clean_audit_rows):
     reasons = [str((row.new_value or {}).get("reason")) for row in rows]
     assert "rate_limited" in reasons, reasons
 
-
 def test_successful_login_audit_is_unchanged(client, clean_audit_rows):
-    """Muvaffaqiyatli login auditi oldingi ko'rinishda qolishi kerak."""
     response = client.post(
         "/api/v1/auth/login", json={"username": "wax", "password": "waxs"}
     )

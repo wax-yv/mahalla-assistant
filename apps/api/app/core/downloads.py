@@ -1,14 +1,3 @@
-"""Yuklab olish sarlavhalari (Content-Disposition) va eksport xavfsizligi.
-
-J-7: O'zbekcha fayl nomlarida `ʻ`, `‘`, kirill harflari keng tarqalgan. ASCII'ga
-majburlash `UnicodeEncodeError` -> 500 beradi. Bundan tashqari nom ichidagi
-`"` va CR/LF sarlavhani buzib, header injeksiyasiga olib keladi.
-
-Yechim: RFC 6266/5987 — ASCII `filename` (zaxira) + `filename*` (UTF-8).
-
-O-15: CSV/Excel formula inyeksiyasi (CSV injection) himoyasi.
-"""
-
 from __future__ import annotations
 
 import re
@@ -18,21 +7,9 @@ from urllib.parse import quote
 UNSAFE_CHARS = re.compile(r'["\\\r\n]')
 ASCII_SAFE = re.compile(r"[^A-Za-z0-9._-]")
 
-# O-15: Excel/CSV formulani ifodalovchi bosh belgilar.
 FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
 
-
 def safe_cell(value: Any) -> Any:
-    """Excel/CSV formula inyeksiyasidan himoyalangan qiymat (O-15).
-
-    `=`, `+`, `-`, `@`, TAB va CR bilan boshlanuvchi satrlar apostrof bilan
-    niqolanadi: Excel ularni formula emas, matn sifatida o'qiladi
-    (`openpyxl` `=` bilan boshlanuvchi satrni avtomatik formula sifatida
-    yozadi — `<f>...</f>`).
-
-    Raqam, sana va boshqa turdagi qiymatlar **o'zgarishsiz** qoladi —
-    ular matnga aylantirilsa Excel'da son ustuni buziladi.
-    """
     if value is None:
         return ""
     if not isinstance(value, str):
@@ -41,26 +18,12 @@ def safe_cell(value: Any) -> Any:
         return "'" + value
     return value
 
-
 def safe_filename_part(value: str, *, fallback: str = "eksport", max_length: int = 60) -> str:
-    """Fayl nomi komponenti — yo'l elementlari va maxsus belgilar olib tashlanadi.
-
-    O-17: eksport fayl nomi ma'lumotdan (`report.type`, `module`) yig'iladi.
-    `../../etc/passwd` yoki `a"; filename="b` kabi qiymatlar sarlavhani buzishi
-    yoki yo'l traversali yaratishi mumkin. Shu sababli faqat harf, raqam,
-    chiziq va pastki chiziq qoladi.
-    """
     raw = (value or "").strip()
     cleaned = re.sub(r"[^A-Za-z0-9_-]+", "_", raw).strip("_")
     return cleaned[:max_length].strip("_") or fallback
 
-
 def content_disposition(filename: str, *, fallback: str = "file") -> str:
-    """Xavfsiz `Content-Disposition` sarlavha qiymati.
-
-    - `filename` — ASCII zaxira nom (brauzerlar uni to'g'ri ko'rsatadi).
-    - `filename*` — RFC 5987 UTF-8 nom (haqiqiy o'zbekcha nom saqlanadi).
-    """
     raw = (filename or "").strip()
     cleaned = UNSAFE_CHARS.sub("", raw).strip()
     if not cleaned:

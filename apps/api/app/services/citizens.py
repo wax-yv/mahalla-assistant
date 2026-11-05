@@ -31,21 +31,13 @@ REQUIRED_FIELDS: dict[str, str] = {
     "employment_status": "Bandligi",
 }
 
-
 def years_ago(day: date, years: int) -> date:
     try:
         return day.replace(year=day.year - years)
     except ValueError:
         return day.replace(year=day.year - years, day=28)
 
-
 def citizen_quality(citizen: Citizen, duplicate_risk: str | None = None) -> dict:
-    """Fuqaro ma'lumot sifati.
-
-    N-4: `duplicate_risk` berilmasa "low" (yolg'on xavfsizlik) emas,
-    halol "unknown" qaytariladi — real hisob faqat detailda bajariladi
-    (`duplicate_risk_for`).
-    """
     missing = []
     filled = 0
     for field, label in REQUIRED_FIELDS.items():
@@ -67,7 +59,6 @@ def citizen_quality(citizen: Citizen, duplicate_risk: str | None = None) -> dict
         "duplicate_risk": duplicate_risk or "unknown",
         "notes": note,
     }
-
 
 def duplicate_risk_for(db: Session, citizen: Citizen) -> str:
     conditions = []
@@ -92,7 +83,6 @@ def duplicate_risk_for(db: Session, citizen: Citizen) -> str:
         return "medium"
     return "low"
 
-
 def _eager_options():
     return (
         selectinload(Citizen.family)
@@ -101,7 +91,6 @@ def _eager_options():
         .selectinload(Street.mahalla)
     )
 
-
 def _detail_options():
     return (
         joinedload(Citizen.family)
@@ -109,7 +98,6 @@ def _detail_options():
         .joinedload(House.street)
         .joinedload(Street.mahalla)
     )
-
 
 def list_citizens(
     db: Session,
@@ -230,7 +218,6 @@ def list_citizens(
     ]
     return items, meta
 
-
 def get_citizen(db: Session, citizen_id: str) -> Citizen:
     citizen = db.execute(
         select(Citizen).options(_detail_options()).where(Citizen.id == citizen_id)
@@ -238,7 +225,6 @@ def get_citizen(db: Session, citizen_id: str) -> Citizen:
     if citizen is None:
         raise not_found("Fuqaro topilmadi.")
     return citizen
-
 
 def family_member_count(db: Session, family_id: str | None) -> int:
     if not family_id:
@@ -251,18 +237,10 @@ def family_member_count(db: Session, family_id: str | None) -> int:
         ).scalar_one()
     )
 
-
 def _document_citizen_filter(db: Session, citizen_id: str):
-    """Hujjatni fuqaro bo'yicha filtrlaydi (N-6).
-
-    `meta ->> 'citizen_id'` — faqat PostgreSQL JSONB sintaksisi. Testlarda
-    SQLite ishlatiladi — u yerda JSON matn ichidan izlanadi (`LIKE`).
-    """
     if db.get_bind().dialect.name == "postgresql":
         return Document.meta.op("->>")("citizen_id") == citizen_id
-    # SQLite: JSON ustun oddiy TEXT — matn ichida izlash (kichik hajm).
     return Document.meta.like(f'%"citizen_id": "{citizen_id}"%')
-
 
 def get_citizen_detail(db: Session, citizen_id: str) -> dict:
     citizen = get_citizen(db, citizen_id)
@@ -420,15 +398,7 @@ def get_citizen_detail(db: Session, citizen_id: str) -> dict:
     )
     return data
 
-
 def next_citizen_id(db: Session) -> str:
-    """Yangi fuqaro ID'sini yaratadi (N-5).
-
-    Eski kod `func.max(Citizen.id)` ni **string** tartibida olardi —
-    `F-99999` dan keyin `F-100000` kelganda string MAX noto'g'ri
-    tanlanardi (`"F-99999" > "F-100000"`). Endi ID'ning raqamli qismi
-    SQL'da ajratilib, eng kattasi olinadi.
-    """
     max_number = db.execute(
         select(
             func.max(
@@ -441,7 +411,6 @@ def next_citizen_id(db: Session) -> str:
     ).scalar_one()
     number = int(max_number or 0) + 1
     return f"F-{number:05d}"
-
 
 def _validate_citizen_payload(db: Session, data: dict) -> None:
     birth_date = data.get("birth_date")
@@ -456,14 +425,11 @@ def _validate_citizen_payload(db: Session, data: dict) -> None:
         if family is None:
             raise validation_error("Ko'rsatilgan oila mavjud emas.")
 
-
 def create_citizen(
     db: Session, payload: CitizenCreate, actor: str, request_id: str | None = None
 ) -> Citizen:
     data = payload.model_dump()
     _validate_citizen_payload(db, data)
-    # N-5: parallel yaratishda ikki so'rov bir xil MAX ni o'qib, bir xil
-    # ID oladi — IntegrityError bo'lsa qayta urinish (maks. 3 marta).
     last_error: Exception | None = None
     for _attempt in range(3):
         citizen = Citizen(
@@ -506,7 +472,6 @@ def create_citizen(
     db.refresh(citizen)
     return citizen
 
-
 def update_citizen(
     db: Session,
     citizen_id: str,
@@ -515,7 +480,6 @@ def update_citizen(
     request_id: str | None = None,
 ) -> Citizen:
     citizen = get_citizen(db, citizen_id)
-    # D-1: versiya majburiy — eskirgan yozuv ustidan yozish rad etiladi.
     if payload.version != citizen.version:
         raise conflict(
             "Ma'lumot siz ko'rganingizdan keyin o'zgargan. Sahifani yangilab qayta urinib ko'ring."
@@ -562,7 +526,6 @@ def update_citizen(
     db.refresh(citizen)
     return citizen
 
-
 def archive_citizen(db: Session, citizen_id: str, actor: str, request_id: str | None = None) -> Citizen:
     citizen = get_citizen(db, citizen_id)
     if citizen.archived_at is not None:
@@ -587,7 +550,6 @@ def archive_citizen(db: Session, citizen_id: str, actor: str, request_id: str | 
     )
     db.commit()
     return citizen
-
 
 def citizen_address(db: Session, citizen: Citizen) -> dict | None:
     return address_for_citizen(citizen)

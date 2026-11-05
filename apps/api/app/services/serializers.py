@@ -14,7 +14,6 @@ from app.models import (
     WorkLog,
 )
 
-
 def address_for_citizen(citizen: Citizen) -> dict | None:
     family = citizen.family
     if not family or not family.house:
@@ -33,7 +32,6 @@ def address_for_citizen(citizen: Citizen) -> dict | None:
         or f"{mahalla.name if mahalla else ''}, {street.name if street else ''}, {house.house_number}-uy".strip(", "),
     }
 
-
 def address_for_family(family: Family) -> dict | None:
     house = family.house
     if not house:
@@ -50,7 +48,6 @@ def address_for_family(family: Family) -> dict | None:
         "address_label": house.address_label
         or f"{mahalla.name if mahalla else ''}, {street.name if street else ''}, {house.house_number}-uy".strip(", "),
     }
-
 
 def family_out(
     family: Family,
@@ -71,7 +68,6 @@ def family_out(
         "address": address_for_family(family),
         "version": family.version,
     }
-
 
 def citizen_out(
     citizen: Citizen,
@@ -110,7 +106,6 @@ def citizen_out(
         data["family"] = family_out(family, member_count=family_member_count)
     return data
 
-
 def case_out(case: Case, task_count: int = 0) -> dict:
     citizen_name = None
     if getattr(case, "citizen", None) is not None:
@@ -136,7 +131,6 @@ def case_out(case: Case, task_count: int = 0) -> dict:
         "updated_at": case.updated_at,
         "task_count": task_count,
     }
-
 
 def task_out(task: Task, *, today: date | None = None) -> dict:
     today = today or today_local()
@@ -172,7 +166,6 @@ def task_out(task: Task, *, today: date | None = None) -> dict:
         "updated_at": task.updated_at,
     }
 
-
 def work_log_out(log: WorkLog) -> dict:
     return {
         "id": log.id,
@@ -190,7 +183,6 @@ def work_log_out(log: WorkLog) -> dict:
         "created_at": log.created_at,
     }
 
-
 def document_out(document: Document) -> dict:
     return {
         "id": document.id,
@@ -207,10 +199,7 @@ def document_out(document: Document) -> dict:
         "updated_at": document.updated_at,
     }
 
-
 def program_out(program: Program, *, now: datetime | None = None) -> dict:
-    # N-4: `now` bir marta beriladi — ro'yxat ichida "stale" chegarasi har
-    # qatorga boshqacha hisoblanib qolmasdi.
     now = now or datetime.now(timezone.utc)
     verified = program.last_verified_at
     stale = program.status == "stale"
@@ -240,7 +229,6 @@ def program_out(program: Program, *, now: datetime | None = None) -> dict:
         "notes": program.notes,
         "stale": stale,
     }
-
 
 def legislation_document_out(document: LegislationDocument) -> dict:
     return {

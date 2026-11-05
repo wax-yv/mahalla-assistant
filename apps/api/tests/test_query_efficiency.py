@@ -1,20 +1,3 @@
-"""N-1: N+1 so'rovlar — dashboard, hierarchy, agents.
-
-Muammo (audit N-1):
-- `dashboard.summary()` har bir metrikani alohida `COUNT` qiladi — 14+
-  so'rov; har sahifa ochilganda serverless cold-start sekinlashadi.
-- `hierarchy.list_mahallas()` — har mahallaga 4 so'rov; `list_streets()` —
-  har ko'chaga 3 so'rov; `house_out()` — har uyga 2 so'rov (50 ta uy =
-  100+ qo'shimcha so'rov).
-- `agents.list_conversations()` — har suhbatga 2 so'rov (40 suhbat = 80).
-- `agents.agent_status()` — har agentga 3 so'rov + `usage_today` +
-  `provider_status` ≈ 18 so'rov har chatda.
-
-To'g'rilash: agregatsiya SQL da — `GROUP BY`, korrelyatsiyalangan
-skal-subso'rov va oynaviy funksiyalar (`row_number`) bilan. So'rov soni
-ma'lumot hajmidan bog'liq bo'lmasligi kerak.
-"""
-
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -28,10 +11,8 @@ from app.models import Citizen, Conversation, ConversationMessage, Family, House
 
 MARKER = "N1sinov"
 
-
 @contextmanager
 def count_queries():
-    """Bajarilgan SQL so'rovlarini sanaydi."""
     statements: list[str] = []
 
     def _capture(conn, cursor, statement, parameters, context, executemany):
@@ -42,7 +23,6 @@ def count_queries():
         yield statements
     finally:
         event.remove(engine, "before_cursor_execute", _capture)
-
 
 def _cleanup() -> None:
     with SessionLocal() as db:
@@ -65,10 +45,8 @@ def _cleanup() -> None:
         db.execute(delete(Mahalla).where(Mahalla.id.in_(mahalla_ids)))
         db.commit()
 
-
 @pytest.fixture()
 def dataset():
-    """2 ko'cha, 6 uy, 6 oila, 12 fuqaro, 5 suhbat."""
     _cleanup()
     with SessionLocal() as db:
         mahalla = Mahalla(name=f"{MARKER} mahalla", district="Test")
@@ -111,12 +89,7 @@ def dataset():
     yield
     _cleanup()
 
-
-# ------------------------------------------------------------------- dashboard
-
-
 def test_dashboard_summary_uses_few_queries(dataset):
-    """`summary()` bir necha so'rov bilan ma'lumot olishi kerak."""
     from app.services import dashboard as service
 
     with SessionLocal() as db, count_queries() as statements:
@@ -125,9 +98,7 @@ def test_dashboard_summary_uses_few_queries(dataset):
         statement[:120] for statement in statements
     )
 
-
 def test_dashboard_summary_metrics_are_correct(dataset):
-    """So'rovlar kamaytirilgandan keyin ko'rsatkichlar o'zgarmasligi kerak."""
     from app.services import dashboard as service
 
     with SessionLocal() as db:
@@ -144,12 +115,7 @@ def test_dashboard_summary_metrics_are_correct(dataset):
     quality = payload["data_quality"]
     assert quality["complete"] + quality["incomplete"] == metrics["citizens"], quality
 
-
-# ------------------------------------------------------------------- hierarchy
-
-
 def test_list_mahallas_uses_constant_queries(dataset):
-    """Mahallalar ro'yxati bitta so'rov bilan kelishi kerak."""
     from app.services import hierarchy as service
 
     with SessionLocal() as db, count_queries() as statements:
@@ -163,9 +129,7 @@ def test_list_mahallas_uses_constant_queries(dataset):
     assert target["family_count"] == 6, target
     assert target["citizen_count"] == 12, target
 
-
 def test_list_streets_uses_constant_queries(dataset):
-    """Ko'chalar ro'yxati bitta so'rov bilan kelishi kerak."""
     from app.services import hierarchy as service
 
     with SessionLocal() as db, count_queries() as statements:
@@ -178,9 +142,7 @@ def test_list_streets_uses_constant_queries(dataset):
     assert target["family_count"] == 3, target
     assert target["citizen_count"] == 6, target
 
-
 def test_list_houses_uses_constant_queries(dataset):
-    """Uylar ro'yxati qator soniga bog'liq so'rov qilmasligi kerak."""
     from app.services import hierarchy as service
 
     with SessionLocal() as db:
@@ -197,12 +159,7 @@ def test_list_houses_uses_constant_queries(dataset):
     assert target["family_count"] == 1, target
     assert target["citizen_count"] == 2, target
 
-
-# ---------------------------------------------------------------------- agents
-
-
 def test_list_conversations_uses_constant_queries(dataset):
-    """Suhbatlar ro'yxati bitta so'rov bilan kelishi kerak."""
     from app.services import agents as service
 
     with SessionLocal() as db, count_queries() as statements:
@@ -214,9 +171,7 @@ def test_list_conversations_uses_constant_queries(dataset):
     assert target["message_count"] == 4, target
     assert target["last_message"], target
 
-
 def test_agent_status_uses_few_queries(dataset, monkeypatch):
-    """Agent holati bir necha so'rov bilan olinishi kerak."""
     from app.services import ai_gateway, agents as service
 
     monkeypatch.setattr(ai_gateway, "provider_status", lambda live=True: [])

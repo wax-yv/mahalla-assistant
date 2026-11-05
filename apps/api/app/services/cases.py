@@ -22,14 +22,11 @@ from app.schemas import (
 )
 from app.services.serializers import case_out, task_out, work_log_out
 
-
 def _case_options():
     return joinedload(Case.citizen)
 
-
 def _task_options():
     return joinedload(Task.citizen)
-
 
 def list_cases(
     db: Session,
@@ -67,7 +64,6 @@ def list_cases(
     counts = _task_counts(db, [row.id for row in rows])
     return [case_out(row, counts.get(row.id, 0)) for row in rows], meta
 
-
 def _task_counts(db: Session, case_ids: list[str]) -> dict[str, int]:
     if not case_ids:
         return {}
@@ -77,7 +73,6 @@ def _task_counts(db: Session, case_ids: list[str]) -> dict[str, int]:
         .group_by(Task.case_id)
     ).all()
     return {row[0]: int(row[1]) for row in rows}
-
 
 def get_case(db: Session, case_id: str) -> dict:
     case = db.execute(
@@ -95,7 +90,6 @@ def get_case(db: Session, case_id: str) -> dict:
     data["tasks"] = [task_out(item) for item in tasks]
     data["work_logs"] = [work_log_out(item) for item in logs]
     return data
-
 
 def create_case(
     db: Session,
@@ -130,21 +124,17 @@ def create_case(
         db.refresh(case)
     return case
 
-
 def update_case(
     db: Session, case_id: str, payload: CaseUpdate, actor: str, request_id: str | None
 ) -> Case:
     case = db.get(Case, case_id)
     if case is None:
         raise not_found("Case topilmadi.")
-    # D-1: versiya majburiy.
     if payload.version != case.version:
         raise conflict("Case ma'lumoti o'zgargan. Sahifani yangilang.")
     data = payload.model_dump(exclude_unset=True)
     data.pop("version", None)
     new_status = data.get("status")
-    # O-5: `before` o'zgarishlardan **OLDIN** olinadi — aks holda audit yozuvida
-    # "eski holat = yangi holat" ko'rinardi.
     before = model_snapshot(case)
     if new_status and new_status != case.status:
         if new_status not in CASE_TRANSITIONS.get(case.status, set()):
@@ -152,9 +142,6 @@ def update_case(
                 f"Case holatini '{case.status}' dan '{new_status}' ga o'zgartirish mumkin emas."
             )
         case.status = new_status
-        # N-9: `resolved` — hal qilingan, lekin **yopilmagan** case. Yopish
-        # sanasi faqat `closed`/`cancelled` holatlarida belgilanadi; aks
-        # holda hisobotlarda "yopilgan" deb hisoblanib ketardi.
         case.closed_at = (
             datetime.now(timezone.utc) if new_status in {"closed", "cancelled"} else None
         )
@@ -176,7 +163,6 @@ def update_case(
     db.commit()
     db.refresh(case)
     return case
-
 
 def list_tasks(
     db: Session,
@@ -245,7 +231,6 @@ def list_tasks(
     rows, meta = paginate(db, stmt, page, page_size)
     return [task_out(row) for row in rows], meta
 
-
 def get_task(db: Session, task_id: str) -> dict:
     task = db.execute(
         select(Task).options(_task_options()).where(Task.id == task_id)
@@ -258,7 +243,6 @@ def get_task(db: Session, task_id: str) -> dict:
     data = task_out(task)
     data["work_logs"] = [work_log_out(item) for item in logs]
     return data
-
 
 def create_task(
     db: Session,
@@ -283,8 +267,6 @@ def create_task(
         case = db.get(Case, payload.case_id)
         if case is None:
             raise validation_error("Case topilmadi.")
-    # O-6: vazifa, case va fuqaro bir-biriga tegishli bo'lishi kerak —
-    # aks holda case X fuqarosi va task Y fuqarosi bo'lib qolardi.
     if case is not None:
         if (
             payload.citizen_id
@@ -324,7 +306,6 @@ def create_task(
         db.refresh(task)
     return task
 
-
 def _apply_status(db: Session, task: Task, new_status: str) -> None:
     allowed = TASK_TRANSITIONS.get(task.status, set())
     if new_status not in allowed:
@@ -332,12 +313,10 @@ def _apply_status(db: Session, task: Task, new_status: str) -> None:
             f"Vazifa holatini '{task.status}' dan '{new_status}' ga o'zgartirish mumkin emas."
         )
     task.status = new_status
-    # E-1: bu blok oddiy `else` bilan yakunlanadi — ortiqcha shart yo'q.
     if new_status == "completed":
         task.completed_at = datetime.now(timezone.utc)
     else:
         task.completed_at = None
-
 
 def update_task(
     db: Session, task_id: str, payload: TaskUpdate, actor: str, request_id: str | None
@@ -345,13 +324,11 @@ def update_task(
     task = db.get(Task, task_id)
     if task is None:
         raise not_found("Vazifa topilmadi.")
-    # D-1: versiya majburiy.
     if payload.version != task.version:
         raise conflict("Vazifa ma'lumoti o'zgargan. Sahifani yangilang.")
     data = payload.model_dump(exclude_unset=True)
     data.pop("version", None)
     new_status = data.pop("status", None)
-    # O-5: `before` o'zgarishlardan **OLDIN** olinadi.
     before = model_snapshot(task)
     if new_status and new_status != task.status:
         _apply_status(db, task, new_status)
@@ -373,7 +350,6 @@ def update_task(
     db.refresh(task)
     return task
 
-
 def complete_task(
     db: Session,
     task_id: str,
@@ -381,12 +357,6 @@ def complete_task(
     actor: str,
     request_id: str | None,
 ) -> Task:
-    """Vazifani bajarilgan deb belgilaydi.
-
-    O-6: holatlar mashinasi (`TASK_TRANSITIONS`) va versiya tekshiruvi
-    qo'llanadi, qator `with_for_update()` bilan bloklanadi — qo'sh bosishda
-    ikki marta ish logi yozilmaydi.
-    """
     task = db.execute(
         select(Task).where(Task.id == task_id).with_for_update()
     ).scalar_one_or_none()
@@ -394,7 +364,6 @@ def complete_task(
         raise not_found("Vazifa topilmadi.")
     if payload.version is not None and payload.version != task.version:
         raise conflict("Vazifa ma'lumoti o'zgargan. Sahifani yangilang.")
-    # O-5: `before` o'zgarishlardan OLDIN olinadi.
     before = model_snapshot(task)
     _apply_status(db, task, "completed")
     task.evidence_note = payload.evidence_note
@@ -430,7 +399,6 @@ def complete_task(
     db.refresh(task)
     return task
 
-
 def cancel_task(
     db: Session,
     task_id: str,
@@ -439,7 +407,6 @@ def cancel_task(
     request_id: str | None,
     version: int | None = None,
 ) -> Task:
-    """Vazifani bekor qilingan deb belgilaydi (O-6: holatlar mashinasi)."""
     task = db.execute(
         select(Task).where(Task.id == task_id).with_for_update()
     ).scalar_one_or_none()
@@ -447,7 +414,6 @@ def cancel_task(
         raise not_found("Vazifa topilmadi.")
     if version is not None and version != task.version:
         raise conflict("Vazifa ma'lumoti o'zgargan. Sahifani yangilang.")
-    # O-5: `before` o'zgarishlardan OLDIN olinadi.
     before = model_snapshot(task)
     _apply_status(db, task, "cancelled")
     task.evidence_note = reason
@@ -490,7 +456,6 @@ def list_work_logs(
         stmt = stmt.where(WorkLog.type == type)
     rows, meta = paginate(db, stmt, page, page_size)
     return [work_log_out(row) for row in rows], meta
-
 
 def create_work_log(
     db: Session,

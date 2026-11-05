@@ -13,13 +13,7 @@ logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
-
 class Settings(BaseSettings):
-    """Application settings.
-
-    Values come from environment variables first, then `.env.local` / `.env`.
-    Secrets are never written to the repository; Vercel supplies them at runtime.
-    """
 
     model_config = SettingsConfigDict(
         env_file=(REPO_ROOT / ".env.local", REPO_ROOT / ".env"),
@@ -37,17 +31,10 @@ class Settings(BaseSettings):
     database_url: str = ""
     postgres_url: str = ""
 
-    # O-12: serverless (Vercel) + Neon — ulanish soni chegarasi.
-    # `DB_POOL_NULL=true` bo'lsa NullPool ishlatiladi (har so'rov uchun
-    # yangi ulanish, ulanish to'plami yo'q).
     db_pool_size: int = 2
     db_max_overflow: int = 3
     db_pool_null: bool = False
 
-    # E-2: `AUTH_SECRET` hozircha ishlatilmaydi — sessiyalar DB'dagi
-    # tasodifiy token xeshi bilan himoyalangan (soxta sessiya xavfi yo'q).
-    # Mavjudligi saqlanadi (muhit mosligi uchun); kelajakdagi JWT/signing
-    # uchun zaxira sozlama.
     auth_secret: str = "change-me"
     admin_username: str = "wax"
     admin_password: str = "waxs"
@@ -61,8 +48,6 @@ class Settings(BaseSettings):
     nvidia_nim_base_url: str = "https://integrate.api.nvidia.com/v1"
     ai_default_provider: str = "nvidia"
     ai_request_timeout: int = 55
-    # J-1: umumiy zanjir vaqti chegarasi (Vercel funksiyasi 60 s).
-    # Bitta so'rov ichida barcha modellar ketma-ket ishga tushmasligi kerak.
     ai_chain_deadline_seconds: int = 45
     ai_attempt_timeout_seconds: int = 15
     ai_max_attempts: int = 4
@@ -72,16 +57,11 @@ class Settings(BaseSettings):
     ai_model_config_json: str = ""
 
     blob_read_write_token: str = ""
-    # E-5: Vercel so'rov chegarasi ~4.5 MB (multipart overhead bilan) —
-    # 4 MB fayl platforma darajasida rad etilishi mumkin edi.
     max_upload_mb: float = 3.5
 
     scheduler_timezone: str = "Asia/Tashkent"
     demo_mode: bool = True
 
-    # O-1: ishonchli proksi zanjiri uzunligi. X-Forwarded-For sarlavhasining
-    # **o'ng** tomonidan shu N-chi element haqiqiy mijoz manzili hisoblanadi.
-    # 0 = proksi yo'q (XFF butunlay e'tiborsiz qoldiriladi).
     trusted_proxy_hops: int = 0
 
     sentry_dsn: str = ""
@@ -116,7 +96,6 @@ class Settings(BaseSettings):
             raw = "postgresql+psycopg://" + raw[len("postgresql://") :]
         if raw.startswith("postgresql+psycopg://"):
             return raw
-        # Already a driver-qualified URL (e.g. postgresql+psycopg://)
         return raw
 
     @property
@@ -143,31 +122,19 @@ class Settings(BaseSettings):
     def max_upload_bytes(self) -> int:
         return int(max(1, self.max_upload_mb) * 1024 * 1024)
 
-
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
 
-
 settings = get_settings()
 
-# K-6: standart demo kredensial (dokumentlarda chop etilmaydi).
 DEFAULT_ADMIN_USERNAME = "wax"
 DEFAULT_ADMIN_PASSWORD = "waxs"
 
-
 def admin_password_value() -> str:
-    """Admin parolining amaldagi qiymati (bo'sh bo'lsa — standart demo qiymati)."""
     return (settings.admin_password or DEFAULT_ADMIN_PASSWORD).strip()
 
-
 def assert_admin_password_allowed() -> None:
-    """K-6: ishlab chiqarishda standart parol bilan admin yaratilmasligi kerak.
-
-    `DEMO_MODE=true` bo'lgan demo deployment'ida ogohlantirish bilan davom
-    etadi (demo kirish saqlanadi). Haqiqiy ishlab chiqarishda
-    (`DEMO_MODE=false`) standart/bo'sh parol bilan admin yaratilmaydi.
-    """
     password = admin_password_value()
     if not settings.is_production:
         return

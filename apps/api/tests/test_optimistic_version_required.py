@@ -1,14 +1,3 @@
-"""D-1: PATCH so'rovlarida `version` majburiy.
-
-Muammo (audit D-1): `payload.version is None` bo'lsa qulf tekshiruvi
-o'tkazib yuborilardi — ikki kishi bir vaqtda tahrirlasa birinchining
-o'zgarishi yo'qolardi ("lost update").
-
-To'g'rilash: `CitizenUpdate`, `FamilyUpdate`, `CaseUpdate`, `TaskUpdate`
-sxemalarida `version` majburiy maydon; xizmat darajasida mos qiymat
-bo'lmasa `conflict` (409) chiqadi.
-"""
-
 from __future__ import annotations
 
 from datetime import date
@@ -21,7 +10,6 @@ from app.core.db import SessionLocal
 from app.models import Case, Citizen, Family, House, Mahalla, Street, Task, WorkLog
 
 MARKER = "D1sinov"
-
 
 @pytest.fixture()
 def clean():
@@ -56,7 +44,6 @@ def clean():
     yield
     _cleanup()
 
-
 def _make_citizen() -> str:
     with SessionLocal() as db:
         citizen = Citizen(
@@ -68,7 +55,6 @@ def _make_citizen() -> str:
         db.add(citizen)
         db.commit()
         return citizen.id
-
 
 def _make_family() -> str:
     with SessionLocal() as db:
@@ -86,14 +72,12 @@ def _make_family() -> str:
         db.commit()
         return family.id
 
-
 def _make_case() -> str:
     with SessionLocal() as db:
         case = Case(title=f"{MARKER} case", category="umumiy", status="open", priority="normal")
         db.add(case)
         db.commit()
         return case.id
-
 
 def _make_task() -> str:
     with SessionLocal() as db:
@@ -102,16 +86,11 @@ def _make_task() -> str:
         db.commit()
         return task.id
 
-
-# ---------------------------------------------------------------- sxema
-
-
 @pytest.mark.parametrize(
     "schema_name",
     ["CitizenUpdate", "FamilyUpdate", "CaseUpdate", "TaskUpdate"],
 )
 def test_version_is_required_in_update_schemas(schema_name):
-    """`version` berilmasa sxema darajasida 422 (validatsiya xatosi)."""
     from app import schemas
 
     schema = getattr(schemas, schema_name)
@@ -119,12 +98,7 @@ def test_version_is_required_in_update_schemas(schema_name):
         schema(notes="x" if schema_name != "TaskUpdate" else "x")
     assert schema(version=1).version == 1
 
-
-# ---------------------------------------------------------------- fuqaro
-
-
 def test_update_citizen_requires_current_version(clean):
-    """Eski versiya bilan yozish rad etiladi (409)."""
     from app.core.errors import APIError
     from app.schemas import CitizenUpdate
     from app.services import citizens as service
@@ -151,9 +125,7 @@ def test_update_citizen_requires_current_version(clean):
             )
         assert exc.value.status_code == 409
 
-
 def test_update_citizen_accepts_fresh_version(clean):
-    """To'g'ri versiya bilan yozish ishlaydi."""
     from app.schemas import CitizenUpdate
     from app.services import citizens as service
 
@@ -168,12 +140,7 @@ def test_update_citizen_accepts_fresh_version(clean):
         assert citizen.version == version + 1
         assert citizen.notes == "yangilandi"
 
-
-# ---------------------------------------------------------------- oila
-
-
 def test_update_family_requires_current_version(clean):
-    """Oila uchun ham versiya majburiy."""
     from app.core.errors import APIError
     from app.schemas import FamilyUpdate
     from app.services import hierarchy as service
@@ -196,12 +163,7 @@ def test_update_family_requires_current_version(clean):
             )
         assert exc.value.status_code == 409
 
-
-# ---------------------------------------------------------------- case
-
-
 def test_update_case_requires_current_version(clean):
-    """Case uchun ham versiya majburiy."""
     from app.core.errors import APIError
     from app.schemas import CaseUpdate
     from app.services import cases as service
@@ -224,12 +186,7 @@ def test_update_case_requires_current_version(clean):
             )
         assert exc.value.status_code == 409
 
-
-# ---------------------------------------------------------------- vazifa
-
-
 def test_update_task_requires_current_version(clean):
-    """Vazifa uchun ham versiya majburiy."""
     from app.core.errors import APIError
     from app.schemas import TaskUpdate
     from app.services import cases as service

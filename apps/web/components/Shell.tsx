@@ -19,7 +19,6 @@ import { getMe, initAuthRedirect, logout, refreshMe, subscribeMe, type Me } from
 type NavItem = { href: string; label: string; icon: typeof Home };
 type NavGroup = { group: string; items: NavItem[] };
 
-/** P1-1: Hujjatlar = Files, Hisobotlar = ChartColumn, Agentlar = Bot, Vazifalar = ClipboardCheck */
 const NAV: NavGroup[] = [
   {
     group: "Boshqaruv",
@@ -171,8 +170,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
           <button
             className="topbar-search"
             onClick={() => {
-              // Hodisa `document` ga yuboriladi: CommandPalette `document` da
-              // tinglaydi (`window` ga yuborilsa, pastga tarqalmasdi).
               document.dispatchEvent(
                 new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true })
               );
@@ -233,7 +230,6 @@ export function Shell({ children }: { children: React.ReactNode }) {
             </Link>
           );
         })}
-        {/* P1-3: “Boshqa” — haqiqiy Link (bo‘limlar katalogi), faol holati va aria-current bilan */}
         <Link
           href="/bo-limlar"
           className={pathname === "/bo-limlar" ? "active" : ""}

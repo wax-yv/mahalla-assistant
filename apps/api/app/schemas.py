@@ -7,15 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 T = TypeVar("T")
 
-
 class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-
 
 class MessageResponse(BaseModel):
     message: str
     ok: bool = True
-
 
 class ErrorBody(BaseModel):
     code: str
@@ -23,20 +20,12 @@ class ErrorBody(BaseModel):
     details: list[Any] = []
     request_id: str | None = None
 
-
 class ErrorResponse(BaseModel):
     error: ErrorBody
-
-
-# ---------------------------------------------------------------------------
-# Auth
-# ---------------------------------------------------------------------------
-
 
 class LoginRequest(BaseModel):
     username: str = Field(min_length=2, max_length=80)
     password: str = Field(min_length=2, max_length=200)
-
 
 class UserOut(ORMModel):
     id: str
@@ -47,18 +36,11 @@ class UserOut(ORMModel):
     is_active: bool
     last_login_at: datetime | None = None
 
-
 class MeResponse(BaseModel):
     user: UserOut
     csrf_token: str
     demo_mode: bool
     version: str
-
-
-# ---------------------------------------------------------------------------
-# Address / hierarchy
-# ---------------------------------------------------------------------------
-
 
 class AddressOut(BaseModel):
     mahalla_id: str | None = None
@@ -68,7 +50,6 @@ class AddressOut(BaseModel):
     house_id: str | None = None
     house_number: str | None = None
     address_label: str | None = None
-
 
 class MahallaOut(ORMModel):
     id: str
@@ -80,7 +61,6 @@ class MahallaOut(ORMModel):
     family_count: int = 0
     citizen_count: int = 0
 
-
 class StreetOut(ORMModel):
     id: str
     mahalla_id: str
@@ -89,7 +69,6 @@ class StreetOut(ORMModel):
     family_count: int = 0
     citizen_count: int = 0
 
-
 class HouseOut(ORMModel):
     id: str
     street_id: str
@@ -97,7 +76,6 @@ class HouseOut(ORMModel):
     address_label: str
     family_count: int = 0
     citizen_count: int = 0
-
 
 class FamilyOut(ORMModel):
     id: str
@@ -111,25 +89,17 @@ class FamilyOut(ORMModel):
     address: AddressOut | None = None
     version: int = 1
 
-
 class FamilyDetail(FamilyOut):
     members: list[CitizenOut] = []
     cases: list[CaseOut] = []
     tasks: list[TaskOut] = []
     work_logs: list[WorkLogOut] = []
 
-
-# ---------------------------------------------------------------------------
-# Citizens
-# ---------------------------------------------------------------------------
-
-
 class DataQualityOut(BaseModel):
     score: int = Field(ge=0, le=100)
     missing_fields: list[str] = []
     duplicate_risk: str = "low"
     notes: str = ""
-
 
 class CitizenOut(ORMModel):
     id: str
@@ -156,7 +126,6 @@ class CitizenOut(ORMModel):
     family: FamilyOut | None = None
     data_quality: DataQualityOut | None = None
 
-
 class CitizenDetail(CitizenOut):
     cases: list[CaseOut] = []
     tasks: list[TaskOut] = []
@@ -164,7 +133,6 @@ class CitizenDetail(CitizenOut):
     documents: list[DocumentOut] = []
     timeline: list[TimelineItem] = []
     audit_history: list[AuditOut] = []
-
 
 class CitizenCreate(BaseModel):
     full_name: str = Field(min_length=3, max_length=200)
@@ -188,7 +156,6 @@ class CitizenCreate(BaseModel):
             value = "+" + value
         return value
 
-
 class CitizenUpdate(BaseModel):
     full_name: str | None = Field(default=None, min_length=3, max_length=200)
     gender: Literal["Erkak", "Ayol"] | None = None
@@ -202,9 +169,7 @@ class CitizenUpdate(BaseModel):
     social_status: str | None = None
     needs: list[str] | None = None
     notes: str | None = None
-    # D-1: versiya majburiy — eskirgan yozuv ustidan yozish rad etiladi.
     version: int
-
 
 class FamilyCreate(BaseModel):
     house_id: str
@@ -213,20 +178,12 @@ class FamilyCreate(BaseModel):
     social_status: str = "Yo'q"
     notes: str = ""
 
-
 class FamilyUpdate(BaseModel):
     family_head_citizen_id: str | None = None
     family_type: str | None = None
     social_status: str | None = None
     notes: str | None = None
-    # D-1: versiya majburiy.
     version: int
-
-
-# ---------------------------------------------------------------------------
-# Cases / tasks / work logs
-# ---------------------------------------------------------------------------
-
 
 class CaseOut(ORMModel):
     id: str
@@ -249,7 +206,6 @@ class CaseOut(ORMModel):
     updated_at: datetime
     task_count: int = 0
 
-
 class CaseCreate(BaseModel):
     citizen_id: str | None = None
     family_id: str | None = None
@@ -260,7 +216,6 @@ class CaseCreate(BaseModel):
     responsible_user: str | None = None
     target_date: date | None = None
 
-
 class CaseUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
@@ -270,9 +225,7 @@ class CaseUpdate(BaseModel):
     responsible_user: str | None = None
     target_date: date | None = None
     outcome: str | None = None
-    # D-1: versiya majburiy.
     version: int
-
 
 class TaskOut(ORMModel):
     id: str
@@ -296,7 +249,6 @@ class TaskOut(ORMModel):
     created_at: datetime
     updated_at: datetime
 
-
 class TaskCreate(BaseModel):
     title: str = Field(min_length=3, max_length=240)
     description: str = ""
@@ -308,7 +260,6 @@ class TaskCreate(BaseModel):
     due_date: date | None = None
     assignee: str | None = None
 
-
 class TaskUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
@@ -317,16 +268,12 @@ class TaskUpdate(BaseModel):
     status: str | None = None
     due_date: date | None = None
     assignee: str | None = None
-    # D-1: versiya majburiy.
     version: int
-
 
 class TaskCompleteRequest(BaseModel):
     evidence_note: str = Field(min_length=3, max_length=4000)
     evidence_document_id: str | None = None
-    # O-6: versiya berilsa, o'skirgan vazifa rad etiladi (optimistik qulf).
     version: int | None = None
-
 
 class WorkLogOut(ORMModel):
     id: str
@@ -343,7 +290,6 @@ class WorkLogOut(ORMModel):
     approval_status: str
     created_at: datetime
 
-
 class WorkLogCreate(BaseModel):
     citizen_id: str | None = None
     family_id: str | None = None
@@ -353,7 +299,6 @@ class WorkLogCreate(BaseModel):
     title: str = Field(min_length=3, max_length=240)
     description: str = ""
     occurred_at: datetime | None = None
-
 
 class TimelineItem(BaseModel):
     id: str
@@ -365,12 +310,6 @@ class TimelineItem(BaseModel):
     entity_type: str
     entity_id: str
     source: str = "database"
-
-
-# ---------------------------------------------------------------------------
-# Documents / imports
-# ---------------------------------------------------------------------------
-
 
 class DocumentOut(ORMModel):
     id: str
@@ -386,7 +325,6 @@ class DocumentOut(ORMModel):
     created_at: datetime
     updated_at: datetime
 
-
 class ImportErrorOut(ORMModel):
     id: str
     row_number: int
@@ -395,7 +333,6 @@ class ImportErrorOut(ORMModel):
     message: str
     raw_value: str | None = None
     severity: str
-
 
 class ImportBatchOut(ORMModel):
     id: str
@@ -411,7 +348,6 @@ class ImportBatchOut(ORMModel):
     committed_at: datetime | None = None
     rolled_back_at: datetime | None = None
 
-
 class ImportPreview(BaseModel):
     batch: ImportBatchOut
     headers: list[str] = []
@@ -423,12 +359,10 @@ class ImportPreview(BaseModel):
     summary: dict[str, Any] = {}
     can_commit: bool = False
 
-
 class ImportCommitRequest(BaseModel):
     mapping: dict[str, str] | None = None
     idempotency_key: str | None = None
     sheet: str | None = None
-
 
 class ExportRequest(BaseModel):
     module: Literal["citizens", "families", "houses", "cases", "tasks", "report"] = "citizens"
@@ -436,12 +370,6 @@ class ExportRequest(BaseModel):
     fields: list[str] | None = None
     filters: dict[str, Any] = {}
     report_id: str | None = None
-
-
-# ---------------------------------------------------------------------------
-# Reports
-# ---------------------------------------------------------------------------
-
 
 class ReportOut(ORMModel):
     id: str
@@ -461,22 +389,14 @@ class ReportOut(ORMModel):
     created_at: datetime
     updated_at: datetime
 
-
 class ReportGenerateRequest(BaseModel):
     type: str = "daily"
     period_start: date | None = None
     period_end: date | None = None
     filters: dict[str, Any] = {}
 
-
 class ReportApproveRequest(BaseModel):
     note: str = ""
-
-
-# ---------------------------------------------------------------------------
-# AI / agents
-# ---------------------------------------------------------------------------
-
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
@@ -484,7 +404,6 @@ class ChatRequest(BaseModel):
     model: str | None = None
     provider: str | None = None
     context: dict[str, Any] = {}
-
 
 class ChatResponse(BaseModel):
     conversation_id: str
@@ -497,7 +416,6 @@ class ChatResponse(BaseModel):
     warnings: list[str] = []
     requires_approval: bool = False
 
-
 class MessageOut(ORMModel):
     id: str
     conversation_id: str
@@ -509,7 +427,6 @@ class MessageOut(ORMModel):
     draft_actions: list[Any] = []
     created_at: datetime
 
-
 class ConversationOut(ORMModel):
     id: str
     title: str
@@ -518,7 +435,6 @@ class ConversationOut(ORMModel):
     updated_at: datetime
     message_count: int = 0
     last_message: str | None = None
-
 
 class DraftActionOut(ORMModel):
     id: str
@@ -532,7 +448,6 @@ class DraftActionOut(ORMModel):
     decided_by: str | None = None
     result: dict[str, Any] = {}
     error: str = ""
-
 
 class AgentRunOut(ORMModel):
     id: str
@@ -556,7 +471,6 @@ class AgentRunOut(ORMModel):
     started_at: datetime
     finished_at: datetime | None = None
 
-
 class WorkflowOut(ORMModel):
     id: str
     request_id: str
@@ -570,7 +484,6 @@ class WorkflowOut(ORMModel):
     created_at: datetime
     updated_at: datetime
     runs: list[AgentRunOut] = []
-
 
 class AgentInfo(BaseModel):
     name: str
@@ -587,7 +500,6 @@ class AgentInfo(BaseModel):
     fallback_used: bool = False
     allowed_tools: list[str] = []
 
-
 class ModelInfo(BaseModel):
     id: str
     provider: str
@@ -597,17 +509,10 @@ class ModelInfo(BaseModel):
     capabilities: list[str] = []
     rank: int = 0
 
-
 class AgentStatusResponse(BaseModel):
     agents: list[AgentInfo]
     models: list[ModelInfo]
     budget: dict[str, Any] = {}
-
-
-# ---------------------------------------------------------------------------
-# Legislation / programs
-# ---------------------------------------------------------------------------
-
 
 class LegislationDocumentOut(ORMModel):
     id: str
@@ -623,7 +528,6 @@ class LegislationDocumentOut(ORMModel):
     content_hash: str
     version_identifier: str
 
-
 class LegislationChunkOut(ORMModel):
     id: str
     document_id: str
@@ -632,13 +536,11 @@ class LegislationChunkOut(ORMModel):
     content: str
     chunk_index: int
 
-
 class LegislationSearchItem(BaseModel):
     document: LegislationDocumentOut
     chunk: LegislationChunkOut
     score: float = 0.0
     match: str = "keyword"
-
 
 class LegislationAnswer(BaseModel):
     answer: str
@@ -648,7 +550,6 @@ class LegislationAnswer(BaseModel):
     verified: bool = False
     retrieved_at: datetime | None = None
 
-
 class LegislationSyncRequest(BaseModel):
     query: str | None = None
     url: str | None = None
@@ -657,13 +558,11 @@ class LegislationSyncRequest(BaseModel):
     @field_validator("url")
     @classmethod
     def _validate_url(cls, value: str | None) -> str | None:
-        """SSRF himoyasi: faqat lex.uz/docs/<raqam> manzillari."""
         if value is None or not value.strip():
             return value
         from app.core.urls import validate_lex_url
 
         return validate_lex_url(value)
-
 
 class ProgramOut(ORMModel):
     id: str
@@ -687,7 +586,6 @@ class ProgramOut(ORMModel):
     notes: str
     stale: bool = False
 
-
 class ProgramMatch(BaseModel):
     program_id: str
     program_name: str
@@ -697,20 +595,12 @@ class ProgramMatch(BaseModel):
     verified_at: datetime | None = None
     source_url: str = ""
 
-
 class ProgramMatchRequest(BaseModel):
     citizen_id: str
     program_id: str | None = None
 
-
 class ProgramCompareRequest(BaseModel):
     program_ids: list[str]
-
-
-# ---------------------------------------------------------------------------
-# Dashboard / audit / settings
-# ---------------------------------------------------------------------------
-
 
 class DashboardMetric(BaseModel):
     key: str
@@ -718,7 +608,6 @@ class DashboardMetric(BaseModel):
     value: int | float | str
     change: float | None = None
     hint: str | None = None
-
 
 class ActivityItem(BaseModel):
     id: str
@@ -730,7 +619,6 @@ class ActivityItem(BaseModel):
     entity_id: str | None = None
     created_at: datetime
     tone: str = "neutral"
-
 
 class DashboardSummary(BaseModel):
     metrics: list[DashboardMetric] = []
@@ -745,7 +633,6 @@ class DashboardSummary(BaseModel):
     data_quality: dict[str, Any] = {}
     as_of: datetime
     timezone: str = "Asia/Tashkent"
-
 
 class AuditOut(ORMModel):
     id: str
@@ -763,7 +650,6 @@ class AuditOut(ORMModel):
     result: str
     created_at: datetime
 
-
 class AppSettingsOut(BaseModel):
     theme: str = "system"
     language: str = "uz-Latn"
@@ -775,12 +661,9 @@ class AppSettingsOut(BaseModel):
     scheduler_time: str = "21:00"
     backup_status: str = "unknown"
     demo_mode: bool = True
-    # J-15: `ALLOWED_SETTINGS` dagi maydonlar sxemada ham bo'lishi kerak —
-    # aks holda admin panelda ko'rinmaydi yoki javobdan kesilib qoladi.
     mahalla: str = "Navbahor mahallasi"
     district: str = "Urganch shahri"
     region: str = "Xorazm viloyati"
-
 
 class AppSettingsUpdate(BaseModel):
     theme: str | None = None
@@ -792,11 +675,9 @@ class AppSettingsUpdate(BaseModel):
     agents_enabled: dict[str, bool] | None = None
     scheduler_time: str | None = None
     demo_mode: bool | None = None
-    # J-15: `ALLOWED_SETTINGS` bilan to'liq mos.
     mahalla: str | None = None
     district: str | None = None
     region: str | None = None
-
 
 class HealthResponse(BaseModel):
     status: str
@@ -807,13 +688,11 @@ class HealthResponse(BaseModel):
     timezone: str
     timestamp: datetime
 
-
 class PageMetaOut(BaseModel):
     page: int
     page_size: int
     total: int
     total_pages: int
-
 
 class PagedResponse(BaseModel, Generic[T]):
     items: list[T]

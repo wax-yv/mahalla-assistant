@@ -11,11 +11,9 @@ from app.services import hierarchy as service
 
 router = APIRouter(tags=["hierarchy"])
 
-
 @router.get("/mahallas")
 def mahallas(db: Session = Depends(get_db), _=Depends(require_permission("families.read"))):
     return {"items": service.list_mahallas(db)}
-
 
 @router.get("/streets")
 def streets(
@@ -25,7 +23,6 @@ def streets(
 ):
     return {"items": service.list_streets(db, mahalla_id)}
 
-
 @router.get("/streets/{street_id}")
 def street(
     street_id: str,
@@ -33,7 +30,6 @@ def street(
     _=Depends(require_permission("families.read")),
 ):
     return service.get_street(db, street_id)
-
 
 @router.get("/houses")
 def houses(
@@ -50,7 +46,6 @@ def houses(
     )
     return {"items": rows, "meta": meta.model_dump()}
 
-
 @router.get("/houses/{house_id}")
 def house(
     house_id: str,
@@ -58,7 +53,6 @@ def house(
     _=Depends(require_permission("families.read")),
 ):
     return service.get_house(db, house_id)
-
 
 @router.get("/families")
 def families(
@@ -86,7 +80,6 @@ def families(
     )
     return {"items": rows, "meta": meta.model_dump()}
 
-
 @router.get("/families/{family_id}")
 def family(
     family_id: str,
@@ -94,7 +87,6 @@ def family(
     _=Depends(require_permission("families.read")),
 ):
     return service.get_family(db, family_id)
-
 
 @router.post("/families", status_code=201)
 def create_family(
@@ -105,7 +97,6 @@ def create_family(
 ):
     row = service.create_family(db, payload, user.id, getattr(request.state, "request_id", None))
     return service.get_family(db, row.id)
-
 
 @router.patch("/families/{family_id}")
 def update_family(

@@ -1,12 +1,3 @@
-"""J-4: draft tasdiqlash — atomik va qayta bajarilmaydigan.
-
-Muqova:
-- `status != "pending"` tekshiruvi qator qulfsiz edi -> qo'sh bosish yoki
-  qayta yuborishda amal ikki marta bajarilardi (ikkita vazifa).
-- Ichki servislar o'zlari `db.commit()` qilardi -> keyingi qadam yiqilsa
-  vazifa yaratilgan, lekin draft "failed" bo'lib qolardi.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -14,7 +5,6 @@ from sqlalchemy import delete, select
 
 from app.core.db import SessionLocal
 from app.models import AgentWorkflow, DraftAction, Task
-
 
 @pytest.fixture()
 def clean_drafts():
@@ -38,7 +28,6 @@ def clean_drafts():
     _cleanup()
     yield
     _cleanup()
-
 
 def _make_draft(action_type: str = "create_task", payload: dict | None = None) -> str:
     import uuid
@@ -69,9 +58,7 @@ def _make_draft(action_type: str = "create_task", payload: dict | None = None) -
         db.commit()
         return draft.id
 
-
 def test_draft_cannot_be_executed_twice(clean_drafts):
-    """Ikkinchi tasdiqlash 409/400 berishi kerak (takror bajarilmasin)."""
     from app.core.errors import APIError
     from app.services import agents
 
@@ -86,13 +73,10 @@ def test_draft_cannot_be_executed_twice(clean_drafts):
         tasks = db.execute(select(Task).where(Task.title == "J4 sinov vazifasi")).scalars().all()
     assert len(tasks) == 1, "amal ikki marta bajarilgan"
 
-
 def test_failed_draft_can_be_retried(clean_drafts):
-    """`failed` draft qayta urinish mumkin bo'lishi kerak."""
     from app.core.errors import APIError
     from app.services import agents
 
-    # Noto'g'ri payload -> bajarish xatosi (APIError)
     draft_id = _make_draft(action_type="sync_legislation", payload={})
 
     with SessionLocal() as db:
@@ -105,7 +89,6 @@ def test_failed_draft_can_be_retried(clean_drafts):
         assert draft.status == "failed"
         assert draft.error
 
-    # Qayta urinish (retry=True) — bu safar to'g'ri payload bilan
     with SessionLocal() as db:
         draft = db.get(DraftAction, draft_id)
         assert draft is not None
@@ -117,9 +100,7 @@ def test_failed_draft_can_be_retried(clean_drafts):
         result = agents.decide_draft(db, draft_id, approve=True, actor="tester", retry=True)
     assert result["status"] == "approved"
 
-
 def test_failed_draft_requires_retry_flag(clean_drafts):
-    """`retry` berilmasa `failed` draft qayta ishga tushmaydi."""
     from app.core.errors import APIError
     from app.services import agents
 
@@ -133,9 +114,7 @@ def test_failed_draft_requires_retry_flag(clean_drafts):
             agents.decide_draft(db, draft_id, approve=True, actor="tester")
     assert error.value.status_code in (400, 409)
 
-
 def test_inner_service_does_not_commit(clean_drafts, monkeypatch):
-    """J-4: ichki servis `commit=False` bilan chaqirilishi kerak."""
     from app.services import agents, cases
 
     seen: dict = {}
@@ -154,12 +133,9 @@ def test_inner_service_does_not_commit(clean_drafts, monkeypatch):
 
     assert seen.get("commit") is False
 
-
 def test_failed_execution_leaves_no_partial_task(clean_drafts, monkeypatch):
-    """Bajarish xatosida yarim vazifa qolmasligi kerak."""
     from app.services import agents, cases
 
-    # `create_task` originalini saqlab qo'yamiz
     original = cases.create_task
 
     def _wrapped(db, payload, actor, request_id, *, commit=True):
@@ -177,9 +153,7 @@ def test_failed_execution_leaves_no_partial_task(clean_drafts, monkeypatch):
         tasks = db.execute(select(Task).where(Task.title == "J4 sinov vazifasi")).scalars().all()
     assert not tasks, "yarim bajarilgan vazifa saqlanib qoldi"
 
-
 def test_reject_is_atomic(clean_drafts):
-    """Rad etish pending -> rejected; ikkinchi marta rad etib bo'lmaydi."""
     from app.core.errors import APIError
     from app.services import agents
 

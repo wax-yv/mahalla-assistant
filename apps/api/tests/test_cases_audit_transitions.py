@@ -1,14 +1,3 @@
-"""O-5/O-6: audit `old_value` va vazifa holatlari mashinasi.
-
-Muqova:
-- O-5: `update_task`/`update_case` da `before = model_snapshot(...)`
-  **o'zgarishdan keyin** olinardi — audit yozuvida "eski holat = yangi
-  holat" ko'rinardi.
-- O-6: `complete_task`/`cancel_task` holatlar mashinasini (`TASK_TRANSITIONS`)
-  va versiyani chetlab o'tardi; `create_task` esa `citizen_id`/`family_id`/
-  `case_id` bir-biriga tegishliligini tekshirtirmasdi.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -16,7 +5,6 @@ from sqlalchemy import delete, select
 
 from app.core.db import SessionLocal
 from app.models import AuditLog, Citizen, Case, Task, WorkLog
-
 
 @pytest.fixture()
 def clean_tasks():
@@ -34,7 +22,6 @@ def clean_tasks():
     yield
     _cleanup()
 
-
 def _make_task(status: str = "new") -> str:
     with SessionLocal() as db:
         task = Task(
@@ -48,7 +35,6 @@ def _make_task(status: str = "new") -> str:
         db.commit()
         return task.id
 
-
 def _make_case(status: str = "open") -> str:
     with SessionLocal() as db:
         case = Case(
@@ -61,7 +47,6 @@ def _make_case(status: str = "open") -> str:
         db.commit()
         return case.id
 
-
 def _audit_for(entity_type: str, entity_id: str, action: str):
     with SessionLocal() as db:
         return db.execute(
@@ -72,12 +57,7 @@ def _audit_for(entity_type: str, entity_id: str, action: str):
             )
         ).scalars().first()
 
-
-# ---------------------------------------------------------------- O-5
-
-
 def test_update_task_audit_old_status_is_previous(clean_tasks):
-    """O-5: audit `old_value` da ESKI holat ko'rinishi kerak."""
     from app.schemas import TaskUpdate
     from app.services import cases as service
 
@@ -99,9 +79,7 @@ def test_update_task_audit_old_status_is_previous(clean_tasks):
     )
     assert audit.new_value["status"] == "in_progress"
 
-
 def test_update_case_audit_old_status_is_previous():
-    """O-5: case uchun ham `old_value` eski holatni ko'rsatishi kerak."""
     from app.schemas import CaseUpdate
     from app.services import cases as service
 
@@ -119,12 +97,7 @@ def test_update_case_audit_old_status_is_previous():
     )
     assert audit.new_value["status"] == "in_progress"
 
-
-# ---------------------------------------------------------------- O-6
-
-
 def test_complete_task_uses_state_machine(clean_tasks):
-    """O-6: `completed` ga o'tish `TASK_TRANSITIONS` bilan tekshiriladi."""
     from app.schemas import TaskCompleteRequest
     from app.services import cases as service
 
@@ -139,9 +112,7 @@ def test_complete_task_uses_state_machine(clean_tasks):
         assert task is not None
         assert task.status == "completed"
 
-
 def test_complete_task_rejects_invalid_transition(clean_tasks):
-    """O-6: `cancelled` dan `completed` ga o'tish taqiqlanadi."""
     from app.core.errors import APIError
     from app.schemas import TaskCompleteRequest
     from app.services import cases as service
@@ -157,9 +128,7 @@ def test_complete_task_rejects_invalid_transition(clean_tasks):
                 None,
             )
 
-
 def test_cancel_task_rejects_invalid_transition(clean_tasks):
-    """O-6: `cancel_task` ham holatlar mashinasini tekshirishi kerak."""
     from app.core.errors import APIError
     from app.services import cases as service
 
@@ -168,9 +137,7 @@ def test_cancel_task_rejects_invalid_transition(clean_tasks):
         with pytest.raises(APIError):
             service.cancel_task(db, task_id, "bekor qilindi", "tester", None)
 
-
 def test_complete_task_rejects_stale_version(clean_tasks):
-    """O-6: eskirgan `version` bilan bajarish rad etiladi."""
     from app.core.errors import APIError
     from app.schemas import TaskCompleteRequest
     from app.services import cases as service
@@ -186,9 +153,7 @@ def test_complete_task_rejects_stale_version(clean_tasks):
         with pytest.raises(APIError):
             service.complete_task(db, task_id, payload, "tester", None)
 
-
 def test_complete_task_creates_single_worklog(clean_tasks):
-    """O-6: qo'sh bosishda ikkita `WorkLog` yaratilmasligi kerak."""
     from app.schemas import TaskCompleteRequest
     from app.services import cases as service
 
@@ -204,9 +169,7 @@ def test_complete_task_creates_single_worklog(clean_tasks):
         ).scalars().all()
     assert len(logs) == 1, f"kutilgan 1 ish logi, topildi: {len(logs)}"
 
-
 def test_create_task_rejects_mismatched_case_and_citizen():
-    """O-6: task'ning case'i va fuqarosi bir-biriga tegishli bo'lishi kerak."""
     from app.core.errors import APIError
     from app.schemas import TaskCreate
     from app.services import cases as service

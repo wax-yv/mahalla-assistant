@@ -37,8 +37,6 @@ const SOCIAL_STATUSES = ["Yo‘q", "Temir daftar", "Ko‘p bolali oila", "Yoshla
 
 function FamiliesInner() {
   const searchParams = useSearchParams();
-  /* N-12: dashboarddagi "Jami uylar" / "Ko'chalar" kartalari to'g'ri
-     bo'limga olib borishi uchun `?tab=` bilan boshlanish mumkin. */
   const initialTab = (searchParams.get("tab") as TabKey | null) ?? "streets";
   const [tab, setTab] = useState<TabKey>(
     initialTab === "houses" || initialTab === "families" ? initialTab : "streets",
@@ -56,7 +54,6 @@ function FamiliesInner() {
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  /* P1-14: uy kartasi oila ro‘yxatiga havola beradi (`?house_id=` filtri). */
   const houseFilter = searchParams.get("house_id");
   const houseFilterLabel = searchParams.get("house_label") ?? "";
 
@@ -96,7 +93,6 @@ function FamiliesInner() {
   const mahalla = mahallas[0];
   const focusId = searchParams.get("focus");
 
-  /* `?house_id=` kiritilganda oilalar bo‘limi va uy filtri avtomatik qo‘llanadi. */
   useEffect(() => {
     if (houseFilter) {
       setTab("families");

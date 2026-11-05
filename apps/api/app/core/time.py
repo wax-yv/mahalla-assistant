@@ -7,18 +7,14 @@ from app.core.config import settings
 
 TZ = ZoneInfo(settings.scheduler_timezone)
 
-
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
-
 
 def now_local() -> datetime:
     return datetime.now(TZ)
 
-
 def today_local() -> date:
     return now_local().date()
-
 
 def to_local(value: datetime | None) -> datetime | None:
     if value is None:
@@ -27,12 +23,10 @@ def to_local(value: datetime | None) -> datetime | None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(TZ)
 
-
 def local_date_bounds(day: date) -> tuple[datetime, datetime]:
     start = datetime.combine(day, time.min, tzinfo=TZ)
     end = start + timedelta(days=1)
     return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
-
 
 def age_from_birth(birth_date: date | None, on: date | None = None) -> int | None:
     if birth_date is None:
@@ -43,18 +37,11 @@ def age_from_birth(birth_date: date | None, on: date | None = None) -> int | Non
         years -= 1
     return max(0, years)
 
-
 def minus_years(value: date, years: int) -> date:
-    """Sana yilini kamaytiradi — 29-fevral xatosini oldini oladi.
-
-    `date(2024, 2, 29).replace(year=1994)` -> `ValueError`. Bunday holatda
-    28-fevral ishlatiladi.
-    """
     try:
         return value.replace(year=value.year - years)
     except ValueError:
         return value.replace(year=value.year - years, day=28)
-
 
 def period_bounds(report_type: str, anchor: date | None = None) -> tuple[date, date]:
     anchor = anchor or today_local()
@@ -71,7 +58,6 @@ def period_bounds(report_type: str, anchor: date | None = None) -> tuple[date, d
             end = start.replace(month=start.month + 1, day=1) - timedelta(days=1)
         return start, end
     return anchor - timedelta(days=30), anchor
-
 
 def parse_date(value: str | date | None) -> date | None:
     if value is None or value == "":

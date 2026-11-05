@@ -1,5 +1,3 @@
-"""K-8: suhbat egaligi (IDOR) — boshqa foydalanuvchi suhbatiga kira olmaydi."""
-
 from __future__ import annotations
 
 import pytest
@@ -7,7 +5,6 @@ from sqlalchemy import delete, select
 
 from app.core.db import SessionLocal
 from app.models import Conversation, User
-
 
 def _ensure_user(username: str, role: str, permissions: list[str]) -> str:
     from app.core.security import hash_password
@@ -31,13 +28,11 @@ def _ensure_user(username: str, role: str, permissions: list[str]) -> str:
         db.commit()
         return user.id
 
-
 def _cleanup() -> None:
     with SessionLocal() as db:
         db.execute(delete(User).where(User.username == "k8-operator"))
         db.execute(delete(Conversation).where(Conversation.user_id.is_(None)))
         db.commit()
-
 
 @pytest.fixture()
 def operator():
@@ -46,14 +41,12 @@ def operator():
     yield user_id
     _cleanup()
 
-
 def _login(client, username: str, password: str) -> str:
     response = client.post(
         "/api/v1/auth/login", json={"username": username, "password": password}
     )
     assert response.status_code == 200, response.text
     return response.json()["csrf_token"]
-
 
 def test_conversation_has_owner(auth):
     client, token = auth
@@ -65,7 +58,6 @@ def test_conversation_has_owner(auth):
         assert conversation is not None
         assert conversation.user_id is not None
 
-
 def test_other_user_cannot_read_conversation(auth, operator, client):
     _admin, admin_token = auth
     created = client.post(
@@ -76,7 +68,6 @@ def test_other_user_cannot_read_conversation(auth, operator, client):
     _login(client, "k8-operator", "test-pass-123")
     response = client.get(f"/api/v1/agents/conversations/{conversation_id}")
     assert response.status_code == 404, response.text
-
 
 def test_other_user_cannot_delete_conversation(auth, operator, client):
     _admin, admin_token = auth
@@ -94,7 +85,6 @@ def test_other_user_cannot_delete_conversation(auth, operator, client):
     with SessionLocal() as db:
         assert db.get(Conversation, conversation_id) is not None
 
-
 def test_other_user_cannot_continue_conversation(auth, operator, client):
     _admin, admin_token = auth
     created = client.post(
@@ -110,7 +100,6 @@ def test_other_user_cannot_continue_conversation(auth, operator, client):
     )
     assert response.status_code == 404, response.text
 
-
 def test_conversation_list_is_scoped_to_owner(auth, operator, client):
     _admin, admin_token = auth
     created = client.post(
@@ -123,7 +112,6 @@ def test_conversation_list_is_scoped_to_owner(auth, operator, client):
     assert response.status_code == 200
     ids = [item["id"] for item in response.json()["items"]]
     assert conversation_id not in ids
-
 
 def test_delete_archives_instead_of_purging(auth, operator, client):
     _admin, admin_token = auth
@@ -141,9 +129,8 @@ def test_delete_archives_instead_of_purging(auth, operator, client):
     assert body.get("purged") is False
     with SessionLocal() as db:
         conversation = db.get(Conversation, conversation_id)
-        assert conversation is not None  # o'chirilmadi, arxivlandi
+        assert conversation is not None
         assert conversation.archived_at is not None
-
 
 def test_purge_requires_admin(auth, operator, client):
     operator_token = _login(client, "k8-operator", "test-pass-123")
@@ -161,7 +148,6 @@ def test_purge_requires_admin(auth, operator, client):
     )
     assert response.status_code == 403, response.text
 
-
 def test_migration_script_contains_conversation_owner():
     from pathlib import Path
 
@@ -170,9 +156,7 @@ def test_migration_script_contains_conversation_owner():
     assert "conversations" in text
     assert "user_id" in text
 
-
 def test_preference_of_foreign_conversation_is_not_readable(auth, operator, client):
-    """K-8: boshqa suhbatning bank tanlovi o'qilmasligi kerak."""
     _admin, admin_token = auth
     created = client.post(
         "/api/v1/agents/chat", headers={"X-CSRF-Token": admin_token}, json={"message": "salom"}

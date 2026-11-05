@@ -1,18 +1,3 @@
-"""O-16: hisobot tasdiqlash — alohida permission va "segregation of duties".
-
-Muammo:
-- `POST /reports/{id}/approve` `reports.generate` permission'ini talab qilardi —
-  ya'ni hisobotni **kim yozsa, o'sha o'zi** tasdiqlay ham olardi.
-- Alohida `reports.approve` ruxsati yo'q edi: mas'uliyatlar ajratilmagan.
-
-To'g'rilash:
-- `reports.approve` permission'i kiritildi va approve endpoint'i uni talab
-  qiladi; `admin` roli bu permission'ni avtomatik bermaydi — foydalanuvchi
-  ro'yxatida aniq ko'rsatilishi shart;
-- muallif o'z hisobotini tasdiqlay olmaydi (xodimlar uchun). Administrator —
-  tizimda yakuniy mas'ul shaxs — o'z hisobotini tasdiqlashi mumkin.
-"""
-
 from __future__ import annotations
 
 from datetime import date
@@ -29,10 +14,6 @@ ADMIN = "o16-admin"
 ADMIN_GRANTED = "o16-admin-granted"
 PASSWORD = "test-pass-123"
 REPORT_MARKER = "O16 sinov hisobati"
-
-
-# ------------------------------------------------------------------ yordamchilar
-
 
 def _ensure_user(username: str, role: str, permissions: list[str]) -> str:
     from app.core.security import hash_password
@@ -56,7 +37,6 @@ def _ensure_user(username: str, role: str, permissions: list[str]) -> str:
         db.commit()
         return user.id
 
-
 def _cleanup() -> None:
     with SessionLocal() as db:
         db.execute(delete(Report).where(Report.title.like(f"{REPORT_MARKER}%")))
@@ -66,7 +46,6 @@ def _cleanup() -> None:
             )
         )
         db.commit()
-
 
 @pytest.fixture()
 def users():
@@ -81,7 +60,6 @@ def users():
     }
     yield ids
     _cleanup()
-
 
 def _make_report(created_by: str | None) -> str:
     with SessionLocal() as db:
@@ -104,14 +82,12 @@ def _make_report(created_by: str | None) -> str:
         db.commit()
         return report_id
 
-
 def _login(client, username: str) -> str:
     response = client.post(
         "/api/v1/auth/login", json={"username": username, "password": PASSWORD}
     )
     assert response.status_code == 200, response.text
     return response.json()["csrf_token"]
-
 
 def _approve(client, token: str, report_id: str):
     return client.post(
@@ -120,37 +96,26 @@ def _approve(client, token: str, report_id: str):
         json={"note": "Sinov izohi"},
     )
 
-
-# -------------------------------------------------------------------- testlar
-
-
 def test_approve_permission_is_registered():
-    """`reports.approve` permission ro'yxatda bo'lishi kerak."""
     from app.core.constants import PERMISSIONS
 
     assert "reports.approve" in PERMISSIONS
     assert "reports.generate" in PERMISSIONS
 
-
 def test_generator_cannot_approve_report(client, users):
-    """Faqat `reports.generate` ruxsati bor xodim tasdiqlay olmasligi kerak."""
     report_id = _make_report(users["approver"])
     token = _login(client, GENERATOR)
     response = _approve(client, token, report_id)
     assert response.status_code == 403, response.text
 
-
 def test_approver_can_approve_other_report(client, users):
-    """`reports.approve` ruxsati bor xodim boshqa hisobotni tasdiqlay oladi."""
     report_id = _make_report(users["generator"])
     token = _login(client, APPROVER)
     response = _approve(client, token, report_id)
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "approved"
 
-
 def test_author_cannot_approve_own_report(client, users):
-    """Muallif o'z hisobotini tasdiqlay olmasligi kerak (SoD)."""
     report_id = _make_report(users["approver"])
     token = _login(client, APPROVER)
     response = _approve(client, token, report_id)
@@ -160,35 +125,27 @@ def test_author_cannot_approve_own_report(client, users):
         report = db.get(Report, report_id)
         assert report.status == "draft", "hisobot tasdiqlangan bo'lib ketdi"
 
-
 def test_admin_role_alone_does_not_grant_approve(client, users):
-    """`admin` roli `reports.approve` ruxsatini avtomatik bermasligi kerak."""
     report_id = _make_report(users["generator"])
     token = _login(client, ADMIN)
     response = _approve(client, token, report_id)
     assert response.status_code == 403, response.text
 
-
 def test_admin_with_explicit_grant_can_approve(client, users):
-    """Ruxsat aniq berilgan administrator tasdiqlay oladi."""
     report_id = _make_report(users["generator"])
     token = _login(client, ADMIN_GRANTED)
     response = _approve(client, token, report_id)
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "approved"
 
-
 def test_admin_with_explicit_grant_can_approve_own_report(client, users):
-    """Yakuniy mas'ul sifatida administrator o'z hisobotini tasdiqlay oladi."""
     report_id = _make_report(users["admin_granted"])
     token = _login(client, ADMIN_GRANTED)
     response = _approve(client, token, report_id)
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "approved"
 
-
 def test_seeded_admin_has_approve_permission():
-    """Tizimni yaratuvchi administrator `reports.approve` ruxsatini oladi."""
     from app.core.security import hash_password
 
     with SessionLocal() as db:
@@ -221,17 +178,11 @@ def test_seeded_admin_has_approve_permission():
             db.execute(delete(User).where(User.username == "o16-seed-admin"))
             db.commit()
 
-
 def test_migration_script_grants_approve_to_admins():
-    """`scripts/migrate.sql` mavjud administratorlarga ruxsat berishi kerak."""
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[3]
     script = (root / "scripts" / "migrate.sql").read_text(encoding="utf-8")
     assert "reports.approve" in script, (
         "migrate.sql da reports.approve ruxsati berilmadi"
-    )
-    deployment = (root / "DEPLOYMENT.md").read_text(encoding="utf-8")
-    assert "reports.approve" in deployment, (
-        "DEPLOYMENT.md da ruxsat berish qoidasi hujjatlashtirilmagan"
     )

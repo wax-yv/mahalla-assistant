@@ -1,9 +1,3 @@
-"""J-7: Unicode fayl nomi bilan yuklab olish 500 bermasligi kerak.
-
-Muqova: `Oʻzbekiston_ro‘yxat.csv` nomi `latin-1` kodlashda muvaffaqiyatsiz —
-`UnicodeEncodeError` -> 500. Nom ichidagi `"` va CR/LF sarlavhani buzadi.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -13,15 +7,11 @@ from app.core.db import SessionLocal
 from app.core.downloads import content_disposition
 from app.models import Document, DocumentBlob
 
-
 def test_unicode_filename_is_encoded():
     header = content_disposition("Oʻzbekiston_ro‘yxat.csv")
     assert "filename*=UTF-8''" in header
-    # ASCII zaxira nom mavjud bo'lishi kerak
     assert 'filename="' in header
-    # Sarlavha butunlay latin-1 bilan kodlanishi mumkin bo'lishi kerak
     header.encode("latin-1")
-
 
 def test_quote_and_crlf_are_removed():
     header = content_disposition('bad"name\r\nX-Injected: 1.csv')
@@ -29,20 +19,16 @@ def test_quote_and_crlf_are_removed():
     assert "\n" not in header
     assert 'filename="bad' in header
 
-
 def test_empty_filename_gets_fallback():
     header = content_disposition("")
     assert 'filename="file"' in header
-
 
 def test_cyrillic_filename_is_encoded():
     header = content_disposition("Отчёт.docx")
     header.encode("latin-1")
     assert "filename*=UTF-8''" in header
 
-
 def test_documents_download_with_unicode_name(auth):
-    """Yuklab olish 500 bermasligi kerak."""
     client, token = auth
     headers = {"X-CSRF-Token": token}
 
@@ -66,7 +52,6 @@ def test_documents_download_with_unicode_name(auth):
             db.execute(delete(DocumentBlob).where(DocumentBlob.document_id == document_id))
             db.execute(delete(Document).where(Document.id == document_id))
             db.commit()
-
 
 @pytest.mark.parametrize(
     "filename",

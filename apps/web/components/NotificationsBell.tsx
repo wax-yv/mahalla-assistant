@@ -7,15 +7,6 @@ import {
 } from "@/components/ui/icons";
 import { api } from "@/lib/api";
 
-/**
- * Bildirishnoma qo‘ng‘irog‘i (audit 7.2).
- * Alohida bildirishnoma API’si yo‘q — ma’lumot mavjud endpointlardan olinadi:
- *   • /dashboard/tasks        → muddati o‘tgan va bugungi vazifalar
- *   • /cases?status=open      → ochiq (yangi) murojaatlar
- *   • /dashboard              → ma’lumot sifati (agar o‘qish huquqi bo‘lsa)
- * Hech qanday soxta raqam yoki mock ma’lumot ishlatilmaydi.
- */
-
 type TaskRow = { id: string; title: string; due_date: string | null; status: string; citizen_name?: string | null };
 type CaseRow = { id: string; title: string; status: string; citizen_name?: string | null };
 type DashboardQuality = { data_quality: { score: number; incomplete: number } };

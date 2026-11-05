@@ -1,9 +1,3 @@
-"""K-1: import moslashtirish — telefon bo'yicha boshqa odamni almashtirmaslik.
-
-Muqova: oila a'zolari bir xil telefondan foydalanadi. Importda telefon bo'yicha
-moslashuv oldingi odamning ustidan yozishiga olib kelardi (ota yo'qolardi).
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -32,7 +26,6 @@ MAPPING = {
     "family_role": "Oiladagi o'rni",
 }
 
-
 def _row(name: str, gender: str, birth: str, phone: str, role: str, family: str) -> dict:
     return {
         "F.I.Sh.": name,
@@ -46,9 +39,7 @@ def _row(name: str, gender: str, birth: str, phone: str, role: str, family: str)
         "Oiladagi o'rni": role,
     }
 
-
 def _cleanup() -> None:
-    """Test yaratgan yozuvlarni tozalaydi (boshqa testlarga tegilmaydi)."""
     with SessionLocal() as db:
         citizens = db.execute(
             select(Citizen).where(Citizen.full_name.like("TestSinov%"))
@@ -67,16 +58,13 @@ def _cleanup() -> None:
             db.execute(delete(Document).where(Document.id == document.id))
         db.commit()
 
-
 @pytest.fixture()
 def clean_db():
     _cleanup()
     yield
     _cleanup()
 
-
 def test_shared_phone_creates_two_citizens(clean_db, auth):
-    """Bir xil telefon, ikki xil ism -> 2 ta fuqaro (bitta emas)."""
     client, token = auth
     headers = {"X-CSRF-Token": token}
 
@@ -108,9 +96,7 @@ def test_shared_phone_creates_two_citizens(clean_db, auth):
     assert phones == ["+998901234567", "+998901234567"]
     assert len(citizens) == 2
 
-
 def test_validate_does_not_match_by_phone_only(clean_db):
-    """Telefon bo'yicha, ism mos kelmasa — moslashuv bo'lmasligi kerak."""
     from app.services import documents as service
 
     with SessionLocal() as db:
@@ -138,9 +124,7 @@ def test_validate_does_not_match_by_phone_only(clean_db):
     assert summary["will_create"] == 1
     assert summary["will_update"] == 0
 
-
 def test_name_and_birth_matches(clean_db):
-    """Ism + tug'ilgan sana — tabiiy kalit, moslashuv beradi."""
     from app.services import documents as service
 
     with SessionLocal() as db:
@@ -166,9 +150,7 @@ def test_name_and_birth_matches(clean_db):
     assert parsed[0]["match_method"] == "name_birth"
     assert summary["will_update"] == 1
 
-
 def test_phone_name_match_updates_same_person(clean_db):
-    """Telefon + ism mos bo'lsa — bitta shaxs yangilanadi (2 ta emas)."""
     from app.services import documents as service
 
     with SessionLocal() as db:
@@ -193,9 +175,7 @@ def test_phone_name_match_updates_same_person(clean_db):
     assert parsed[0]["existing_id"] == citizen_id
     assert parsed[0]["match_method"] in {"phone_name", "name_birth"}
 
-
 def test_find_existing_citizen_does_not_raise_multiple_results(clean_db):
-    """`scalar_one_or_none` MultipleResultsFound bermasligi kerak."""
     from app.services import documents as service
 
     with SessionLocal() as db:

@@ -16,13 +16,6 @@ const ROLE_LABELS: Record<string, string> = {
   viewer: "Ko‘ruvchi",
 };
 
-/**
- * Profil menyu (audit 7.6): avatar kartasi bosilganda menyu ochiladi.
- * aria-haspopup="menu", role="menu", Escape bilan yopiladi.
- *
- * Menyu `position: fixed` — sidebar `overflow-y: auto` uni kesib tashlamaydi
- * (ixcham holatda ham to‘liq ko‘rinadi).
- */
 export function ProfileMenu({ user }: { user: Me | null }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);

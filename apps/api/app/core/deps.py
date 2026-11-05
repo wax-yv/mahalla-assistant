@@ -15,9 +15,7 @@ from app.core.config import settings
 from app.models import Session as SessionModel
 from app.models import User
 
-
 def _commit_last_seen(session_id: str, seen_at: datetime) -> None:
-    """`last_seen_at` ni alohida sessiyada commit qiladi (E-4)."""
     from app.core.db import SessionLocal
 
     try:
@@ -29,16 +27,7 @@ def _commit_last_seen(session_id: str, seen_at: datetime) -> None:
     except Exception:  # pragma: no cover — monitoring maydoni, so'rov buzilmasin
         pass
 
-
 def client_ip(request: Request) -> str:
-    """Mijoz manzilini ishonchli manzildan aniqlaydi (O-1).
-
-    X-Forwarded-For sarlavhasiga **ishonmaydi** — mijoz uni o'zi yozishi
-    mumkin. `TRUSTED_PROXY_HOPS` sozlamasi proksi zanjirining uzunligini
-    bildiradi: XFF'ning o'ng tomonidan shu N-chi element haqiqiy mijoz
-    manzili bo'lib hisoblanadi. Sozlama 0 bo'lsa (yoki o'zgarmagan bo'lsa)
-    XFF butunlay e'tiborsiz qoldiriladi va `request.client.host` ishlatiladi.
-    """
     direct = (request.client.host if request.client else "unknown")[:64]
     try:
         hops = int(getattr(settings, "trusted_proxy_hops", 0) or 0)
@@ -51,14 +40,11 @@ def client_ip(request: Request) -> str:
         return direct
     parts = [item.strip() for item in forwarded.split(",") if item.strip()]
     if len(parts) < hops:
-        # Ishonchli proksi sonidan kam qiymat bor — XFF'ga ishonib bo'lmaydi.
         return direct
     return parts[-hops][:64]
 
-
 def request_id(request: Request) -> str:
     return getattr(request.state, "request_id", "") or ""
-
 
 def get_current_session(
     request: Request,
@@ -79,14 +65,10 @@ def get_current_session(
         expires = expires.replace(tzinfo=timezone.utc)
     if session.revoked_at is not None or expires <= now:
         raise unauthenticated("Sessiya muddati tugagan. Qaytadan kiring.")
-    # E-4: `last_seen_at` GET so'rovlarida commit bo'lmaydi — maydon deyarli
-    # yangilanmasdi. Endi 5 daqiqada bir marta yangilanadi va commit qilinadi
-    # (alohida sessiyada — so'rov tranzaksiyasiga bog'lanmasin).
     if session.last_seen_at is None or (now - session.last_seen_at) > timedelta(minutes=5):
         session.last_seen_at = now
         _commit_last_seen(session.id, now)
     return session
-
 
 def get_current_user(
     request: Request,
@@ -98,7 +80,6 @@ def get_current_user(
         raise unauthenticated("Foydalanuvchi faol emas.")
     return user
 
-
 def enforce_csrf(
     request: Request,
     session: Annotated[SessionModel, Depends(get_current_session)],
@@ -107,18 +88,12 @@ def enforce_csrf(
     if not header or not secure_compare(header, session.csrf_token):
         raise APIError(403, "CSRF_FAILED", "Xavfsizlik tekshiruvi muvaffaqiyatsiz. Sahifani yangilang.")
 
-
-# O-16: "segregation of duties" — bu permission'lar foydalanuvchi ro'yxatida
-# **aniq** ko'rsatilishi shart. `admin` roli ularni avtomatik bermaydi:
-# kim hisobotni yozsa, o'sha o'zini tasdiqlay olmasin.
 EXPLICIT_ONLY_PERMISSIONS: frozenset[str] = frozenset({"reports.approve"})
-
 
 def has_permission(user: User, permission: str) -> bool:
     if permission in EXPLICIT_ONLY_PERMISSIONS:
         return permission in (user.permissions or [])
     return user.role == "admin" or permission in (user.permissions or [])
-
 
 def require_permission(permission: str) -> Callable:
     def dependency(user: Annotated[User, Depends(get_current_user)]) -> User:
@@ -127,7 +102,6 @@ def require_permission(permission: str) -> Callable:
         return user
 
     return dependency
-
 
 def require_csrf_and_permission(permission: str) -> Callable:
     def dependency(
@@ -142,10 +116,8 @@ def require_csrf_and_permission(permission: str) -> Callable:
 
     return dependency
 
-
 CurrentUser = Annotated[User, Depends(get_current_user)]
 DbDep = Annotated[DbSession, Depends(get_db)]
-
 
 def stable_hash(*parts: str) -> str:
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()

@@ -1,13 +1,3 @@
-"""J-13: `ask()` so'rov ichida Lex.uz'dan hujjat yuklamasligi kerak.
-
-Muqova:
-- Natija topilmasa `sync_query` so'rov ichida bajarilardi — qidiruv 25 s +
-  3 hujjat × 25 s = 60 s dan oshishi mumkin edi.
-- Savolga aloqasi bo'lmagan top-3 natija bazaga **kiritilardi**.
-- Foydalanuvchi savoli matni (fuqaro ismi bo'lishi mumkin) tashqi saytga
-  qidiruv so'rovi sifatida ketardi.
-"""
-
 from __future__ import annotations
 
 import time
@@ -16,9 +6,7 @@ import pytest
 
 from app.services import legislation as service
 
-
 def test_ask_does_not_sync_by_default(monkeypatch):
-    """Standart `ask()` tashqi saytga so'rov yubormasligi kerak."""
     calls: list[str] = []
 
     def _fail_sync(*args, **kwargs):
@@ -34,16 +22,12 @@ def test_ask_does_not_sync_by_default(monkeypatch):
     assert result["sources"] == []
     assert "sinxron" in result["answer"].lower()
 
-
 def test_router_default_is_no_auto_sync():
-    """Router'dagi `sync_if_empty` defaulti `False` bo'lishi kerak."""
     from app.routers.legislation import LegislationQuestion
 
     assert LegislationQuestion(question="test").sync_if_empty is False
 
-
 def test_explicit_sync_still_supported(monkeypatch):
-    """Foydalanuvchi aniq so'raganda sinxron ishlashi kerak."""
     calls: list[str] = []
 
     def _fake_sync(db, query, limit=3, actor=None, budget_seconds=20):
@@ -57,9 +41,7 @@ def test_explicit_sync_still_supported(monkeypatch):
 
     assert calls == ["ijara qoidalari"], f"sinxron chaqirilmadi: {calls}"
 
-
 def test_sync_query_respects_time_budget(monkeypatch):
-    """Sinxron umumiy vaqt chegarasi bilan cheklangan bo'lishi kerak."""
     calls: list[float] = []
 
     def _fake_ingest(db, url, *, actor=None, timeout=25):
@@ -88,7 +70,5 @@ def test_sync_query_respects_time_budget(monkeypatch):
         f"chaqiruvlarga berilgan timeout chegaradan katta: {calls}"
     )
 
-
 def test_budget_constant_is_20_seconds():
-    """Umumiy vaqt chegarasi 20 sekund (audit talabi)."""
     assert service.SYNC_BUDGET_SECONDS == 20

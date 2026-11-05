@@ -1,8 +1,3 @@
-"""Demo ma'lumotlarini yuklash.
-
-Manba: demo_fuqarolar_bazasi.xlsx (Xorazm viloyati, Urganch shahri,
-Navbahor mahallasi). Skript idempotent: mavjud yozuvlarni yangilaydi.
-"""
 from __future__ import annotations
 
 import hashlib
@@ -37,26 +32,17 @@ from app.models import (
     WorkLog,
 )
 
-# N-8: tashqi absolyut yo'l (Downloads) olib tashlandi — faqat loyihaga
-# kiritilgan sintetik dataset ishlatiladi.
-# Bundled with the API project so the Vercel serverless bundle includes it.
 PREFERRED_FILE = Path(__file__).resolve().parents[1] / "data" / "demo_fuqarolar_bazasi.xlsx"
 RNG = random.Random(20261103)
 NOW = datetime.now(timezone.utc)
 
-
 def _stable_int(value: str, modulo: int) -> int:
     return int(hashlib.sha256(value.encode("utf-8")).hexdigest()[:8], 16) % modulo
-
 
 def _verified(seed: str) -> datetime:
     return NOW - timedelta(days=_stable_int(seed, 21))
 
-
 def load_source_rows():
-    # N-8: faqat loyiha ichidagi (repo'ga kiritilgan) sintetik dataset
-    # ishlatiladi — tashqi/absolyut yo'l (masalan, Downloads) hech qachon
-    # o'qilmaydi, aks holda tashodifiy real ma'lumot yuklanishi mumkin edi.
     path = PREFERRED_FILE
     if not path.exists():
         raise RuntimeError(
@@ -68,10 +54,8 @@ def load_source_rows():
     citizens = list(workbook["Fuqarolar"].iter_rows(values_only=True))[1:]
     return houses, families, citizens
 
-
 def _clean(value) -> str:
     return "" if value is None else str(value).strip()
-
 
 def _date(value) -> date | None:
     if isinstance(value, datetime):
@@ -79,7 +63,6 @@ def _date(value) -> date | None:
     if isinstance(value, date):
         return value
     return None
-
 
 def seed_hierarchy(db: Session) -> dict[str, Family]:
     houses_rows, families_rows, citizen_rows = load_source_rows()
@@ -152,7 +135,6 @@ def seed_hierarchy(db: Session) -> dict[str, Family]:
             family_map[family_id] = family
         else:
             family_map[family_id] = family
-    # Preload existing citizen ids in one query to keep the loop cheap.
     existing_ids = set(
         db.execute(select(Citizen.id)).scalars().all()
     )
@@ -195,7 +177,6 @@ def seed_hierarchy(db: Session) -> dict[str, Family]:
     if new_citizens:
         db.add_all(new_citizens)
     db.flush()
-    # Assign family heads without extra per-row queries.
     if new_citizens:
         all_citizens = db.execute(select(Citizen).where(Citizen.family_id.is_not(None))).scalars().all()
         for citizen in all_citizens:
@@ -209,7 +190,6 @@ def seed_hierarchy(db: Session) -> dict[str, Family]:
                 family.family_head_citizen_id = citizen.id
     db.commit()
     return family_map
-
 
 CASE_BLUEPRINTS = [
     ("Bandlik", "Ish bilan ta'minlash bo'yicha murojaat", "open", "high", "Ishsiz fuqaro kasb-hunar yo'nalishida ish topishni so'radi. Bandlik markazi bilan bog'lanish rejalashtirildi."),
@@ -249,7 +229,6 @@ WORKLOG_BLUEPRINTS = [
     ("bajarilgan ish", "Amaliy yordam ko'rsatildi", "Murojaat bo'yicha amaliy yordam ko'rsatildi, natija qayd etildi."),
     ("natija", "Natija ma'lum qilindi", "Fuqaroga murojaat natijasi haqida ma'lumot berildi."),
 ]
-
 
 def seed_operational(db: Session) -> None:
     citizens = db.execute(
@@ -291,8 +270,6 @@ def seed_operational(db: Session) -> None:
     else:
         cases = db.execute(select(Case).order_by(Case.opened_at.desc())).scalars().all()
     if not db.execute(select(Task).limit(1)).scalar_one_or_none():
-        # N-8: task fuqarosi — tanlangan case fuqarosi bilan mos bo'lishi kerak
-        # (case fuqarosi A, task fuqarosi B bo'lib qolmasin).
         case_by_index = [
             (case.id, case.citizen_id, case.family_id) for case in cases
         ]
@@ -354,7 +331,6 @@ def seed_operational(db: Session) -> None:
                     source="seed",
                 )
             )
-        # N-8: sikl ichida takroriy SELECT o'rniga — bir marta o'qiladi.
         first_tasks = db.execute(
             select(Task).order_by(Task.created_at).limit(8)
         ).scalars().all()
@@ -400,7 +376,6 @@ def seed_operational(db: Session) -> None:
                 )
             )
     db.commit()
-
 
 PROGRAMS = [
     {
@@ -517,7 +492,6 @@ PROGRAMS = [
     },
 ]
 
-
 LEGISLATION = [
     {
         "title": "O'zbekiston Respublikasi Konstitutsiyasi",
@@ -590,7 +564,6 @@ LEGISLATION = [
     },
 ]
 
-
 def seed_programs(db: Session) -> None:
     for item in PROGRAMS:
         program = db.execute(
@@ -634,7 +607,6 @@ def seed_programs(db: Session) -> None:
                 )
             )
     db.commit()
-
 
 def seed_legislation(db: Session) -> None:
     for item in LEGISLATION:
@@ -697,7 +669,6 @@ def seed_legislation(db: Session) -> None:
         db.flush()
     db.commit()
 
-
 def seed_settings(db: Session) -> None:
     defaults = {
         "app": {
@@ -739,7 +710,6 @@ def seed_settings(db: Session) -> None:
             job.next_run_at = NOW + timedelta(minutes=15)
     db.commit()
 
-
 def seed_conversation(db: Session) -> None:
     if db.execute(select(Conversation).limit(1)).scalar_one_or_none():
         return
@@ -769,11 +739,9 @@ def seed_conversation(db: Session) -> None:
     )
     db.commit()
 
-
 def seed_admin(db: Session) -> None:
     from app.core.config import assert_admin_password_allowed, settings
 
-    # K-6: ishlab chiqarishda standart parol bilan admin yaratilmasligi kerak.
     assert_admin_password_allowed()
     username = (settings.admin_username or "wax").strip().lower()
     user = db.execute(select(User).where(User.username == username)).scalar_one_or_none()
@@ -783,15 +751,12 @@ def seed_admin(db: Session) -> None:
     user.display_name = "Mahalla administratori"
     user.password_hash = hash_password(settings.admin_password or "waxs")
     user.role = "admin"
-    # O-16: `reports.approve` ruxsati `admin` roli bilan avtomatik
-    # berilmaydi — uni aniq qo'shamiz (boshqa ruxsatlar saqlanadi).
     permissions = list(user.permissions or [])
     if "reports.approve" not in permissions:
         permissions.append("reports.approve")
     user.permissions = permissions
     user.is_active = True
     db.commit()
-
 
 def run() -> None:
     Base.metadata.create_all(bind=engine)
@@ -805,7 +770,6 @@ def run() -> None:
         seed_conversation(db)
         citizens = db.execute(select(Citizen)).scalars().all()
         print(f"Seed tugadi: {len(citizens)} fuqaro, mahalla Navbahor.")
-
 
 if __name__ == "__main__":
     run()

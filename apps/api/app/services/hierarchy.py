@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -18,7 +17,6 @@ from app.services.serializers import (
     work_log_out,
 )
 
-
 def _family_eager():
     return (
         joinedload(Family.house)
@@ -26,35 +24,22 @@ def _family_eager():
         .joinedload(Street.mahalla)
     )
 
-
 def _mahalla_street_ids():
-    """Mahallaga tegishli ko'cha id'lari (korrelyatsiyalangan subso'rov)."""
     return select(Street.id).where(Street.mahalla_id == Mahalla.id).correlate(Mahalla)
-
 
 def _mahalla_house_ids():
     return select(House.id).where(House.street_id.in_(_mahalla_street_ids())).correlate(Mahalla)
 
-
 def _mahalla_family_ids():
     return select(Family.id).where(Family.house_id.in_(_mahalla_house_ids())).correlate(Mahalla)
-
 
 def _street_house_ids():
     return select(House.id).where(House.street_id == Street.id).correlate(Street)
 
-
 def _street_family_ids():
     return select(Family.id).where(Family.house_id.in_(_street_house_ids())).correlate(Street)
 
-
 def list_mahallas(db: Session) -> list[dict]:
-    """Mahallalar ro'yxati — bitta so'rov (N-1).
-
-    Avval har mahalla uchun 4 ta alohida so'rov bajarilardi. Endi
-    hisoblar korrelyatsiyalangan skal-subso'rovlar bilan bitta SQL da
-    olinadi.
-    """
     rows = db.execute(
         select(
             Mahalla.id,
@@ -97,9 +82,7 @@ def list_mahallas(db: Session) -> list[dict]:
         for row in rows
     ]
 
-
 def list_streets(db: Session, mahalla_id: str | None = None) -> list[dict]:
-    """Ko'chalar ro'yxati — bitta so'rov (N-1)."""
     stmt = select(
         Street.id,
         Street.mahalla_id,
@@ -135,7 +118,6 @@ def list_streets(db: Session, mahalla_id: str | None = None) -> list[dict]:
         for row in rows
     ]
 
-
 def get_street(db: Session, street_id: str) -> dict:
     street = db.execute(
         select(Street).options(joinedload(Street.mahalla)).where(Street.id == street_id)
@@ -162,12 +144,7 @@ def get_street(db: Session, street_id: str) -> dict:
         ],
     }
 
-
 def _house_counts(db: Session, house_ids: list[str]) -> dict[str, tuple[int, int]]:
-    """Bir nechta uy uchun oila/fuqaro sonlarini bitta so'rovda (N-1).
-
-    Avval `house_out()` har uyga 2 ta so'rov yuborardi (50 ta uy = 100+).
-    """
     if not house_ids:
         return {}
     rows = db.execute(
@@ -187,18 +164,12 @@ def _house_counts(db: Session, house_ids: list[str]) -> dict[str, tuple[int, int
     ).all()
     return {row[0]: (int(row[1] or 0), int(row[2] or 0)) for row in rows}
 
-
 def house_out(
     db: Session,
     house: House,
     family_count: int | None = None,
     citizen_count: int | None = None,
 ) -> dict:
-    """Uy ma'lumotini chiqaradi (N-1).
-
-    `family_count` / `citizen_count` berilsa — qo'shimcha so'rov
-    bajarilmaydi (ro'yxatda bir martada hisoblanadi).
-    """
     if family_count is None or citizen_count is None:
         counts = _house_counts(db, [house.id]).get(house.id, (0, 0))
         family_count = counts[0] if family_count is None else family_count
@@ -211,7 +182,6 @@ def house_out(
         "family_count": int(family_count),
         "citizen_count": int(citizen_count),
     }
-
 
 def list_houses(
     db: Session,
@@ -252,7 +222,6 @@ def list_houses(
         for row in rows
     ], meta
 
-
 def get_house(db: Session, house_id: str) -> dict:
     house = db.execute(
         select(House)
@@ -271,7 +240,6 @@ def get_house(db: Session, house_id: str) -> dict:
         "families": [family_out(item, member_count=_member_count(db, item.id)) for item in families],
     }
 
-
 def _member_count(db: Session, family_id: str) -> int:
     return int(
         db.execute(
@@ -280,7 +248,6 @@ def _member_count(db: Session, family_id: str) -> int:
             .where(Citizen.family_id == family_id, Citizen.archived_at.is_(None))
         ).scalar_one()
     )
-
 
 def list_families(
     db: Session,
@@ -323,7 +290,6 @@ def list_families(
     items = [family_out(row, member_count=_member_count(db, row.id)) for row in rows]
     return items, meta
 
-
 def get_family(db: Session, family_id: str) -> dict:
     family = db.execute(
         select(Family)
@@ -364,7 +330,6 @@ def get_family(db: Session, family_id: str) -> dict:
     )
     return data
 
-
 def create_family(db: Session, payload: FamilyCreate, actor: str, request_id: str | None) -> Family:
     house = db.get(House, payload.house_id)
     if house is None:
@@ -391,14 +356,12 @@ def create_family(db: Session, payload: FamilyCreate, actor: str, request_id: st
     db.refresh(family)
     return family
 
-
 def update_family(
     db: Session, family_id: str, payload: FamilyUpdate, actor: str, request_id: str | None
 ) -> Family:
     family = db.get(Family, family_id)
     if family is None:
         raise not_found("Oila topilmadi.")
-    # D-1: versiya majburiy.
     if payload.version != family.version:
         raise conflict("Oila ma'lumoti o'zgargan. Sahifani yangilang.")
     before = model_snapshot(family)

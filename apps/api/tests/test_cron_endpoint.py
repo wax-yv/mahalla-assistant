@@ -1,28 +1,22 @@
-"""K-4: cron endpoint — Vercel Cron uchun GET + Bearer token."""
-
 from __future__ import annotations
 
 import pytest
 
 from app.core.config import settings
 
-
 @pytest.fixture()
 def fake_secret(monkeypatch):
     monkeypatch.setattr(settings, "cron_secret", "test-cron-secret")
     yield "test-cron-secret"
-
 
 @pytest.fixture()
 def no_secret(monkeypatch):
     monkeypatch.setattr(settings, "cron_secret", "change-me")
     yield
 
-
 def test_cron_requires_authorization(client):
     response = client.get("/api/v1/cron/run-due")
     assert response.status_code in (403, 503), response.text
-
 
 def test_cron_rejects_wrong_token(client, fake_secret):
     response = client.get(
@@ -30,20 +24,17 @@ def test_cron_rejects_wrong_token(client, fake_secret):
     )
     assert response.status_code == 403, response.text
 
-
 def test_cron_rejects_non_bearer_scheme(client, fake_secret):
     response = client.get(
         "/api/v1/cron/run-due", headers={"Authorization": fake_secret}
     )
     assert response.status_code == 403, response.text
 
-
 def test_cron_is_disabled_without_configured_secret(client, no_secret):
     response = client.get(
         "/api/v1/cron/run-due", headers={"Authorization": "Bearer change-me"}
     )
     assert response.status_code == 503, response.text
-
 
 def test_cron_runs_due_jobs_with_valid_token(client, fake_secret, monkeypatch):
     from app.services import scheduler
@@ -62,14 +53,11 @@ def test_cron_runs_due_jobs_with_valid_token(client, fake_secret, monkeypatch):
     assert response.json()["items"][0]["job_id"] == "JOB-1"
     assert called["count"] == 1
 
-
 def test_cron_is_get_only(client, fake_secret):
-    """Vercel Cron GET yuboradi — endpoint ham GET bo'lishi kerak."""
     response = client.post(
         "/api/v1/cron/run-due", headers={"Authorization": f"Bearer {fake_secret}"}
     )
     assert response.status_code == 405, response.text
-
 
 def test_vercel_json_has_cron_schedule():
     import json

@@ -14,7 +14,6 @@ from app.services import auth as auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-
 def _me(user: User, session: SessionModel) -> MeResponse:
     return MeResponse(
         user=UserOut.model_validate(user),
@@ -23,14 +22,7 @@ def _me(user: User, session: SessionModel) -> MeResponse:
         version=settings.app_version,
     )
 
-
 def _cookie_secure(request: Request) -> bool:
-    """Session cookie uchun `Secure` belgisi (O-2).
-
-    `APP_ENV` xato yozilsa yoki production'da bo'lmasa cookie HTTP orqali
-    ketib qolishi mumkin edi. Endi: production, `https` so'rovi yoki Vercel
-    muhitida har doim `Secure` qo'yiladi.
-    """
     import os
 
     if settings.is_production:
@@ -38,7 +30,6 @@ def _cookie_secure(request: Request) -> bool:
     if request.url.scheme == "https":
         return True
     return bool(os.getenv("VERCEL"))
-
 
 @router.post("/login", response_model=MeResponse)
 def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
@@ -56,11 +47,9 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     )
     return _me(user, session)
 
-
 @router.get("/me", response_model=MeResponse)
 def me(user: User = Depends(get_current_user), session: SessionModel = Depends(get_current_session)):
     return _me(user, session)
-
 
 @router.post("/logout", response_model=MessageResponse)
 def logout(

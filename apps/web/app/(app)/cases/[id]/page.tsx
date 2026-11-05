@@ -11,7 +11,6 @@ import { CASE_STATUS, PRIORITY, TASK_STATUS, fmtDate, statusBadge } from "@/lib/
 
 type CaseDetail = {
   id: string; title: string; category: string; description: string; status: string; priority: string;
-  /** D-1: optimistic qulf uchun yozuv versiyasi (PATCH majburiy). */
   version: number;
   citizen_id?: string | null; citizen_name?: string | null; responsible_user?: string | null;
   opened_at: string; target_date?: string | null; outcome?: string; closed_at?: string | null;

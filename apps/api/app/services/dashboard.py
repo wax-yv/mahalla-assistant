@@ -10,8 +10,6 @@ from app.core.time import minus_years, today_local
 from app.models import AuditLog, Case, Citizen, Family, House, Mahalla, Street, Task
 from app.services.serializers import case_out, task_out
 
-# N-2: barcha audit amallari uchun insoniy o'zbekcha yorliq. Texnik kalit
-# (`case.created`) foydalanuvchiga ko'rinmasligi kerak.
 ACTION_LABELS: dict[str, str] = {
     "auth.login": "Tizimga kirdi",
     "auth.logout": "Tizimdan chiqdi",
@@ -58,7 +56,6 @@ ACTION_TONES: dict[str, str] = {
     "failed": "warning",
 }
 
-# N-2: ustuvorlik tartibi — string bo'yicha emas, aniq tartibda.
 PRIORITY_RANK = case(
     (Task.priority == "urgent", 4),
     (Task.priority == "high", 3),
@@ -67,23 +64,14 @@ PRIORITY_RANK = case(
     else_=0,
 )
 
-# N-2: ehtiyoj matnlarini o'qish chegarasi (xotira xavfsizligi).
 NEEDS_CHUNK_SIZE = 1000
 
-
 def _action_title(action: str) -> str:
-    """Audit amali uchun insoniy sarlavha."""
     if action in ACTION_LABELS:
         return ACTION_LABELS[action]
     return action.replace(".", " ").capitalize()
 
-
 def _incomplete_condition():
-    """To'liq emas deb hisoblanadigan fuqarolar sharti (N-2).
-
-    `phone == ""` faqat bo'sh satrni aniqlaydi — `NULL` telefon ham bo'sh
-    hisoblanadi.
-    """
     return or_(
         Citizen.phone == "",
         Citizen.phone.is_(None),
@@ -91,15 +79,11 @@ def _incomplete_condition():
         Citizen.family_id.is_(None),
     )
 
-
 def _citizen_base():
     return select(Citizen).where(Citizen.archived_at.is_(None))
 
-
 def summary(db: Session) -> dict:
     today = today_local()
-    # N-1: metrikalar 14+ alohida COUNT so'rovi emas, 3 ta agregatsiya
-    # so'rovi (fuqaro / tuzilma / operatsiya) orqali olinadi.
     youth_cutoff = minus_years(today, 30)
     updated_since = datetime.now(timezone.utc) - timedelta(days=1)
 
@@ -241,7 +225,6 @@ def summary(db: Session) -> dict:
     activity = recent_activity(db, limit=10)
 
     incomplete = int(citizen_row.incomplete)
-    # N-2: raqam va ulush mos kelishi uchun arxivlanganlar chiqariladi.
     updated_today = int(citizen_row.updated_today)
     data_quality = {
         "complete": total_citizens - incomplete,
@@ -267,16 +250,7 @@ def summary(db: Session) -> dict:
         "timezone": "Asia/Tashkent",
     }
 
-
 def _distribution(db: Session, column, limit: int = 12, total: int | None = None) -> list[dict]:
-    """Taqsimot (N-2): foiz haqiqiy jami fuqaro bo'yicha hisoblanadi.
-
-    Eski kodda `total` faqat **top-12** qatorlar yig'indisi edi — foizlar
-    100% ga yetmasdi va ko'rsatkich boshqa qiymat bilan kelishardi.
-
-    N-1: jami (`total`) tashqaridan berilsa — qo'shimcha COUNT so'rovi
-    bajarilmaydi.
-    """
     rows = db.execute(
         select(column, func.count())
         .select_from(Citizen)
@@ -301,14 +275,7 @@ def _distribution(db: Session, column, limit: int = 12, total: int | None = None
         for row in rows
     ]
 
-
 def _iter_needs_text(db: Session, chunk_size: int = NEEDS_CHUNK_SIZE):
-    """`needs_text` matnlarini bo'laklab o'qish (N-2).
-
-    Butun matnlar bir vaqtda yuklanmasligi kerak — katta bazada bu xotira
-    (OOM) xavfini tug'diradi. Kalit bo'yicha (keyset) sahifalanish
-    `OFFSET` dan tez va barqaror ishlaydi.
-    """
     last_id = ""
     while True:
         rows = db.execute(
@@ -328,7 +295,6 @@ def _iter_needs_text(db: Session, chunk_size: int = NEEDS_CHUNK_SIZE):
             return
         last_id = rows[-1][0]
 
-
 def _needs_distribution(db: Session) -> list[dict]:
     counts: dict[str, int] = {}
     for chunk in _iter_needs_text(db):
@@ -343,7 +309,6 @@ def _needs_distribution(db: Session) -> list[dict]:
         {"label": label, "value": value, "percent": round(value / total * 100, 1)}
         for label, value in ordered
     ]
-
 
 def _street_rows(db: Session) -> list[dict]:
     rows = db.execute(
@@ -369,7 +334,6 @@ def _street_rows(db: Session) -> list[dict]:
         }
         for row in rows
     ]
-
 
 def recent_activity(db: Session, limit: int = 20) -> list[dict]:
     rows = db.execute(
@@ -397,7 +361,6 @@ def recent_activity(db: Session, limit: int = 20) -> list[dict]:
         )
     return items
 
-
 def _audit_description(row: AuditLog) -> str:
     value = row.new_value or row.old_value or {}
     for key in ("title", "full_name", "username", "filename", "name", "key"):
@@ -406,7 +369,6 @@ def _audit_description(row: AuditLog) -> str:
     if isinstance(value, dict) and value.get("status"):
         return f"Holat: {value['status']}"
     return ""
-
 
 def activity_page(db: Session, page: int, page_size: int) -> tuple[list[dict], PageMeta]:
     stmt = select(AuditLog).order_by(AuditLog.created_at.desc())
@@ -432,7 +394,6 @@ def activity_page(db: Session, page: int, page_size: int) -> tuple[list[dict], P
             }
         )
     return items, meta
-
 
 def dashboard_tasks(db: Session) -> dict:
     today = today_local()

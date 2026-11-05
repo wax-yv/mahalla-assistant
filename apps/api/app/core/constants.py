@@ -16,7 +16,6 @@ PERMISSIONS: tuple[str, ...] = (
     "documents.export",
     "reports.read",
     "reports.generate",
-    # O-16: hisobot tasdiqlash — alohida ruxsat ("segregation of duties").
     "reports.approve",
     "reports.export",
     "agents.use",
@@ -141,8 +140,6 @@ AGENT_NAMES = (
     "plan_control",
 )
 
-# N-9: chat niyyatlari — `agents.py` dagi INTENT_RULES/INTENT_AGENT bilan
-# mos kelishi shart (`data_stats` va `agent_status` ham bor).
 INTENTS = (
     "citizen_lookup",
     "greeting",

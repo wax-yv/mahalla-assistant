@@ -1,10 +1,3 @@
-"""J-6: `citizens.data_source` uzunligi — fayl nomi 255 belgidan uzun bo'lishi mumkin.
-
-Muqova: Postgres'da `String(64)` ustunga 64+ belgili fayl nomi bilan commit
-"value too long for type character varying(64)" -> 500, import batch "failed"
-holatda qoladi. SQLite uzunlikni tekshirmaydi — lokal sinov ko'rmaydi.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -13,10 +6,8 @@ from sqlalchemy import delete, select
 from app.core.db import SessionLocal
 from app.models import Citizen, Document, DocumentBlob, Family, House, ImportBatch, Street
 
-
 @pytest.fixture()
 def clean_db():
-    """Test yozuvlarini tozalaydi (boshqa testlarga tegilmaydi)."""
     with SessionLocal() as db:
         citizens = db.execute(
             select(Citizen).where(Citizen.full_name.like("TestSinov%"))
@@ -53,16 +44,13 @@ def clean_db():
             db.execute(delete(Document).where(Document.id == document.id))
         db.commit()
 
-
 def test_data_source_column_is_255_in_model():
     from app.models import Citizen as CitizenModel
 
     column = CitizenModel.__table__.columns["data_source"]
     assert column.type.length == 255
 
-
 def test_long_file_name_does_not_break_import(clean_db, auth):
-    """64 belgidan uzun fayl nomi bilan import 500 bermasligi kerak."""
     client, token = auth
     headers = {"X-CSRF-Token": token}
 
@@ -94,7 +82,6 @@ def test_long_file_name_does_not_break_import(clean_db, auth):
     assert citizen is not None
     assert citizen.data_source
     assert len(citizen.data_source) <= 255
-
 
 def test_migration_script_widens_data_source():
     from pathlib import Path

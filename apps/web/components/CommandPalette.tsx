@@ -8,12 +8,6 @@ import {
 } from "@/components/ui/icons";
 import { api } from "@/lib/api";
 
-/**
- * Universal qidiruv — Command-K (audit 7.1).
- * Yangi `/search` endpoint yo‘q: mavjud endpointlarga (`/citizens`, `/cases`,
- * `/documents`, `/families`, `/legislation/search`) parallel so‘rov yuboriladi.
- */
-
 type Group = "navigatsiya" | "fuqarolar" | "murojaatlar" | "oilalar" | "hujjatlar" | "qonun";
 
 type Result = {
@@ -70,7 +64,6 @@ export function CommandPalette() {
     setResults([]);
   }, []);
 
-  /* Ctrl+K / ⌘K — paletkani ochish */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
@@ -88,7 +81,6 @@ export function CommandPalette() {
     return () => window.clearTimeout(timer);
   }, [open]);
 
-  /* Focus-trap + return-focus (P1-7 mantiqi paletkaga ham qo‘llanadi) */
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -123,7 +115,6 @@ export function CommandPalette() {
     };
   }, [open, close]);
 
-  /* Fan-out: mavjud endpointlar (Promise.allSettled) */
   const runSearch = useCallback(async (raw: string) => {
     const q = raw.trim();
     const token = ++seq.current;
@@ -144,8 +135,6 @@ export function CommandPalette() {
 
     type LawItem = { document: { id: string; title: string; number?: string }; chunk?: { article?: string } };
 
-    // `/legislation/search` `q` uchun kamida 2 ta belgi talab qiladi — 1 harfli
-    // so‘rovda endpoint chaqirilmaydi (majburan 422 kelmasligi uchun).
     const lawsPromise: Promise<{ items: LawItem[] }> =
       q.length >= 2
         ? api.get<{ items: LawItem[] }>(`/legislation/search?q=${encodeURIComponent(q)}&limit=4`)

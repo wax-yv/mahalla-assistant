@@ -19,14 +19,12 @@ from app.services import documents as service
 
 router = APIRouter(tags=["documents"])
 
-
 def _attachment(data: bytes, filename: str, media_type: str) -> Response:
     return Response(
         content=data,
         media_type=media_type,
         headers={"Content-Disposition": content_disposition(filename)},
     )
-
 
 @router.get("/documents")
 def list_documents(
@@ -40,16 +38,8 @@ def list_documents(
     rows, meta = service.list_documents(db, kind=kind, q=q, page=page, page_size=page_size)
     return {"items": rows, "meta": meta.model_dump()}
 
-
 async def _read_upload(request: Request, file: UploadFile) -> bytes:
-    """Faylni oqimli o'qib, hajm chegarasini qo'llaydi (O-10).
-
-    Katta fayl butunligi bilan RAM'ga yuklanmasligi kerak — `Content-Length`
-    oldindan tekshiriladi, oqim esa chegarani buzsa to'xtatiladi (413).
-    """
     limit = settings.max_upload_bytes
-    # Multipart body'siz da chegaradan biroz kattaroq bo'ladi — kichik
-    # zaxira (64 KB) multipart sarlavhalari uchun.
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > limit + 64 * 1024:
         raise payload_too_large(
@@ -67,9 +57,7 @@ async def _read_upload(request: Request, file: UploadFile) -> bytes:
             )
     return bytes(buffer)
 
-
 def _parse_mapping(mapping: str | None) -> dict | None:
-    """`mapping` JSON'ini tekshiradi (O-10: noto'g'ri JSON -> 422, 500 emas)."""
     if not mapping:
         return None
     try:
@@ -81,7 +69,6 @@ def _parse_mapping(mapping: str | None) -> dict | None:
     if not isinstance(parsed, dict):
         raise validation_error("«mapping» JSON obyekti bo'lishi kerak.")
     return parsed
-
 
 @router.post("/documents", status_code=201)
 async def upload_document(
@@ -107,7 +94,6 @@ async def upload_document(
         payload["analysis"] = service.analyze_document(db, document, data, parsed_mapping, user.id)
     return payload
 
-
 @router.get("/documents/imports")
 def list_imports(
     page: int = Query(1, ge=1),
@@ -125,7 +111,6 @@ def list_imports(
         "meta": meta.model_dump(),
     }
 
-
 @router.get("/documents/imports/{batch_id}")
 def get_import(
     batch_id: str,
@@ -133,7 +118,6 @@ def get_import(
     _=Depends(require_permission("documents.read")),
 ):
     return service.get_batch_preview(db, batch_id)
-
 
 @router.post("/documents/imports/{batch_id}/analyze")
 def reanalyze_import(
@@ -149,7 +133,6 @@ def reanalyze_import(
     document, data = service.get_document_blob(db, batch.document_id)
     mapping = payload.mapping or batch.mapping
     return service.analyze_document(db, document, data, mapping, user.id, sheet=payload.sheet)
-
 
 @router.post("/documents/imports/{batch_id}/commit")
 def commit_import(
@@ -168,7 +151,6 @@ def commit_import(
         request_id=getattr(request.state, "request_id", None),
     )
 
-
 @router.post("/documents/imports/{batch_id}/rollback")
 def rollback_import(
     batch_id: str,
@@ -180,11 +162,9 @@ def rollback_import(
         db, batch_id, user.id, getattr(request.state, "request_id", None)
     )
 
-
 @router.get("/exports/{module}")
 def export_module_get(
     module: str,
-    # O-17: format `Literal` bilan tekshiriladi — noma'lum formatda 422.
     format: Literal["xlsx", "csv", "docx", "pdf"] = Query("xlsx"),
     filters: str | None = None,
     db: Session = Depends(get_db),
@@ -193,7 +173,6 @@ def export_module_get(
     parsed = json.loads(filters) if filters else {}
     data, filename, media_type = service.export_module(db, module, format, parsed)
     return _attachment(data, filename, media_type)
-
 
 @router.post("/exports")
 def export_module_post(
@@ -205,7 +184,6 @@ def export_module_post(
         db, payload.module, payload.format, payload.filters
     )
     return _attachment(data, filename, media_type)
-
 
 @router.get("/documents/{document_id}")
 def get_document(
@@ -225,7 +203,6 @@ def get_document(
         ),
     }
 
-
 @router.get("/documents/{document_id}/download")
 def download_document(
     document_id: str,
@@ -234,7 +211,6 @@ def download_document(
 ):
     document, data = service.get_document_blob(db, document_id)
     return _attachment(data, document.original_name, document.mime_type)
-
 
 @router.delete("/documents/{document_id}", response_model=MessageResponse)
 def delete_document(

@@ -15,7 +15,6 @@ from app.core.config import settings
 from app.core.errors import service_unavailable
 from app.models import AIUsage
 
-# O-9: registratsiya — (model_id, provider, label, context, rank) tuple'lari.
 MODEL_REGISTRY: list[tuple[str, str, str, int, int]] = [
     ("nvidia/nemotron-3-ultra-550b-a55b", "nvidia", "Nemotron 3 Ultra 550B", 1_000_000, 1),
     ("deepseek-ai/deepseek-v4.1-flash", "nvidia", "DeepSeek V4.1 Flash", 128_000, 2),
@@ -31,13 +30,9 @@ MODEL_REGISTRY: list[tuple[str, str, str, int, int]] = [
     ("recursive/flint-v1.0:free", "openrouter", "Flint 1.0 (OpenRouter)", 262_144, 12),
 ]
 
-# O-9: provayderning jonli model ro'yxati keshi (1 soat).
 LIVE_MODELS_TTL_SECONDS = 3600
-# Texlik bilan tugagan tekshiruvning keshi qisqa (1 daqiqa).
 LIVE_MODELS_ERROR_TTL_SECONDS = 60
-# (vaqt, ulanganmi, tushuntirish, model_id'lar)
 _provider_models_cache: dict[str, tuple[float, bool, str, frozenset[str]]] = {}
-
 
 @dataclass
 class AIResult:
@@ -51,13 +46,7 @@ class AIResult:
     attempts: list[dict[str, Any]] = field(default_factory=list)
     fallback_used: bool = False
 
-
 def _provider_models(provider: str) -> tuple[bool, str, set[str]]:
-    """Provayderning `/models` ro'yxatini oladi (O-9: 1 soat kesh).
-
-    Qaytaradi: (ulanganmi, tushuntirish, model ID'lar). Texlik bo'lsa
-    qisqa vaqtli keshga yoziladi — xato bir soat davom etmaydi.
-    """
     now = time.monotonic()
     cached = _provider_models_cache.get(provider)
     if cached is not None:
@@ -94,12 +83,7 @@ def _provider_models(provider: str) -> tuple[bool, str, set[str]]:
     _provider_models_cache[provider] = (now, ok, detail, frozenset(ids))
     return ok, detail, ids
 
-
 def _provider_model_ids(provider: str) -> set[str] | None:
-    """Provayderning jonli model ID'lari (1 soat kesh).
-
-    `None` — tekshiruv imkonsiz (API kaliti yo'q yoki tarmoq xatosi).
-    """
     api_key = (
         settings.nvidia_nim_api_key if provider == "nvidia" else settings.openrouter_api_key
     )
@@ -110,13 +94,7 @@ def _provider_model_ids(provider: str) -> set[str] | None:
         return None
     return ids
 
-
 def _override_models() -> list[dict[str, Any]]:
-    """`AI_MODEL_CONFIG_JSON` override'ini tekshirilgan model ro'yxatiga aylantiradi.
-
-    O-9: har bir element turi va kaliti bo'yicha tekshiriladi — noto'g'ri
-    element butun ro'yxatni buzmasligi uchun jimgina o'tkazib yuboriladi.
-    """
     override = settings.ai_models_override or {}
     models: list[dict[str, Any]] = []
     for provider, items in override.items():
@@ -147,7 +125,6 @@ def _override_models() -> list[dict[str, Any]]:
                 if context < 0:
                     continue
             else:
-                # Ro'yxat, satr yoki dict bo'lmagan element — e'tiborsiz.
                 continue
             if not model_id:
                 continue
@@ -164,21 +141,13 @@ def _override_models() -> list[dict[str, Any]]:
             )
     return models
 
-
 def resolve_model(models: list[dict[str, Any]], model_id: str) -> str:
-    """Model ID faqat ro'yxatda mavjud bo'lsa qabul qilinadi (O-9).
-
-    Mavjud bo'lmagan ID bo'sh qaytariladi — shunda tarmoq so'rovi
-    bekor qolmaydi va kechikish paydo bo'lmaydi.
-    """
     if not model_id:
         return ""
     known = {str(item.get("id") or "") for item in models}
     return model_id if model_id in known else ""
 
-
 def available_models() -> list[dict[str, Any]]:
-    """Sozlangan model ro'yxati (tarmoq so'rovisiz — so'rov yo'lida tez)."""
     override = settings.ai_models_override or {}
     if override:
         return _override_models()
@@ -201,13 +170,7 @@ def available_models() -> list[dict[str, Any]]:
         )
     return sorted(models, key=lambda item: item["rank"])
 
-
 def refresh_models() -> list[dict[str, Any]]:
-    """Faqat provayderda **mavjud** modellarni qaytaradi (O-9, 1 soat kesh).
-
-    Admin model ro'yxati shundan olinadi — mavjud bo'lmagan model
-    tanlanmasligi uchun.
-    """
     models = available_models()
     result: list[dict[str, Any]] = []
     for model in models:
@@ -216,19 +179,11 @@ def refresh_models() -> list[dict[str, Any]]:
             result.append(model)
     return result
 
-
 def _live_provider_check(provider: str) -> tuple[bool, str]:
-    """Provayder /models endpointini qisqa so'rov bilan tekshirish.
-
-    O-9: so'rov natijasi 1 soat keshlanadi — har chaqiruvda tarmoqga
-    chiqilmaydi.
-    """
     ok, detail, _ids = _provider_models(provider)
     return ok, detail
 
-
 def provider_status(live: bool = True) -> list[dict[str, Any]]:
-    # O-9: admin ro'yxatida faqat provayderda mavjud modellar ko'rsatiladi.
     models = refresh_models() if live else available_models()
     result = []
     for key, label in (("nvidia", "NVIDIA NIM"), ("openrouter", "OpenRouter")):
@@ -255,34 +210,19 @@ def provider_status(live: bool = True) -> list[dict[str, Any]]:
         )
     return result
 
-
-# J-16: budjet zaxirasi (reservation) — parallel so'rovlar budjetdan
-# oshib ketmasligi uchun tokenlar chaqiruvdan OLDIN zaxira qilinadi.
 BUDGET_LOCK_KEY = 918273645
 RESERVATION_TTL_MINUTES = 10
 RESERVATION_MODEL = "budget-reservation"
 
-
 def _day_start() -> datetime:
     return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
-
 def _reserve_budget(*, agent: str, estimate_tokens: int) -> int | None:
-    """Kunlik token budjetidan zaxira oladi (J-16).
-
-    Parallel so'rovlar bir xil `usage_today` ni o'qib, budjetdan birga
-    oshib ketolmasdi. Endi zaxira **atomik** qilinadi:
-    - PostgreSQL'da `pg_advisory_xact_lock` bilan ketma-ket tekshiruv;
-    - zaxira `AIUsage` qatori sifatida commit qilinadi (boshqa so'rovlar
-      uni darhol ko'radi);
-    - jarayon o'lgan taqdirda eski zaxiralar TTL bilan yopiladi.
-    """
     from app.core.db import SessionLocal
 
     with SessionLocal() as session:
         if session.get_bind().dialect.name == "postgresql":
             session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": BUDGET_LOCK_KEY})
-        # Eski (tashlab ketilgan) zaxiralarni yopish.
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=RESERVATION_TTL_MINUTES)
         session.execute(
             update(AIUsage)
@@ -312,9 +252,7 @@ def _reserve_budget(*, agent: str, estimate_tokens: int) -> int | None:
         session.commit()
         return reservation.id
 
-
 def _settle_reservation(reservation_id: int | None) -> None:
-    """Zaxirani yopadi — haqiqiy sarf alohida yozilgan (0 ga qaytariladi)."""
     from app.core.db import SessionLocal
 
     if not reservation_id:
@@ -328,7 +266,6 @@ def _settle_reservation(reservation_id: int | None) -> None:
                 session.commit()
     except Exception:  # pragma: no cover — javob buzilmasin
         pass
-
 
 def usage_today(db: Session) -> dict[str, int]:
     start = _day_start()
@@ -349,7 +286,6 @@ def usage_today(db: Session) -> dict[str, int]:
         "budget": settings.ai_daily_token_budget,
         "remaining": max(0, settings.ai_daily_token_budget - total),
     }
-
 
 def _endpoint(provider: str) -> tuple[str, dict[str, str]]:
     if provider == "nvidia":
@@ -372,9 +308,7 @@ def _endpoint(provider: str) -> tuple[str, dict[str, str]]:
         },
     )
 
-
 def stored_model(db: Session) -> str:
-    """Sozlamalarda saqlangan faol model id (bo'sh = registratsiya tartibi)."""
     from app.models import AppSetting
 
     row = db.get(AppSetting, "app")
@@ -383,13 +317,10 @@ def stored_model(db: Session) -> str:
     value = (row.value or {}).get("ai_model", "")
     return value if isinstance(value, str) else ""
 
-
 def order_models(models: list[dict[str, Any]], primary: str) -> list[dict[str, Any]]:
-    """Tanlangan modelni zanjir boshiga qo'yadi, qolganlari rank tartibida."""
     chosen = [m for m in models if m["id"] == primary]
     rest = [m for m in models if m["id"] != primary]
     return chosen + rest
-
 
 def _record_usage(
     *,
@@ -403,11 +334,6 @@ def _record_usage(
     latency_ms: int = 0,
     status: str = "success",
 ) -> None:
-    """Token sarfini **alohida sessiyada** yozadi va commit qiladi (J-3).
-
-    Chaqiruvchining tranzaksiyasi rollback bo'lsa ham sarflangan tokenlar
-    saqlanib qoladi — kunlik byudjet nazorati ishlaydi.
-    """
     from app.core.db import SessionLocal
 
     def _write(session, link: str | None) -> None:
@@ -430,14 +356,11 @@ def _record_usage(
         with SessionLocal() as session:
             _write(session, workflow_id)
     except Exception:
-        # Workflow hali commit qilinmagan bo'lishi mumkin (FK xatosi) —
-        # sarfni link-siz yozib qo'yamiz, asosiy javob buzilmasin.
         try:
             with SessionLocal() as session:
                 _write(session, None)
         except Exception:
             pass
-
 
 def chat_completion(
     db: Session,
@@ -452,8 +375,6 @@ def chat_completion(
     preferred_model: str | None = None,
 ) -> AIResult:
     candidates = available_models()
-    # O-9: faqat ro'yxatda mavjud bo'lgan model tanlanadi — mavjud bo'lmagan
-    # ID har chaqiruvda bekor tarmoq so'rovi va kechikish keltirardi.
     active_model = resolve_model(candidates, preferred_model or stored_model(db))
     if active_model:
         candidates = order_models(candidates, active_model)
@@ -464,14 +385,11 @@ def chat_completion(
     if not candidates:
         raise service_unavailable("AI provayderlari sozlanmagan.")
 
-    # J-16: budjet tekshiruvi atomik zaxira bilan — parallel so'rovlar
-    # budjetdan oshib ketolmaydi.
     estimate = max(250, min(int(max_tokens or settings.ai_max_output_tokens), 8000))
     reservation_id = _reserve_budget(agent=agent, estimate_tokens=estimate)
     if reservation_id is None:
         raise service_unavailable("Kunlik AI token budjeti tugagan. Sozlamalarda limitni oshiring.")
 
-    # J-1: umumiy vaqt chegarasi — 12 model × 55 s = 660 s bo'lishi mumkin emas.
     max_attempts = max(1, settings.ai_max_attempts)
     candidates = candidates[:max_attempts]
     deadline = time.monotonic() + max(5, settings.ai_chain_deadline_seconds)
@@ -517,7 +435,6 @@ def chat_completion(
                         }
                     )
                     last_error = f"{candidate['id']}: {response.status_code} {detail}"[:300]
-                    # J-3: muvaffaqiyatsiz urinish ham hisoblanadi
                     _record_usage(
                         provider=candidate["provider"],
                         model=candidate["id"],
@@ -534,8 +451,6 @@ def chat_completion(
                     content = " ".join(
                         part.get("text", "") if isinstance(part, dict) else str(part) for part in content
                     )
-                # J-2: `reasoning_content` javob sifatida qaytarilmaydi — bu modelning
-                # ichki mulohazasi, foydalanuvchiga javob bo'lib chiqmasligi kerak.
                 content = (content or "").strip()
                 if not content:
                     attempts.append({"provider": candidate["provider"], "model": candidate["id"], "status": "empty"})
@@ -550,7 +465,6 @@ def chat_completion(
                     )
                     continue
                 if json_mode and extract_json(content) is None:
-                    # J-2: JSONMode'da JSON bo'lmagan javob keyingi modelga uzatiladi.
                     attempts.append(
                         {
                             "provider": candidate["provider"],
@@ -584,7 +498,6 @@ def chat_completion(
                     + [{"provider": candidate["provider"], "model": candidate["id"], "status": 200, "latency_ms": elapsed}],
                     fallback_used=index > 0,
                 )
-                # J-3: sarf alohida sessiyada yoziladi (rollback'dan qat'i nazar).
                 _record_usage(
                     provider=result.provider,
                     model=result.model,
@@ -635,9 +548,7 @@ def chat_completion(
                 )
         raise service_unavailable(f"Barcha AI modellari javob bermadi. Oxirgi xato: {last_error}")
     finally:
-        # J-16: zaxira yopiladi — haqiqiy sarf har urinish uchun yozilgan.
         _settle_reservation(reservation_id)
-
 
 def extract_json(text: str) -> dict | None:
     text = text.strip()

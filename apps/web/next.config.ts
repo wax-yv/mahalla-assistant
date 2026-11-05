@@ -2,13 +2,6 @@ import type { NextConfig } from "next";
 
 const API_BASE = process.env.API_ORIGIN ?? "http://127.0.0.1:8000";
 
-/**
- * Xavfsizlik sarlavhalari (audit bo‘lim 7.8 / P2-4).
- * — X-Frame-Options: DENY  → clickjacking himoyasi
- * — Content-Security-Policy  → frame-ancestors 'none' (CSP orqali ham)
- * — Referrer-Policy         → tashqi manbalarga to‘liq URL yuborilmasin
- * — Permissions-Policy      → kamera/mikrofon faqat kerakli kontekstda
- */
 const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -28,8 +21,6 @@ const securityHeaders = [
       "img-src 'self' data: blob:",
       "font-src 'self' data:",
       "style-src 'self' 'unsafe-inline'",
-      // `unsafe-eval` faqat dev-server uchun kerak — production'da
-      // Next.js runtime'ga kerak emas.
       "script-src 'self' 'unsafe-inline'" +
         (process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""),
       "connect-src 'self' " + API_BASE,

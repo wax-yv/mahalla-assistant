@@ -1,10 +1,5 @@
 "use client";
 
-/**
- * Empty holat uchun yumshoq SVG illyustratsiya (audit 7.5).
- * 96px, brend ranglarida, 3 xil variant: qidiruv / hujjat / vazifa.
- */
-
 export type EmptyArtKind = "search" | "document" | "task" | "inbox" | "chart";
 
 export function EmptyArt({ kind = "search" }: { kind?: EmptyArtKind }) {

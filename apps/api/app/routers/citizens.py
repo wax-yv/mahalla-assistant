@@ -13,7 +13,6 @@ from app.services import citizens as service
 
 router = APIRouter(prefix="/citizens", tags=["citizens"])
 
-
 @router.get("")
 def list_citizens(
     q: str | None = None,
@@ -62,7 +61,6 @@ def list_citizens(
     )
     return {"items": rows, "meta": meta.model_dump()}
 
-
 @router.get("/options")
 def citizen_options(db: Session = Depends(get_db), _=Depends(require_permission("citizens.read"))):
     rows = service.list_citizens(db, page=1, page_size=100)
@@ -78,7 +76,6 @@ def citizen_options(db: Session = Depends(get_db), _=Depends(require_permission(
         ]
     }
 
-
 @router.get("/{citizen_id}")
 def get_citizen(
     citizen_id: str,
@@ -86,7 +83,6 @@ def get_citizen(
     _=Depends(require_permission("citizens.read")),
 ):
     return service.get_citizen_detail(db, citizen_id)
-
 
 @router.post("", status_code=201)
 def create_citizen(
@@ -97,7 +93,6 @@ def create_citizen(
 ):
     citizen = service.create_citizen(db, payload, user.id, getattr(request.state, "request_id", None))
     return service.get_citizen_detail(db, citizen.id)
-
 
 @router.patch("/{citizen_id}")
 def update_citizen(
@@ -111,7 +106,6 @@ def update_citizen(
         db, citizen_id, payload, user.id, getattr(request.state, "request_id", None)
     )
     return service.get_citizen_detail(db, citizen_id)
-
 
 @router.delete("/{citizen_id}", response_model=MessageResponse)
 def archive_citizen(

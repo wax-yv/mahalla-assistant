@@ -1,9 +1,3 @@
-"""D-13: hujjat yuklashdagi dublikat tekshiruvi bir nechta qatorda buzolmasdi.
-
-Muammo (audit D-13): `scalar_one_or_none()` — bir xil `content_hash` li
-ikki faol hujjat bo'lsa `MultipleResultsFound` bilan 500 qaytarardi.
-"""
-
 from __future__ import annotations
 
 from sqlalchemy import select
@@ -12,7 +6,6 @@ from app.core.db import SessionLocal
 from app.models import Document
 
 MARKER = "D13sinov"
-
 
 def _cleanup() -> None:
     with SessionLocal() as db:
@@ -23,9 +16,7 @@ def _cleanup() -> None:
             db.delete(row)
         db.commit()
 
-
 def test_upload_returns_first_when_multiple_duplicates_exist():
-    """Ikki xuddi shu xeshli faol hujjat bo'lsa — xato emas, eng so'nggisi."""
     from app.services.documents import upload_document
 
     data = (
@@ -45,8 +36,6 @@ def test_upload_returns_first_when_multiple_duplicates_exist():
                 actor="tester",
                 request_id=None,
             )
-            # Test maqsadida ikkinchi "faol" nusxa qo'lda yaratiladi —
-            # bir xil xesh, boshqa yozuv.
             duplicate = Document(
                 filename=f"{MARKER}-2.csv",
                 original_name=f"{MARKER}-2.csv",

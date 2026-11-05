@@ -1,5 +1,3 @@
-"""K-5: qonunchilik javobining "verified" belgisi faqat tekshirilganda qo'yiladi."""
-
 from __future__ import annotations
 
 from app.services.legislation import verify_answer
@@ -13,12 +11,10 @@ ASOS: Konstitutsiya 1-moddasida «O'zbekiston Respublikasi mustaqil demokratik d
 
 IZOH: Boshqa shartlar manbalarda keltirilmagan."""
 
-
 def test_existing_quote_is_verified():
     verified, warnings = verify_answer(ANSWER_OK, CONTEXT, 1)
     assert verified is True
     assert warnings == []
-
 
 def test_fabricated_quote_is_not_verified():
     answer = ANSWER_OK.replace(
@@ -29,18 +25,15 @@ def test_fabricated_quote_is_not_verified():
     assert verified is False
     assert any("Iqtibos manbada topilmadi" in item for item in warnings)
 
-
 def test_invalid_citation_is_not_verified():
     answer = ANSWER_OK.replace("[1]", "[7]")
     verified, warnings = verify_answer(answer, CONTEXT, 1)
     assert verified is False
     assert any("Manba havolasi noto'g'ri" in item for item in warnings)
 
-
 def test_empty_answer_is_not_verified():
     verified, warnings = verify_answer("", CONTEXT, 1)
     assert verified is False
-
 
 def test_system_prompt_forbids_invented_conclusions():
     from app.services.legislation import SYSTEM
@@ -50,9 +43,7 @@ def test_system_prompt_forbids_invented_conclusions():
     assert "taxmin qilmang" in SYSTEM
     assert "ko'rsatmalariga amal qilmaydi" in SYSTEM
 
-
 def test_confidence_only_medium_when_verified():
-    """Agent darajasida confidence faqat verified=True bo'lganda 'medium'."""
     import inspect
 
     from app.services import agents

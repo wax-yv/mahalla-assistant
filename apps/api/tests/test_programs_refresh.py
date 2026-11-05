@@ -1,10 +1,3 @@
-"""J-10: `programs_refresh` — haqiqiy tekshiruv, "yangilandi" yolg'oni yo'q.
-
-Muqova: job faqat `source.retrieved_at = now` qilib, hech narsa tekshirmasdi,
-lekin "Manba havolalari yangilandi" deb xabar berardi — shartlar o'zgargan
-bo'lsa ham foydalanuvchiga eskirgan ma'lumot "yangi" deb ko'rinardi.
-"""
-
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -17,7 +10,6 @@ from app.models import Program, ProgramSource
 from app.services import scheduler
 
 PREFIX = "J10 sinov dasturi"
-
 
 @pytest.fixture()
 def clean_programs():
@@ -36,7 +28,6 @@ def clean_programs():
     _cleanup()
     yield
     _cleanup()
-
 
 def _make_program() -> str:
     with SessionLocal() as db:
@@ -61,9 +52,7 @@ def _make_program() -> str:
         db.commit()
         return program.id
 
-
 def _isolate(monkeypatch, program_id: str) -> None:
-    """Faqat sinov dasturi qayta ishlovchi qilinadi (boshqa manbalar tegilmaydi)."""
     real_select = scheduler.select
 
     def _fake_select(model, *args, **kwargs):
@@ -76,7 +65,6 @@ def _isolate(monkeypatch, program_id: str) -> None:
 
     monkeypatch.setattr(scheduler, "select", _fake_select)
 
-
 def _run(monkeypatch, checker, program_id: str):
     monkeypatch.setattr(scheduler, "_check_source", checker)
     _isolate(monkeypatch, program_id)
@@ -85,13 +73,10 @@ def _run(monkeypatch, checker, program_id: str):
             name="j10-test-job", job_type="programs_refresh", schedule="monthly"
         )
         result = scheduler._programs_refresh(db, job, "tester")
-        # Scheduler ish oxirida commit qiladi — test ham xuddi shunday qiladi.
         db.commit()
         return result
 
-
 def test_successful_check_updates_verification_time(clean_programs, monkeypatch):
-    """Muvaffaqiyatli tekshiruv `last_verified_at` ni yangilashi kerak."""
     program_id = _make_program()
 
     result = _run(monkeypatch, lambda url: (200, "hash-1"), program_id)
@@ -112,14 +97,10 @@ def test_successful_check_updates_verification_time(clean_programs, monkeypatch)
         assert source.content_hash == "hash-1"
         assert source.notes.startswith("Tekshirildi:")
 
-
 def test_changed_content_requires_review(clean_programs, monkeypatch):
-    """Kontent o'zgargan bo'lsa, dastur `needs_review` holatiga o'tishi kerak."""
     program_id = _make_program()
 
-    # Birinchi tekshiruv.
     _run(monkeypatch, lambda url: (200, "hash-1"), program_id)
-    # Ikkinchi tekshiruv — kontent o'zgargan.
     result = _run(monkeypatch, lambda url: (200, "hash-2"), program_id)
 
     assert result["changed"], result
@@ -133,9 +114,7 @@ def test_changed_content_requires_review(clean_programs, monkeypatch):
         assert source is not None
         assert source.status == "changed"
 
-
 def test_failed_check_keeps_last_verified_at(clean_programs, monkeypatch):
-    """Tekshiruv xatosida `last_verified_at` yangilanmasligi kerak."""
     program_id = _make_program()
 
     _run(monkeypatch, lambda url: (200, "hash-1"), program_id)
@@ -163,9 +142,7 @@ def test_failed_check_keeps_last_verified_at(clean_programs, monkeypatch):
         assert source is not None
         assert source.status == "error"
 
-
 def test_http_error_marks_needs_review(clean_programs, monkeypatch):
-    """HTTP xatosi ham `needs_review` holatiga olib kelishi kerak."""
     program_id = _make_program()
 
     result = _run(monkeypatch, lambda url: (404, "hash"), program_id)
@@ -177,9 +154,7 @@ def test_http_error_marks_needs_review(clean_programs, monkeypatch):
         assert program.status == "needs_review"
         assert program.last_verified_at is None
 
-
 def test_public_url_validation_blocks_internal_hosts():
-    """SSRF himoyasi: ichki manzillar rad etilishi kerak."""
     from app.core.errors import APIError
     from app.core.urls import validate_public_https_url
 
@@ -194,7 +169,6 @@ def test_public_url_validation_blocks_internal_hosts():
     ):
         with pytest.raises(APIError):
             validate_public_https_url(url)
-
 
 def test_public_url_validation_accepts_normal_url():
     from app.core.urls import validate_public_https_url

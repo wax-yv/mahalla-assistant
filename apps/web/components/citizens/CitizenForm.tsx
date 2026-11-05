@@ -7,7 +7,6 @@ import { api } from "@/lib/api";
 
 export type CitizenFormData = {
   id?: string;
-  /** D-1: optimistic qulf uchun yozuv versiyasi (PATCH majburiy). */
   version?: number;
   full_name: string;
   gender: "Erkak" | "Ayol";
@@ -63,7 +62,6 @@ export function CitizenForm({
   async function submit() {
     const problem = validate();
     if (problem) { setError(problem); return; }
-    /* D-1: tahrirlashda versiya majburiy — aks holda backend 422 qaytaradi. */
     if (isEdit && typeof initial?.version !== "number") {
       setError("Yozuv versiyasi topilmadi. Sahifani yangilab qayta urinib ko‘ring.");
       return;

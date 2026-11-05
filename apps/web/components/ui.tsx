@@ -12,13 +12,6 @@ export function Badge({ tone = "muted", children, pulse }: { tone?: string; chil
 
 export type StatIconTone = "teal" | "coral" | "amber" | "sky" | "plum";
 
-/**
- * Premium KPI stat-card (audit 7.3 / P2-3).
- * — 44px gradient ikon
- * — ixtiyoriy trend badge (faqat haqiqiy ma’lumot bo‘lsa)
- * — ixtiyoriy sparkline (7 kun, SVG)
- * — butun karta link (overlay-link)
- */
 export function StatCard({
   label,
   value,
@@ -64,7 +57,6 @@ export function StatCard({
   );
 }
 
-/** Mini area sparkline (SVG, kutubxonasiz) */
 export function Sparkline({ values, className = "stat-spark" }: { values: number[]; className?: string }) {
   const w = 160;
   const h = 34;
@@ -87,7 +79,6 @@ export function Sparkline({ values, className = "stat-spark" }: { values: number
   );
 }
 
-/** Avvalgi Stat (backward-compatible) — premium StatCard bilan bir xil ko‘rinish */
 export function Stat({ label, value, hint, icon, tone = "teal", link }: {
   label: string; value: ReactNode; hint?: string; icon?: ReactNode; tone?: StatIconTone; link?: string;
 }) {
@@ -127,7 +118,6 @@ export function ErrorNote({ message }: { message: string }) {
   );
 }
 
-/** Sahifa raqamlari bilan Pager (audit 4.1) */
 export function Pager({ meta, onPage }: { meta?: PageMeta; onPage: (page: number) => void }) {
   if (!meta || meta.total_pages <= 1) return null;
   const page = meta.page;
@@ -182,7 +172,6 @@ export function PageHead({ kicker, title, lede, actions }: {
   );
 }
 
-/** “Barchasi →” turidagi havolalar uchun yagona komponent */
 export function SeeAllLink({ href, children }: { href: string; children?: ReactNode }) {
   return (
     <Link className="link row-sm" href={href}>

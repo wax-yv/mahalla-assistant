@@ -7,15 +7,6 @@ export type TabItem<T extends string> = { key: T; label: string; icon?: ReactNod
 type TabCtx = { id: string; active: string };
 const TabCtx = createContext<TabCtx>({ id: "tab", active: "" });
 
-/**
- * WAI-ARIA tab pattern (audit P1-11):
- * — role="tablist" / "tab" / "tabpanel"
- * — ro‘lqaror: ← → ↑ ↓ Home End
- * — faol tab tabindex=0, qolganlari -1
- *
- * `children` orqali panellar beriladi — ular `TabPanel` komponenti bilan
- * `<Tabs>...</Tabs>` ichida bo‘lishi shart (ID bog‘lanishi uchun).
- */
 export function Tabs<T extends string>({
   tabs,
   value,
@@ -73,13 +64,6 @@ export function Tabs<T extends string>({
   );
 }
 
-/**
- * Tab panel — `aria-labelledby` bilan bog‘langan.
- *
- * Barcha panellar DOM’da doim turadi; faol bo‘lmagan panel `hidden` bilan
- * yashiriladi. Shu sababli har bir tabning `aria-controls` havolasi har doim
- * mavjud elementga ishora qiladi (WAI-ARIA APG talabi).
- */
 export function TabPanel<T extends string>({
   tabKey,
   children,

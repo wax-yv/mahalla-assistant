@@ -30,7 +30,6 @@ from app.routers import (
     setup,
 )
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -41,10 +40,8 @@ async def lifespan(app: FastAPI):
                     "[startup] Bo'sh bazada sxema yaratildi. Keyingi sxema "
                     "o'zgarishlari uchun scripts/migrate.sql ni bajarish shart."
                 )
-    except Exception as error:  # the database may not be attached yet
+    except Exception as error:
         print(f"[startup] create_all skipped: {error}")
-    # O-12: `create_all()` mavjud jadvalga ustun qo'shmaydi — bajarilmagan
-    # migratsiyalar jimgina qolmasligi uchun ular aniq ko'rsatiladi.
     try:
         pending = missing_migrations()
         if pending:
@@ -57,13 +54,7 @@ async def lifespan(app: FastAPI):
         pass
     yield
 
-
 def docs_paths() -> dict[str, str | None]:
-    """API hujjatlarining manzillari (D-2).
-
-    Productionda `/api/docs`, `/api/redoc` va `/api/openapi.json` yopiladi —
-    ochiq API ta'rifi xavfsizlik chegarasini kengaytiradi.
-    """
     if settings.is_production:
         return {"docs_url": None, "redoc_url": None, "openapi_url": None}
     return {
@@ -72,29 +63,15 @@ def docs_paths() -> dict[str, str | None]:
         "openapi_url": "/api/openapi.json",
     }
 
-
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
 
-
 def request_id_for(request: Request) -> str:
-    """Mijoz bergan `X-Request-ID` faqat xavfsiz formatda qabul qilinadi (D-3).
-
-    Noto'g'ri format (uzun, log inyeksiyasi, belgilar) — so'rov ID'si
-    server tomonda yangi qilinadi.
-    """
     raw = request.headers.get("x-request-id")
     if raw and REQUEST_ID_PATTERN.match(raw):
         return raw
     return uuid.uuid4().hex
 
-
 def server_error_response(request: Request, exc: Exception) -> JSONResponse:
-    """Kutilmagan xatolik uchun yagona javob (D-3).
-
-    `request_context` middleware ichida chaqiriladi — shu sabab javob CORS
-    middleware'sidan o'tadi va `Access-Control-Allow-Origin` sarlavhasi
-    qo'shiladi.
-    """
     print(f"[error] {type(exc).__name__}: {exc}")
     return JSONResponse(
         status_code=500,
@@ -108,14 +85,7 @@ def server_error_response(request: Request, exc: Exception) -> JSONResponse:
         },
     )
 
-
 def install_middleware(application: FastAPI) -> None:
-    """So'rov konteksti va CORS (D-3).
-
-    CORS **eng tashqarida** o'rnatiladi: unhandled xatoliklar
-    `request_context` ichida ushlanadi va CORS sarlavhalari bilan
-    qaytariladi (avvalgi holatda 500 javobda CORS sarlavhalari yo'q edi).
-    """
 
     @application.middleware("http")
     async def request_context(request: Request, call_next):
@@ -139,7 +109,6 @@ def install_middleware(application: FastAPI) -> None:
         expose_headers=["X-Request-ID"],
     )
 
-
 app = FastAPI(
     title="Mahalla Assistant API",
     version=settings.app_version,
@@ -150,14 +119,12 @@ app = FastAPI(
 
 install_middleware(app)
 
-
 @app.exception_handler(APIError)
 async def api_error_handler(request: Request, exc: APIError):
     return JSONResponse(
         status_code=exc.status_code,
         content=exc.to_dict(getattr(request.state, "request_id", None)),
     )
-
 
 @app.exception_handler(RequestValidationError)
 async def validation_handler(request: Request, exc: RequestValidationError):
@@ -181,7 +148,6 @@ async def validation_handler(request: Request, exc: RequestValidationError):
         },
     )
 
-
 @app.exception_handler(StarletteHTTPException)
 async def http_error_handler(request: Request, exc: StarletteHTTPException):
     return JSONResponse(
@@ -196,12 +162,9 @@ async def http_error_handler(request: Request, exc: StarletteHTTPException):
         },
     )
 
-
 @app.exception_handler(Exception)
 async def unhandled_handler(request: Request, exc: Exception):
-    """Zaxira handler — asosiy ushlash `request_context` middleware'ida."""
     return server_error_response(request, exc)
-
 
 for router in (
     health.router,

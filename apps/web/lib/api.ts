@@ -98,9 +98,6 @@ export const api = {
     a.href = url;
     a.download = filename;
     a.rel = "noopener";
-    // D-9: `<a>` DOM'ga qo'shilmasa Safari/Firefox yuklab olishni
-    // to'xtatishi mumkin; obekt URL haqiqiy yuklanish tugagandan keyin
-    // bekor qilinadi (darhol revoke qilish yuklashni buzadi).
     document.body.appendChild(a);
     a.click();
     a.remove();

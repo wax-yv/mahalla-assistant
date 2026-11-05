@@ -1,12 +1,3 @@
-"""N-5: `next_citizen_id` — string MAX o'rniga raqamli MAX va retry.
-
-Muammo (audit N-5):
-- `func.max(Citizen.id)` string tartibida ishlaydi: `F-99999` dan keyin
-  `F-100000` kelganda string MAX noto'g'ri tanlanadi;
-- parallel yaratishda ikki so'rov bir xil MAX ni o'qib, bir xil ID
-  oladi — IntegrityError (500).
-"""
-
 from __future__ import annotations
 
 from datetime import date
@@ -19,7 +10,6 @@ from app.models import AuditLog, Citizen
 
 MARKER = "N5sinov"
 
-
 def _cleanup() -> None:
     with SessionLocal() as db:
         ids = db.execute(
@@ -29,27 +19,21 @@ def _cleanup() -> None:
         db.execute(delete(Citizen).where(Citizen.id.in_(ids)))
         db.commit()
 
-
 @pytest.fixture()
 def clean():
     _cleanup()
     yield
     _cleanup()
 
-
 def test_next_citizen_id_ignores_non_numeric_prefixes(clean):
-    """Raqamsiz ID'lar hisobga olinmaydi."""
     from app.services import citizens as service
 
     with SessionLocal() as db:
-        # Mavjud fuqarolar orasida raqamsiz/g'alati ID bo'lsa ham ishlashi kerak.
         first = service.next_citizen_id(db)
     assert first.startswith("F-")
     assert int(first.split("-")[1]) >= 1
 
-
 def test_next_citizen_id_survives_six_digit_ids(clean):
-    """`F-1000000` mavjud bo'lsa string MAX uni ko'rmaydi (leksikografik)."""
     from app.services import citizens as service
 
     with SessionLocal() as db:
@@ -79,9 +63,7 @@ def test_next_citizen_id_survives_six_digit_ids(clean):
         db.commit()
     assert next_id == "F-1000001", f"string MAX xato berdi: {next_id}"
 
-
 def test_next_citizen_id_is_monotonic(clean):
-    """Ketma-ket ID'lar oshib boradi."""
     from app.services import citizens as service
 
     with SessionLocal() as db:
@@ -89,9 +71,7 @@ def test_next_citizen_id_is_monotonic(clean):
         second = int(service.next_citizen_id(db).split("-")[1])
     assert second == first
 
-
 def test_create_citizen_assigns_numeric_id(clean):
-    """`create_citizen` raqamli ID bilan fuqaro yaratadi."""
     from app.schemas import CitizenCreate
     from app.services import citizens as service
 

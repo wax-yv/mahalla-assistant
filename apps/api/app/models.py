@@ -22,11 +22,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base, JSONType, utcnow
 
-
 def new_id(prefix: str = "") -> str:
     value = uuid.uuid4().hex
     return f"{prefix}-{value}" if prefix else value
-
 
 class User(Base):
     __tablename__ = "users"
@@ -40,7 +38,6 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-
 
 class Session(Base):
     __tablename__ = "sessions"
@@ -58,7 +55,6 @@ class Session(Base):
 
     user: Mapped[User] = relationship("User")
 
-
 class RateLimit(Base):
     __tablename__ = "rate_limits"
     __table_args__ = (UniqueConstraint("key", "window_start", name="uq_rate_limit_key_window"),)
@@ -67,7 +63,6 @@ class RateLimit(Base):
     key: Mapped[str] = mapped_column(String(200), index=True)
     window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     count: Mapped[int] = mapped_column(Integer, default=0)
-
 
 class Mahalla(Base):
     __tablename__ = "mahallas"
@@ -81,7 +76,6 @@ class Mahalla(Base):
 
     streets: Mapped[list[Street]] = relationship("Street", back_populates="mahalla")
 
-
 class Street(Base):
     __tablename__ = "streets"
 
@@ -93,7 +87,6 @@ class Street(Base):
 
     mahalla: Mapped[Mahalla] = relationship("Mahalla", back_populates="streets")
     houses: Mapped[list[House]] = relationship("House", back_populates="street")
-
 
 class House(Base):
     __tablename__ = "houses"
@@ -108,7 +101,6 @@ class House(Base):
 
     street: Mapped[Street] = relationship("Street", back_populates="houses")
     families: Mapped[list[Family]] = relationship("Family", back_populates="house")
-
 
 class Family(Base):
     __tablename__ = "families"
@@ -132,7 +124,6 @@ class Family(Base):
     members: Mapped[list[Citizen]] = relationship(
         "Citizen", back_populates="family", foreign_keys="Citizen.family_id"
     )
-
 
 class Citizen(Base):
     __tablename__ = "citizens"
@@ -168,7 +159,6 @@ class Citizen(Base):
         "Family", back_populates="members", foreign_keys=[family_id]
     )
 
-
 class Case(Base):
     __tablename__ = "cases"
 
@@ -197,7 +187,6 @@ class Case(Base):
 
     citizen: Mapped[Optional[Citizen]] = relationship("Citizen", foreign_keys=[citizen_id])
     family: Mapped[Optional[Family]] = relationship("Family", foreign_keys=[family_id])
-
 
 class Task(Base):
     __tablename__ = "tasks"
@@ -233,7 +222,6 @@ class Task(Base):
     family: Mapped[Optional[Family]] = relationship("Family", foreign_keys=[family_id])
     case: Mapped[Optional[Case]] = relationship("Case", foreign_keys=[case_id])
 
-
 class WorkLog(Base):
     __tablename__ = "work_logs"
 
@@ -263,7 +251,6 @@ class WorkLog(Base):
     case: Mapped[Optional[Case]] = relationship("Case", foreign_keys=[case_id])
     task: Mapped[Optional[Task]] = relationship("Task", foreign_keys=[task_id])
 
-
 class Document(Base):
     __tablename__ = "documents"
 
@@ -286,7 +273,6 @@ class Document(Base):
         "DocumentBlob", back_populates="document", cascade="all, delete-orphan", uselist=False
     )
 
-
 class DocumentBlob(Base):
     __tablename__ = "document_blobs"
 
@@ -296,7 +282,6 @@ class DocumentBlob(Base):
     data: Mapped[bytes] = mapped_column(LargeBinary)
 
     document: Mapped[Document] = relationship("Document", back_populates="blob")
-
 
 class ImportBatch(Base):
     __tablename__ = "document_import_batches"
@@ -321,7 +306,6 @@ class ImportBatch(Base):
         "ImportError", back_populates="batch", cascade="all, delete-orphan"
     )
 
-
 class ImportError(Base):
     __tablename__ = "document_import_errors"
 
@@ -338,7 +322,6 @@ class ImportError(Base):
 
     batch: Mapped[ImportBatch] = relationship("ImportBatch", back_populates="errors")
 
-
 class ImportChange(Base):
     __tablename__ = "document_import_changes"
 
@@ -352,7 +335,6 @@ class ImportChange(Base):
     before: Mapped[Optional[dict]] = mapped_column(JSONType, nullable=True)
     after: Mapped[Optional[dict]] = mapped_column(JSONType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
 
 class Report(Base):
     __tablename__ = "reports"
@@ -374,7 +356,6 @@ class Report(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
-
 class ReportRun(Base):
     __tablename__ = "report_runs"
 
@@ -386,7 +367,6 @@ class ReportRun(Base):
     error: Mapped[str] = mapped_column(Text, default="")
     token_usage: Mapped[int] = mapped_column(Integer, default=0)
     model: Mapped[str] = mapped_column(String(160), default="")
-
 
 class AgentWorkflow(Base):
     __tablename__ = "agent_workflows"
@@ -405,7 +385,6 @@ class AgentWorkflow(Base):
     requires_approval: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
-
 
 class AgentRun(Base):
     __tablename__ = "agent_runs"
@@ -431,7 +410,6 @@ class AgentRun(Base):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
-
 class AgentToolCall(Base):
     __tablename__ = "agent_tool_calls"
 
@@ -444,13 +422,11 @@ class AgentToolCall(Base):
     error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
-
 class Conversation(Base):
     __tablename__ = "conversations"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: new_id("CONV"))
     title: Mapped[str] = mapped_column(String(240), default="Yangi suhbat")
-    # Egasining foydalanuvchi ID'si (NULL — egasi aniqlanmagan, faqat admin ko'radi).
     user_id: Mapped[Optional[str]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
@@ -461,7 +437,6 @@ class Conversation(Base):
     messages: Mapped[list[ConversationMessage]] = relationship(
         "ConversationMessage", back_populates="conversation", cascade="all, delete-orphan"
     )
-
 
 class ConversationMessage(Base):
     __tablename__ = "conversation_messages"
@@ -480,7 +455,6 @@ class ConversationMessage(Base):
 
     conversation: Mapped[Conversation] = relationship("Conversation", back_populates="messages")
 
-
 class DraftAction(Base):
     __tablename__ = "draft_actions"
 
@@ -496,7 +470,6 @@ class DraftAction(Base):
     result: Mapped[dict] = mapped_column(JSONType, default=dict)
     error: Mapped[str] = mapped_column(Text, default="")
 
-
 class MemoryItem(Base):
     __tablename__ = "memory_items"
 
@@ -511,7 +484,6 @@ class MemoryItem(Base):
     confidence: Mapped[str] = mapped_column(String(32), default="low")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-
 
 class LegislationDocument(Base):
     __tablename__ = "legislation_documents"
@@ -532,7 +504,6 @@ class LegislationDocument(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
-
 class LegislationVersion(Base):
     __tablename__ = "legislation_versions"
 
@@ -545,7 +516,6 @@ class LegislationVersion(Base):
     raw_text: Mapped[str] = mapped_column(Text, default="")
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     is_current: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
-
 
 class LegislationChunk(Base):
     __tablename__ = "legislation_chunks"
@@ -563,7 +533,6 @@ class LegislationChunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, default=0)
     search_text: Mapped[str] = mapped_column(Text, default="")
     embedding: Mapped[list] = mapped_column(JSONType, default=list)
-
 
 class Program(Base):
     __tablename__ = "programs"
@@ -590,7 +559,6 @@ class Program(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
-
 class ProgramSource(Base):
     __tablename__ = "program_sources"
 
@@ -602,7 +570,6 @@ class ProgramSource(Base):
     content_hash: Mapped[str] = mapped_column(String(64), default="")
     status: Mapped[str] = mapped_column(String(32), default="verified")
     notes: Mapped[str] = mapped_column(Text, default="")
-
 
 class ScheduledJob(Base):
     __tablename__ = "scheduled_jobs"
@@ -622,7 +589,6 @@ class ScheduledJob(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
-
 class JobRun(Base):
     __tablename__ = "job_runs"
 
@@ -633,7 +599,6 @@ class JobRun(Base):
     finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     error: Mapped[str] = mapped_column(Text, default="")
     result: Mapped[dict] = mapped_column(JSONType, default=dict)
-
 
 class Notification(Base):
     __tablename__ = "notifications"
@@ -647,7 +612,6 @@ class Notification(Base):
     entity_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
@@ -667,14 +631,12 @@ class AuditLog(Base):
     result: Mapped[str] = mapped_column(String(32), default="success")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
-
 class AppSetting(Base):
     __tablename__ = "app_settings"
 
     key: Mapped[str] = mapped_column(String(120), primary_key=True)
     value: Mapped[dict] = mapped_column(JSONType, default=dict)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
-
 
 class AIUsage(Base):
     __tablename__ = "ai_usage"
@@ -692,7 +654,6 @@ class AIUsage(Base):
     status: Mapped[str] = mapped_column(String(32), default="success")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
-
 class BackupRun(Base):
     __tablename__ = "backup_runs"
 
@@ -704,5 +665,4 @@ class BackupRun(Base):
     size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
     location: Mapped[str] = mapped_column(String(500), default="")
     error: Mapped[str] = mapped_column(Text, default="")
-    # J-8: zaxira nusxa baytlari (sha256 `location` da saqlanadi).
     data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)

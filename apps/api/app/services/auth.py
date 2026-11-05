@@ -27,20 +27,15 @@ from app.core.security import (
 from app.models import RateLimit, Session as SessionModel
 from app.models import User
 
-# Login himoyasi: 15 daqiqada 8 ta muvaffaqiyatsiz urinish.
 LOGIN_LIMIT = 8
 LOGIN_WINDOW_MINUTES = 15
-# IP bo'yicha chegara yuqoriroq — bir korxonada bir nechta xodim bo'lsa,
-# birining xatosi boshqalarini bloklamasin.
 LOGIN_IP_LIMIT = 30
-
 
 def _window_start(minutes: int) -> datetime:
     now = datetime.now(timezone.utc)
     return now.replace(second=0, microsecond=0) - timedelta(
         minutes=now.minute % max(1, minutes)
     )
-
 
 def _count_for(db: Session, key: str, window: datetime) -> int:
     value = db.execute(
@@ -50,7 +45,6 @@ def _count_for(db: Session, key: str, window: datetime) -> int:
     ).scalars().first()
     return int(value or 0)
 
-
 def check_rate_limit(
     db: Session,
     *,
@@ -58,20 +52,13 @@ def check_rate_limit(
     limit: int,
     window_minutes: int = LOGIN_WINDOW_MINUTES,
 ) -> None:
-    """Chegara tekshiruvi — FAQAT o'qiydi (yozuv yo'q).
-
-    Yozuv `record_failure` orqali alohida sessiyada commit qilinadi, shuning uchun
-    401 xatosi chiqarilganda ham hisoblagich saqlanib qoladi.
-    """
     window = _window_start(window_minutes)
     if _count_for(db, key, window) >= limit:
         raise too_many_requests(
             f"Juda ko'p urinish. {window_minutes} daqiqadan keyin qayta urinib ko'ring."
         )
 
-
 def _upsert_counter(db: Session, key: str, window: datetime) -> None:
-    """`rate_limits` hisoblagichini atomik oshiradi (poyga himoyalangan)."""
     bind = db.get_bind()
     dialect = bind.dialect.name if bind is not None else ""
     if dialect == "postgresql":
@@ -93,7 +80,6 @@ def _upsert_counter(db: Session, key: str, window: datetime) -> None:
         db.execute(statement)
         return
 
-    # Umumiy fallback: UPDATE -> INSERT (IntegrityError bo'lsa qayta urinish)
     row = db.execute(
         select(RateLimit).where(
             RateLimit.key == key, RateLimit.window_start == window
@@ -116,15 +102,9 @@ def _upsert_counter(db: Session, key: str, window: datetime) -> None:
             row.count += 1
             db.flush()
 
-
 def record_failure(
     key: str, window_minutes: int = LOGIN_WINDOW_MINUTES
 ) -> None:
-    """Muvaffaqiyatsiz urinishni **alohida sessiyada** yozib commit qiladi.
-
-    Alohida sessiya kerak: 401 xatosi chaqirilgan sessiyaning tranzaksiyasini
-    bekor qiladi — hisoblagich esa saqlanib qolishi lozim.
-    """
     window = _window_start(window_minutes)
     with SessionLocal() as session:
         try:
@@ -135,9 +115,7 @@ def record_failure(
             _upsert_counter(session, key, window)
             session.commit()
 
-
 def reset_failures(keys: list[str], window_minutes: int = LOGIN_WINDOW_MINUTES) -> None:
-    """Muvaffaqiyatli loginda hisoblagichni 0 ga tushiradi."""
     window = _window_start(window_minutes)
     with SessionLocal() as session:
         for key in keys:
@@ -150,7 +128,6 @@ def reset_failures(keys: list[str], window_minutes: int = LOGIN_WINDOW_MINUTES) 
                 row.count = 0
         session.commit()
 
-
 def record_login_failure(
     *,
     username: str,
@@ -158,13 +135,6 @@ def record_login_failure(
     request_id: str | None = None,
     reason: str = "invalid_credentials",
 ) -> None:
-    """Muvaffaqiyatsiz loginni **alohida sessiyada** audit qiladi (O-14).
-
-    401/429 xatosi chaqiruvchining tranzaksiyasini bekor qiladi — shuning
-    uchun audit yozuvi alohida sessiyada yoziladi va commit qilinadi.
-    Parol hech qachon yozilmaydi: faqat urinish foydalanuvchi nomi, sabab
-    va IP manzili saqlanadi.
-    """
     normalized = (username or "").strip().lower()[:200]
     with SessionLocal() as session:
         try:
@@ -182,15 +152,11 @@ def record_login_failure(
             )
             session.commit()
         except Exception:
-            # Audit yozilishi muvaffaqiyatsiz bo'lsa login oqimi buzilmasin.
             session.rollback()
 
-
 def login_keys(ip: str, username: str) -> list[str]:
-    """Login uchun ikkita kalit: IP bo'yicha va foydalanuvchi nomi bo'yicha."""
     normalized = (username or "").strip().lower()
     return [f"login:ip:{ip}", f"login:user:{normalized}"]
-
 
 def authenticate(db: Session, username: str, password: str, request: Request) -> User:
     ip = client_ip(request)
@@ -198,13 +164,10 @@ def authenticate(db: Session, username: str, password: str, request: Request) ->
     keys = login_keys(ip, normalized)
     request_id = getattr(request.state, "request_id", None)
 
-    # Chegara tekshiruvi — muvaffaqiyatsiz urinishlar hisobga olinadi,
-    # muvaffaqiyatli urinishlar hisoblanmaydi.
     try:
         check_rate_limit(db, key=keys[0], limit=LOGIN_IP_LIMIT)
         check_rate_limit(db, key=keys[1], limit=LOGIN_LIMIT)
     except APIError:
-        # O-14: bloklangan urinish ham audit izida qolishi kerak.
         db.rollback()
         record_login_failure(
             username=normalized,
@@ -217,21 +180,15 @@ def authenticate(db: Session, username: str, password: str, request: Request) ->
     user = db.execute(
         select(User).where(User.username == normalized)
     ).scalar_one_or_none()
-    # D-4: foydalanuvchi topilmasa ham xesh tekshiruvi bajariladi — aks
-    # holda javob vaqti username mavjudligini oshkor qiladi.
     password_ok = (
         verify_password(user.password_hash, password)
         if user is not None
         else verify_password(dummy_password_hash(), password)
     )
     if user is None or not user.is_active or not password_ok:
-        # Navbatdagi o'qish tranzaksiyasini yopamiz (SQLite bloklanmasin),
-        # keyin hisobni alohida sessiyada saqlaymiz.
         db.rollback()
         for key in keys:
             record_failure(key)
-        # O-14: muvaffaqiyatsiz login audit qilinadi (alohida sessiyada —
-        # chaqiruvchining tranzaksiyasi bekor qilingani bilan birga).
         record_login_failure(
             username=normalized,
             ip=ip,
@@ -241,13 +198,11 @@ def authenticate(db: Session, username: str, password: str, request: Request) ->
         raise unauthenticated("Login yoki parol noto'g'ri.")
 
     reset_failures(keys)
-    # E-3: xesh parametrlari eskirgan bo'lsa — kirish paytida yangilanadi.
     if needs_rehash(user.password_hash):
         user.password_hash = hash_password(password)
     user.last_login_at = datetime.now(timezone.utc)
     db.flush()
     return user
-
 
 def create_session(db: Session, user: User, request: Request) -> tuple[str, SessionModel]:
     token = new_session_token()
@@ -273,7 +228,6 @@ def create_session(db: Session, user: User, request: Request) -> tuple[str, Sess
     )
     return token, session
 
-
 def revoke_session(db: Session, session: SessionModel, actor_id: str | None = None) -> None:
     session.revoked_at = datetime.now(timezone.utc)
     db.flush()
@@ -286,9 +240,7 @@ def revoke_session(db: Session, session: SessionModel, actor_id: str | None = No
         source="api",
     )
 
-
 def ensure_admin(db: Session) -> User:
-    # K-6: ishlab chiqarishda standart parol bilan admin yaratilmasligi kerak.
     from app.core.config import assert_admin_password_allowed
 
     assert_admin_password_allowed()
@@ -300,18 +252,13 @@ def ensure_admin(db: Session) -> User:
             display_name="Mahalla administratori",
             password_hash=hash_password(settings.admin_password or "waxs"),
             role="admin",
-            # O-16: `reports.approve` — `admin` roli bilan avtomatik
-            # berilmaydi, uni aniq yozamiz.
             permissions=["reports.approve"],
         )
         db.add(user)
         db.flush()
     elif not verify_password(user.password_hash, settings.admin_password or "waxs"):
-        # Keep the demo credential in sync with the documented login when the
-        # admin password is changed via environment variables.
         user.password_hash = hash_password(settings.admin_password or "waxs")
         db.flush()
-    # O-16: mavjud administrator ham `reports.approve` ruxsatini oladi.
     permissions = list(user.permissions or [])
     if "reports.approve" not in permissions:
         permissions.append("reports.approve")

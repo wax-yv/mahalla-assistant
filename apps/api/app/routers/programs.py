@@ -12,7 +12,6 @@ from app.services import programs as service
 
 router = APIRouter(prefix="/programs", tags=["programs"])
 
-
 @router.get("")
 def list_programs(
     q: str | None = None,
@@ -23,11 +22,9 @@ def list_programs(
 ):
     return {"items": service.list_programs(db, q=q, type=type, organization=organization)}
 
-
 @router.get("/organizations")
 def organizations(db: Session = Depends(get_db), _=Depends(require_permission("reports.read"))):
     return {"items": service.organizations(db)}
-
 
 @router.get("/preference/{conversation_id}")
 def preference(
@@ -35,13 +32,10 @@ def preference(
     db: Session = Depends(get_db),
     user: User = Depends(require_permission("agents.use")),
 ):
-    # K-8: suhbat tanlovi (bank) boshqa foydalanuvchining suhbatidan
-    # o'qilmasligi kerak — egalik tekshiriladi.
     agents_service.ensure_conversation_access(
         db, conversation_id, user_id=user.id, is_admin=user.role == "admin"
     )
     return {"preference": service.get_preference(db, conversation_id)}
-
 
 @router.post("/match")
 def match(
@@ -51,7 +45,6 @@ def match(
 ):
     return {"items": service.match_citizen(db, payload.citizen_id, payload.program_id)}
 
-
 @router.post("/compare")
 def compare(
     payload: ProgramCompareRequest,
@@ -59,7 +52,6 @@ def compare(
     _=Depends(require_permission("reports.read")),
 ):
     return {"items": service.compare(db, payload.program_ids)}
-
 
 @router.get("/{program_id}")
 def get_program(

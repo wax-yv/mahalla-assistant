@@ -1,5 +1,3 @@
-"""K-7: DOCX fayl DOCX deb aniqlanishi kerak (XLSX emas)."""
-
 from __future__ import annotations
 
 import io
@@ -8,7 +6,6 @@ import pytest
 
 from app.core.errors import APIError
 from app.services.documents import _detect_kind
-
 
 def _make_docx() -> bytes:
     from docx import Document
@@ -25,7 +22,6 @@ def _make_docx() -> bytes:
     document.save(buffer)
     return buffer.getvalue()
 
-
 def _make_xlsx() -> bytes:
     from openpyxl import Workbook
 
@@ -37,46 +33,36 @@ def _make_xlsx() -> bytes:
     workbook.save(buffer)
     return buffer.getvalue()
 
-
 def test_docx_is_detected_as_docx():
     data = _make_docx()
-    assert data[:4] == b"PK\x03\x04"  # ikkalasi ham ZIP
+    assert data[:4] == b"PK\x03\x04"
     assert _detect_kind("hujjat.docx", data) == "docx"
-
 
 def test_xlsx_is_detected_as_xlsx():
     data = _make_xlsx()
     assert data[:4] == b"PK\x03\x04"
     assert _detect_kind("ro'yxat.xlsx", data) == "xlsx"
 
-
 def test_docx_with_wrong_extension_still_detected():
-    """Kengaytma xato bo'lsa ham tarkib bo'yicha aniqlanadi."""
     data = _make_docx()
     assert _detect_kind("nomi.xlsx", data) == "docx"
 
-
 def test_pdf_is_detected():
     assert _detect_kind("hujjat.pdf", b"%PDF-1.7\n...") == "pdf"
-
 
 def test_csv_is_detected():
     data = "F.I.Sh.,Jinsi\nTestov Ota,Erkak\n".encode("utf-8")
     assert _detect_kind("ro'yxat.csv", data) == "csv"
 
-
 def test_old_xls_is_rejected():
     with pytest.raises(APIError):
         _detect_kind("eski.xls", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 16)
-
 
 def test_broken_zip_is_rejected():
     with pytest.raises(APIError):
         _detect_kind("buzilgan.xlsx", b"PK\x03\x04" + b"\x00" * 32)
 
-
 def test_docx_upload_does_not_crash(auth):
-    """DOCX yuklanganda 500 berilmasin — jadval o'qilishi kerak."""
     from sqlalchemy import delete, select
 
     from app.core.db import SessionLocal
@@ -93,7 +79,6 @@ def test_docx_upload_does_not_crash(auth):
     body = response.json()
     assert body["document"]["kind"] == "docx"
 
-    # Test hujjatini tozalaydi
     with SessionLocal() as db:
         documents = db.execute(
             select(Document).where(Document.original_name == "hujjat.docx")

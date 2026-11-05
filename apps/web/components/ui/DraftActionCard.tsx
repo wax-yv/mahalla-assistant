@@ -14,10 +14,6 @@ const DRAFT_LABELS: Record<string, string> = {
   commit_import: "Importni bazaga yozish",
 };
 
-/**
- * P0-9: texnik kalitlar (idempotency_key, batch_id, conversation_id, program_id)
- * foydalanuvchiga ko‘rsatilmaydi — ular faqat “Texnik tafsilot” ichida qoladi.
- */
 const HIDDEN_FIELDS = new Set(["idempotency_key", "batch_id", "conversation_id", "program_id", "request_id", "trace_id"]);
 
 const FIELD_LABELS: Record<string, string> = {
@@ -33,7 +29,6 @@ const PRIORITY_LABELS: Record<string, string> = {
   low: "Past", normal: "Oddiy", high: "Yuqori", urgent: "Shoshilinch",
 };
 
-/** Enum qiymatlarini tabiiy o‘zbekcha yozishga o‘giradi */
 const ENUM_LABELS: Record<string, string> = {
   uchrashuv: "Uchrashuv", telefon: "Telefon", tavsiya: "Tavsiya", hujjat: "Hujjat",
   "bajarilgan ish": "Bajarilgan ish", natija: "Natija", vazifa: "Vazifa", murojaat: "Murojaat",

@@ -15,15 +15,12 @@ from app.services import scheduler
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-
 class SettingsUpdate(BaseModel):
     values: dict[str, Any]
-
 
 @router.get("/settings")
 def get_settings(db: Session = Depends(get_db), _=Depends(require_permission("settings.manage"))):
     return service.get_settings(db)
-
 
 @router.patch("/settings")
 def update_settings(
@@ -35,7 +32,6 @@ def update_settings(
     return service.update_settings(
         db, payload.values, user.id, getattr(request.state, "request_id", None)
     )
-
 
 @router.get("/audit")
 def audit(
@@ -59,7 +55,6 @@ def audit(
     )
     return {"items": rows, "meta": meta.model_dump()}
 
-
 @router.get("/usage")
 def usage(
     days: int = Query(14, ge=1, le=90),
@@ -68,16 +63,13 @@ def usage(
 ):
     return service.usage_summary(db, days=days)
 
-
 @router.get("/system")
 def system(db: Session = Depends(get_db), _=Depends(require_permission("settings.manage"))):
     return service.system_info(db)
 
-
 @router.get("/jobs")
 def jobs(db: Session = Depends(get_db), _=Depends(require_permission("settings.manage"))):
     return {"items": scheduler.list_jobs(db)}
-
 
 @router.post("/jobs/{job_id}/run")
 def run_job(
@@ -88,7 +80,6 @@ def run_job(
     job = scheduler.get_job(db, job_id)
     return scheduler.run_job(db, job, actor=user.id)
 
-
 @router.post("/jobs/run-due")
 def run_due(
     db: Session = Depends(get_db),
@@ -96,14 +87,12 @@ def run_due(
 ):
     return {"items": scheduler.run_due_jobs(db)}
 
-
 @router.get("/backups")
 def backups(
     db: Session = Depends(get_db),
     _=Depends(require_permission("settings.manage")),
 ):
     return {"items": service.list_backups(db)}
-
 
 @router.post("/backups")
 def create_backup(
@@ -118,19 +107,12 @@ def create_backup(
         "counts": summary["counts"],
     }
 
-
 @router.get("/backups/{backup_id}/download")
 def download_backup(
     backup_id: str,
     db: Session = Depends(get_db),
     user: User = Depends(require_permission("settings.manage")),
 ):
-    """J-8: saqlangan zaxira baytlarini qaytaradi va sha256 ni tekshiradi.
-
-    Eski versiya yuklab olishda har safar **yangi** backup yaratib, o'sha
-    yangi faylni qaytarardi — `sha256` esa boshqa (saqlanmagan) nusxaga
-    tegishli edi.
-    """
     import hashlib
 
     from fastapi.responses import Response

@@ -1,10 +1,3 @@
-"""J-16: AI kunlik budjet — atomik zaxira (reservation/settlement).
-
-Muammo (audit J-16): `chat_completion` avval `usage_today()` ni o'qiydi,
-`AIUsage` esa javobdan keyin yoziladi — parallel so'rovlar barchasi bir
-xil "qolgan" sonini ko'rib, budjetdan birga oshib ketardi.
-"""
-
 from __future__ import annotations
 
 from datetime import timedelta
@@ -18,12 +11,10 @@ from app.models import AIUsage
 
 AGENT = "test-j16"
 
-
 def _cleanup() -> None:
     with SessionLocal() as db:
         db.execute(delete(AIUsage).where(AIUsage.agent == AGENT))
         db.commit()
-
 
 @pytest.fixture(autouse=True)
 def clean_usage():
@@ -31,9 +22,7 @@ def clean_usage():
     yield
     _cleanup()
 
-
 def _used_tokens() -> int:
-    """Test agentining bugungi sarfi."""
     with SessionLocal() as db:
         return int(
             db.execute(
@@ -43,9 +32,7 @@ def _used_tokens() -> int:
             ).scalar_one()
         )
 
-
 def test_reservation_counts_toward_budget():
-    """Zaxira darhol commit qilinadi — boshqa so'rov uni ko'radi."""
     from app.services import ai_gateway
 
     with SessionLocal() as db:
@@ -62,9 +49,7 @@ def test_reservation_counts_toward_budget():
     assert row.status == "reserved"
     assert row.total_tokens == 1000
 
-
 def test_settlement_releases_reservation():
-    """Zaxira yopilganda 0 ga qaytariladi (haqiqiy sarf alohida yoziladi)."""
     from app.services import ai_gateway
 
     reservation_id = ai_gateway._reserve_budget(agent=AGENT, estimate_tokens=500)
@@ -76,15 +61,12 @@ def test_settlement_releases_reservation():
     assert row.status == "settled"
     assert row.total_tokens == 0
 
-
 def test_reservation_is_denied_when_budget_exhausted():
-    """Budjet qoldig'i zaxiradan kichik bo'lsa — rad etiladi."""
     from app.services import ai_gateway
 
     original = settings.ai_daily_token_budget
     try:
         settings.ai_daily_token_budget = 1000
-        # Zaxira kiritish oldidan mavjud sarfni tozalaymiz.
         with SessionLocal() as db:
             db.execute(delete(AIUsage).where(AIUsage.agent == AGENT))
             db.commit()
@@ -106,9 +88,7 @@ def test_reservation_is_denied_when_budget_exhausted():
         settings.ai_daily_token_budget = original
     assert reservation_id is None
 
-
 def test_stale_reservations_are_expired():
-    """Tashlab ketilgan zaxiralar TTL'dan keyin 0 ga qaytariladi."""
     from datetime import datetime, timezone
 
     from app.services import ai_gateway
@@ -116,7 +96,6 @@ def test_stale_reservations_are_expired():
     reservation_id = ai_gateway._reserve_budget(agent=AGENT, estimate_tokens=300)
     assert reservation_id is not None
 
-    # Zaxirani "eskirgan" qilib qo'yamiz.
     with SessionLocal() as db:
         row = db.get(AIUsage, reservation_id)
         row.created_at = datetime.now(timezone.utc) - timedelta(

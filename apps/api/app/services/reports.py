@@ -33,14 +33,11 @@ TYPE_LABELS = {
     "data_quality": "Ma'lumot sifati hisoboti",
 }
 
-# O-17: ruxsat etilgan hisobot eksport formatlari.
 REPORT_EXPORT_FORMATS: frozenset[str] = frozenset({"xlsx", "docx", "pdf"})
-
 
 def _distribution(
     db: Session, column, limit: int = 20, base: list | None = None
 ) -> list[dict]:
-    """Taqsimot (N-3): agregatsiya SQL da, filtrlar qo'llaniladi."""
     conditions = list(base) if base else [Citizen.archived_at.is_(None)]
     rows = db.execute(
         select(column, func.count())
@@ -52,9 +49,7 @@ def _distribution(
     ).all()
     return [{"label": row[0] or "Ko'rsatilmagan", "value": int(row[1])} for row in rows]
 
-
 def _needs(db: Session, base: list | None = None) -> list[dict]:
-    """Ehtiyojlar taqsimoti (N-3): filtrlar qo'llaniladi."""
     conditions = list(base) if base else [Citizen.archived_at.is_(None)]
     texts = db.execute(
         select(Citizen.needs_text).where(*conditions, Citizen.needs_text != "")
@@ -70,25 +65,13 @@ def _needs(db: Session, base: list | None = None) -> list[dict]:
         for label, value in sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:20]
     ]
 
-
 def _status_counts(db: Session, model, *conditions) -> dict[str, int]:
-    """Holatlar soni — SQL `GROUP BY` agregatsiyasi (N-3).
-
-    Eski kod butun obyektlarni Python'ga yuklab hisoblardi (`scalars().all()`)
-    — katta davrda sekin va xotira yeydi. Endi agregatsiya bazada bajariladi.
-    """
     rows = db.execute(
         select(model.status, func.count()).where(*conditions).group_by(model.status)
     ).all()
     return {str(row[0]): int(row[1]) for row in rows}
 
-
 def _incomplete_condition():
-    """To'liq emas deb hisoblanadigan fuqarolar sharti (N-3).
-
-    `phone == ""` faqat bo'sh satrni aniqlaydi — `NULL` telefon ham bo'sh
-    hisoblanadi.
-    """
     return or_(
         Citizen.phone == "",
         Citizen.phone.is_(None),
@@ -96,13 +79,7 @@ def _incomplete_condition():
         Citizen.family_id.is_(None),
     )
 
-
 def _scoped_totals(db: Session, base: list) -> dict[str, int]:
-    """Filtrga mos oilalar / uylar / ko'chalar soni (N-3).
-
-    Oila — kamida bitta mos fuqarosi bor oila; uy — o'sha oilalardan kamida
-    bittasi bor uy; ko'cha — o'sha uylardan kamida bittasi bor ko'cha.
-    """
     family_ids = (
         select(Family.id)
         .join(Citizen, Citizen.family_id == Family.id)
@@ -130,7 +107,6 @@ def _scoped_totals(db: Session, base: list) -> dict[str, int]:
     )
     return {"families": families, "houses": houses, "streets": streets}
 
-
 def compute_metrics(
     db: Session, report_type: str, period_start: date, period_end: date, filters: dict[str, Any]
 ) -> dict[str, Any]:
@@ -142,8 +118,6 @@ def compute_metrics(
         base.append(Citizen.employment_status == filters["employment_status"])
     if filters.get("social_status"):
         base.append(Citizen.social_status == filters["social_status"])
-    # N-3: filtr qo'llangan bo'lsa — oilalar/uylar/ko'chalar ham filtrga
-    # moslashtiriladi. Filtrsiz hisobotda global hisob saqlanadi.
     filtered = len(base) > 1
 
     total_citizens = int(db.execute(select(func.count()).select_from(Citizen).where(*base)).scalar_one())
@@ -176,8 +150,6 @@ def compute_metrics(
     social = count_citizens(Citizen.social_status != "Yo'q")
     start_dt = datetime.combine(period_start, datetime.min.time(), tzinfo=timezone.utc)
     end_dt = datetime.combine(period_end, datetime.max.time(), tzinfo=timezone.utc)
-    # N-3: holatlar soni SQL `GROUP BY` agregatsiyasi bilan (Python'da
-    # butun obyektlarni yuklash o'rniga).
     case_by_status = _status_counts(
         db, Case, Case.opened_at >= start_dt, Case.opened_at <= end_dt
     )
@@ -190,7 +162,6 @@ def compute_metrics(
     )
     tasks_total = sum(task_by_status.values())
     completed = task_by_status.get("completed", 0)
-    # N-3: kechikkan vazifalar faqat **hisobot davri** ichida sanaladi.
     overdue = int(
         db.execute(
             select(func.count()).select_from(Task).where(
@@ -209,8 +180,6 @@ def compute_metrics(
         ).scalar_one()
     )
     incomplete = count_citizens(_incomplete_condition())
-    # N-3: hudud kesimi `Street.id` bo'yicha guruhlanadi (bir nomli ikki
-    # ko'cha birlashtirilmaydi) va filtrlarga mos bo'ladi.
     citizen_conditions = [Citizen.archived_at.is_(None)]
     if filters.get("employment_status"):
         citizen_conditions.append(Citizen.employment_status == filters["employment_status"])
@@ -270,7 +239,6 @@ def compute_metrics(
         "calculation_note": "Barcha ko'rsatkichlar SQL so'rovlari orqali database'dan hisoblandi.",
     }
 
-
 SYSTEM_PROMPT = """Siz O'zbekiston mahalla tizimi uchun rasmiy hisobot muharririsiniz.
 Faqat o'zbek lotin tilida yozing. Berilgan raqamlardan boshqa raqam uydirmang.
 Raqamlarni o'zgartirmang, qo'shmang, ayirmang. Har bir xulosa berilgan metrikaga tayanishi kerak.
@@ -278,13 +246,7 @@ Matn: qisqa kirish, asosiy ko'rsatkichlar tahlili, aniqlangan muammolar va amali
 4-6 paragrafdan oshmasin. Markdown sarlavhalar ishlatmang, oddiy matn yozing.
 Agar ma'lumot yetishmasa "ma'lumot mavjud emas" deb yozing. Rasmiy qaror vakolatini da'vo qilmang."""
 
-
 def _fallback_narrative(report_type: str, metrics: dict[str, Any]) -> str:
-    """Deterministik xulosa — har doim metrikaga asoslanadi (O-13).
-
-    Kalitlar bo'lmasa ham xato bermaydi (`0` bilan to'ldiriladi) — hisobot
-    so'rovi 500 bilan uzilmasligi kerak.
-    """
     totals = metrics.get("totals") or {}
     employment = metrics.get("employment") or {}
     tasks = metrics.get("tasks") or {}
@@ -302,50 +264,33 @@ def _fallback_narrative(report_type: str, metrics: dict[str, Any]) -> str:
         ]
     )
 
-
-# O-13: prompt uchun metriklar JSON'i — zich, kesilmaydigan.
 METRICS_PROMPT_LIMIT = 12000
-# O-13: matndagi sonlarni topish uchun andoza.
 NUMBER_RE = re.compile(r"\d[\d\s., ]*")
 
-
 def _metrics_payload(metrics: dict[str, Any]) -> str | None:
-    """Metriklarni zich JSON ko'rinishida beradi (O-13).
-
-    Eski kod `json.dumps(..., indent=2)[:12000]` ishlatardi — JSON o'rtasidan
-    kesilib, model buzuq kirish olardi. Endi JSON kompakt yig'iladi va
-    hajm chegaradan oshsa `None` qaytariladi (AI chaqirilmaydi).
-    """
     payload = json.dumps(metrics, ensure_ascii=False, separators=(",", ":"))
     if len(payload) > METRICS_PROMPT_LIMIT:
         return None
     return payload
 
-
 def _to_number(raw: str) -> float | None:
-    """Matndagi son qiymatini float'ga aylantiradi (`1 258`, `1,258`, `62,5%`)."""
     cleaned = re.sub(r"[\s ]", "", raw or "").rstrip(".")
     if not cleaned:
         return None
     if "," in cleaned and "." in cleaned:
-        # "1,234.56" — minglik ajratgich + kasr
         cleaned = cleaned.replace(",", "")
     elif "," in cleaned:
         head, _, tail = cleaned.rpartition(",")
         if cleaned.count(",") == 1 and tail.isdigit() and len(tail) == 3 and len(head) <= 3:
-            # "1,258" — minglik ajratgich
             cleaned = cleaned.replace(",", "")
         else:
-            # "62,5" — kasrli yozuv
             cleaned = cleaned.replace(",", ".")
     try:
         return float(cleaned)
     except ValueError:
         return None
 
-
 def _metric_numbers(metrics: Any) -> set[float]:
-    """Metrik ichidagi barcha sonlar (o'z ichiga qaragan holda)."""
     found: set[float] = set()
     if isinstance(metrics, bool):
         return found
@@ -367,12 +312,7 @@ def _metric_numbers(metrics: Any) -> set[float]:
             found |= _metric_numbers(item)
     return found
 
-
 def _has_unknown_number(text: str, metrics: dict[str, Any]) -> bool:
-    """Matnda metrikaga tegilmagan son bormi? (O-13)
-
-    `True` — uydirilgan son topildi (matn qabul qilinmasligi kerak).
-    """
     allowed = _metric_numbers(metrics)
     for raw in NUMBER_RE.findall(text or ""):
         value = _to_number(raw)
@@ -382,7 +322,6 @@ def _has_unknown_number(text: str, metrics: dict[str, Any]) -> bool:
             continue
         return True
     return False
-
 
 def generate_report(
     db: Session,
@@ -424,8 +363,6 @@ def generate_report(
     verified = False
     metrics_payload = _metrics_payload(metrics) if use_ai else None
     if use_ai and metrics_payload is None:
-        # O-13: metrikalar prompt chegarasidan oshdi — modelga buzuq JSON
-        # berish o'rniga deterministik xulosa ishlatiladi.
         run.status = "fallback"
         run.error = "Metrikalar hajmi prompt chegarasidan oshdi."
         narrative = _fallback_narrative(payload.type, metrics)
@@ -447,8 +384,6 @@ def generate_report(
                 temperature=0.2,
             )
             candidate = result.content.strip()
-            # O-13: model yozgan sonlar metrikaga mos kelishi shart —
-            # aks holda deterministik xulosaga qaytamiz.
             if _has_unknown_number(candidate, metrics):
                 run.status = "fallback"
                 run.error = "Model matnida metrikaga tegilmagan son topildi."
@@ -492,7 +427,6 @@ def generate_report(
         db.refresh(report)
     return report
 
-
 def list_reports(db: Session, *, type: str | None = None, status: str | None = None, page: int = 1, page_size: int = 20):
     stmt = select(Report).order_by(Report.created_at.desc())
     if type:
@@ -501,21 +435,16 @@ def list_reports(db: Session, *, type: str | None = None, status: str | None = N
         stmt = stmt.where(Report.status == status)
     return paginate(db, stmt, page, page_size)
 
-
 def get_report(db: Session, report_id: str) -> Report:
     report = db.get(Report, report_id)
     if report is None:
         raise not_found("Hisobot topilmadi.")
     return report
 
-
 def approve_report(db: Session, report_id: str, actor: str, note: str = "", request_id: str | None = None) -> Report:
     report = get_report(db, report_id)
     if report.status == "approved":
         return report
-    # O-16: "segregation of duties" — muallif o'z hisobotini tasdiqlay
-    # olmaydi. Administrator — tizimda yakuniy mas'ul shaxs — o'z
-    # hisobotini tasdiqlashi mumkin.
     if report.created_by and report.created_by == actor:
         approver = db.get(User, actor)
         if approver is None or approver.role != "admin":
@@ -543,7 +472,6 @@ def approve_report(db: Session, report_id: str, actor: str, note: str = "", requ
     db.commit()
     db.refresh(report)
     return report
-
 
 def _report_rows(report: Report) -> list[tuple[str, list[tuple[str, Any]]]]:
     metrics = report.metrics or {}
@@ -584,11 +512,9 @@ def _report_rows(report: Report) -> list[tuple[str, list[tuple[str, Any]]]]:
         rows.append(("Hudud kesimi", [(item["street"], f"{item['citizens']} fuqaro") for item in metrics["territory"]]))
     return rows
 
-
 def export_report(db: Session, report_id: str, fmt: str) -> tuple[bytes, str, str]:
     import io
 
-    # O-17: format oldindan tekshiriladi — noma'lum formatda aniq xato.
     if fmt not in REPORT_EXPORT_FORMATS:
         raise validation_error(
             "Format qo'llab-quvvatlanmaydi. Ruxsat etilgan formatlar: "
@@ -597,7 +523,6 @@ def export_report(db: Session, report_id: str, fmt: str) -> tuple[bytes, str, st
         )
     report = get_report(db, report_id)
     stamp = report.period_end.strftime("%Y%m%d")
-    # O-17: hisobot turi fayl nomiga xavfsiz tarzda o'tadi.
     base = f"hisobot-{safe_filename_part(report.type, fallback='hisobot')}-{stamp}"
     rows = _report_rows(report)
     if fmt == "xlsx":
@@ -607,8 +532,6 @@ def export_report(db: Session, report_id: str, fmt: str) -> tuple[bytes, str, st
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "Hisobot"
-        # O-15: har bir yozuv formula inyeksiyasidan himoyalangan holda
-        # yoziladi (`=` bilan boshlanuvchi matn formula bo'lib ketmasin).
         sheet["A1"] = safe_cell(report.title)
         sheet["A1"].font = Font(size=14, bold=True, color="1F3D2E")
         sheet["A2"] = safe_cell(

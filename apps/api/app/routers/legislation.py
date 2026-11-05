@@ -12,14 +12,10 @@ from app.services import legislation as service
 
 router = APIRouter(prefix="/legislation", tags=["legislation"])
 
-
 class LegislationQuestion(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
     use_ai: bool = True
-    # J-13: so'rov yo'lida avtomatik sinxron o'chirilgan. Sinxron faqat
-    # foydalanuvchi aniq so'raganda (`/legislation/sync`) bajariladi.
     sync_if_empty: bool = False
-
 
 @router.get("/documents")
 def list_documents(
@@ -30,11 +26,9 @@ def list_documents(
 ):
     return {"items": service.list_documents(db, q=q, limit=limit)}
 
-
 @router.get("/status")
 def status(db: Session = Depends(get_db), _=Depends(require_permission("reports.read"))):
     return service.status(db)
-
 
 @router.get("/documents/{document_id}")
 def document(
@@ -44,7 +38,6 @@ def document(
 ):
     return service.document_detail(db, document_id)
 
-
 @router.get("/search")
 def search(
     q: str = Query(min_length=2, max_length=300),
@@ -53,7 +46,6 @@ def search(
     _=Depends(require_permission("reports.read")),
 ):
     return {"items": service.search_chunks(db, q, limit=limit)}
-
 
 @router.post("/ask")
 def ask(
@@ -67,7 +59,6 @@ def ask(
         use_ai=payload.use_ai,
         sync_if_empty=payload.sync_if_empty,
     )
-
 
 @router.post("/sync")
 def sync(
@@ -95,7 +86,6 @@ def sync(
         ],
         "live": True,
     }
-
 
 @router.post("/search-live")
 def search_live(

@@ -1,10 +1,3 @@
-"""N-6: `Document.meta ->>` faqat PostgreSQL'da ishlaydi.
-
-Muammo (audit N-6): `Document.meta.op("->>")("citizen_id")` PostgreSQL
-JSONB sintaksisi — SQLite'da (testlar) xato berardi yoki bo'sh qaytarardi.
-Endi dialekt aniqlanadi: PG'da `->>`, boshqa dialektlarda matn `LIKE`.
-"""
-
 from __future__ import annotations
 
 from sqlalchemy import select
@@ -12,9 +5,7 @@ from sqlalchemy import select
 from app.core.db import SessionLocal
 from app.services import citizens as service
 
-
 def test_filter_uses_jsonb_on_postgresql():
-    """PostgreSQL'da `->>` operatori ishlatiladi."""
     with SessionLocal() as db:
         dialect = db.get_bind().dialect.name
         condition = service._document_citizen_filter(db, "X")
@@ -29,9 +20,7 @@ def test_filter_uses_jsonb_on_postgresql():
             )
             assert "LIKE" in compiled.upper()
 
-
 def test_citizen_detail_returns_documents():
-    """Fuqaro tafsilotida hujjatlar xatosiz qaytadi (ham PG, ham SQLite)."""
     from datetime import date
 
     from app.models import Citizen, Document

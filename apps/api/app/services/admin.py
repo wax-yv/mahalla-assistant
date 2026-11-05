@@ -33,7 +33,6 @@ from app.models import (
 )
 from app.services import ai_gateway
 
-
 ALLOWED_SETTINGS = {
     "theme",
     "language",
@@ -48,7 +47,6 @@ ALLOWED_SETTINGS = {
     "district",
     "region",
 }
-
 
 def get_settings(db: Session) -> dict[str, Any]:
     from app.models import AppSetting
@@ -75,13 +73,10 @@ def get_settings(db: Session) -> dict[str, Any]:
         "district": "Urganch shahri",
         "region": "Xorazm viloyati",
     }
-    # N-7: `null` qiymat saqlanadi — sozlamani tozalash mumkin (avval null
-    # e'tiborsiz qolardi va default qaytardi).
     defaults.update(value)
     defaults["usage"] = ai_gateway.usage_today(db)
     defaults["providers"] = ai_gateway.provider_status()
     return defaults
-
 
 def update_settings(db: Session, updates: dict[str, Any], actor: str, request_id: str | None) -> dict[str, Any]:
     from app.models import AppSetting
@@ -104,8 +99,6 @@ def update_settings(db: Session, updates: dict[str, Any], actor: str, request_id
             budget = int(updates["ai_budget"])
         except (TypeError, ValueError) as error:
             raise validation_error("AI budjeti butun son bo'lishi kerak.") from error
-        # N-7: pastki chegaraga jim ko'tarilmaydi — foydalanuvchi niyati
-        # aniqlashtiriladi (422).
         if budget < 1000:
             raise validation_error("AI budjeti kamida 1000 token bo'lishi kerak.")
         updates["ai_budget"] = budget
@@ -129,7 +122,6 @@ def update_settings(db: Session, updates: dict[str, Any], actor: str, request_id
     )
     db.commit()
     return get_settings(db)
-
 
 def audit_page(
     db: Session,
@@ -173,13 +165,7 @@ def audit_page(
         for row in rows
     ], meta
 
-
 def usage_summary(db: Session, days: int = 14) -> dict[str, Any]:
-    """AI sarflari — SQL GROUP BY bilan (N-7).
-
-    Eski kod barcha `AIUsage` qatorlarini Python'ga yuklab, xotirada
-    yig'ardi — katta jurnalda sekinlik va xotira xavfi.
-    """
     since = datetime.now(timezone.utc) - timedelta(days=max(1, min(90, days)))
     day_rows = db.execute(
         select(
@@ -231,9 +217,7 @@ def usage_summary(db: Session, days: int = 14) -> dict[str, Any]:
         "total_tokens": int(total_rows[1]),
     }
 
-
 def system_info(db: Session) -> dict[str, Any]:
-    # N-1/N-7: 11 ta alohida COUNT o'rniga scalar-subquery'li bitta so'rov.
     counts_row = db.execute(
         select(
             select(func.count()).select_from(Citizen).where(Citizen.archived_at.is_(None)).scalar_subquery(),
@@ -268,8 +252,6 @@ def system_info(db: Session) -> dict[str, Any]:
         "timezone": settings.scheduler_timezone,
         "demo_mode": settings.demo_mode,
         "database": "postgresql",
-        # N-7: hujjatlar PostgreSQL BLOB'da saqlanadi — "vercel_blob"
-        # yolg'on ko'rsatkich edi (storage kaliti hech qachon ishlatilmagan).
         "storage": "postgres",
         "ai": {
             "default_provider": settings.ai_default_provider,
@@ -281,25 +263,20 @@ def system_info(db: Session) -> dict[str, Any]:
             "legislation_live": True,
             "scheduler": True,
             "import_export": True,
-            # PWA manifesti qo'shildi (UI/UX audit P2-6).
             "pwa": True,
         },
         "timestamp": datetime.now(timezone.utc),
     }
 
-
 def _iso(value: Any) -> Any:
-    """None-safe ISO formatlash (J-8: `None` qiymatlar 500 bermasligi kerak)."""
     if value is None:
         return None
     if isinstance(value, (datetime, date)):
         return value.isoformat()
     return value
 
-
 @lru_cache(maxsize=1)
 def _backup_data_column_exists() -> bool:
-    """`backup_runs.data` ustuni bazasida bormi (migratsiya bajarilmagan bo'lishi mumkin)."""
     from app.core.db import engine
 
     try:
@@ -321,22 +298,7 @@ def _backup_data_column_exists() -> bool:
         value = False
     return bool(value)
 
-
 def create_backup(db: Session, actor: str) -> tuple[dict[str, Any], str]:
-    """Zaxira nusxa yaratadi va **baytlarini bazada saqlaydi** (J-8).
-
-    Eski versiya: butun baza RAM'da `.all()` bilan JSON qilinardi, hech
-    qayerda saqlanmasdi (`inline:sha256` — yolg'on signal), va yuklab olishda
-    har safar **boshqa** (yangi) backup yaratilib, `sha256` yuklangan fayl
-    bilan mos kelmasdi.
-
-    Endi:
-    - qatorlar oqim bilan (`yield`-style) JSON'ga yoziladi;
-    - baytlar `backup_runs.data` ustuniga saqlanadi, `sha256` — `location` da;
-    - `actor_id` — haqiqiy foydalanuvchi;
-    - restore uchun to'liqroq qamrov (mahalla, hujjat, audit, foydalanuvchi,
-      xotira, fuqaro ta'limi/kasbi).
-    """
     import hashlib
     import io
 
@@ -581,8 +543,6 @@ def create_backup(db: Session, actor: str) -> tuple[dict[str, Any], str]:
         backup.data = raw
         backup.location = f"db:backup_runs.data:sha256:{sha256}"
     else:
-        # Migratsiya bajarilmagan bazada baytni saqlab bo'lmaydi — bu holatda
-        # "inline" signal yolg'on bo'lmasligi uchun aniq belgilanadi.
         backup.location = "inline:unmigrated"
     backup.status = "completed"
     backup.finished_at = datetime.now(timezone.utc)
@@ -605,7 +565,6 @@ def create_backup(db: Session, actor: str) -> tuple[dict[str, Any], str]:
         "size_bytes": size_bytes,
     }
     return summary, sha256
-
 
 def list_backups(db: Session, limit: int = 20) -> list[dict[str, Any]]:
     rows = db.execute(select(BackupRun).order_by(BackupRun.started_at.desc()).limit(limit)).scalars().all()

@@ -20,12 +20,9 @@ from app.services import cases as service
 
 router = APIRouter(tags=["cases"])
 
-
 class TaskCancelBody(BaseModel):
     reason: str = Field(min_length=3, max_length=1000)
-    # O-6: versiya berilsa, o'skirgan vazifa rad etiladi (optimistik qulf).
     version: int | None = None
-
 
 @router.get("/cases")
 def list_cases(
@@ -53,11 +50,9 @@ def list_cases(
     )
     return {"items": rows, "meta": meta.model_dump()}
 
-
 @router.get("/cases/{case_id}")
 def get_case(case_id: str, db: Session = Depends(get_db), _=Depends(require_permission("tasks.read"))):
     return service.get_case(db, case_id)
-
 
 @router.post("/cases", status_code=201)
 def create_case(
@@ -69,7 +64,6 @@ def create_case(
     row = service.create_case(db, payload, user.id, getattr(request.state, "request_id", None))
     return service.get_case(db, row.id)
 
-
 @router.patch("/cases/{case_id}")
 def update_case(
     case_id: str,
@@ -80,7 +74,6 @@ def update_case(
 ):
     service.update_case(db, case_id, payload, user.id, getattr(request.state, "request_id", None))
     return service.get_case(db, case_id)
-
 
 @router.get("/tasks")
 def list_tasks(
@@ -114,11 +107,9 @@ def list_tasks(
     )
     return {"items": rows, "meta": meta.model_dump()}
 
-
 @router.get("/tasks/{task_id}")
 def get_task(task_id: str, db: Session = Depends(get_db), _=Depends(require_permission("tasks.read"))):
     return service.get_task(db, task_id)
-
 
 @router.post("/tasks", status_code=201)
 def create_task(
@@ -129,7 +120,6 @@ def create_task(
 ):
     row = service.create_task(db, payload, user.id, getattr(request.state, "request_id", None))
     return service.get_task(db, row.id)
-
 
 @router.patch("/tasks/{task_id}")
 def update_task(
@@ -142,7 +132,6 @@ def update_task(
     service.update_task(db, task_id, payload, user.id, getattr(request.state, "request_id", None))
     return service.get_task(db, task_id)
 
-
 @router.post("/tasks/{task_id}/complete")
 def complete_task(
     task_id: str,
@@ -153,7 +142,6 @@ def complete_task(
 ):
     service.complete_task(db, task_id, payload, user.id, getattr(request.state, "request_id", None))
     return service.get_task(db, task_id)
-
 
 @router.post("/tasks/{task_id}/cancel")
 def cancel_task(
@@ -172,7 +160,6 @@ def cancel_task(
         version=payload.version,
     )
     return service.get_task(db, task_id)
-
 
 @router.get("/work-logs")
 def list_work_logs(
@@ -197,7 +184,6 @@ def list_work_logs(
         page_size=page_size,
     )
     return {"items": rows, "meta": meta.model_dump()}
-
 
 @router.post("/work-logs", status_code=201)
 def create_work_log(

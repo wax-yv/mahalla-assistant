@@ -9,11 +9,9 @@ from app.services import dashboard as service
 
 router = APIRouter(tags=["dashboard"])
 
-
 @router.get("/dashboard")
 def dashboard(db: Session = Depends(get_db), _=Depends(require_permission("reports.read"))):
     return service.summary(db)
-
 
 @router.get("/dashboard/activity")
 def activity(
@@ -25,11 +23,9 @@ def activity(
     rows, meta = service.activity_page(db, page, page_size)
     return {"items": rows, "meta": meta.model_dump()}
 
-
 @router.get("/dashboard/tasks")
 def dashboard_tasks(db: Session = Depends(get_db), _=Depends(require_permission("tasks.read"))):
     return service.dashboard_tasks(db)
-
 
 @router.get("/activity")
 def activity_alias(

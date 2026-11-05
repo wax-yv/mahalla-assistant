@@ -13,18 +13,12 @@ from app.core.time import TZ, today_local
 from app.models import JobRun, Notification, Program, ProgramSource, ScheduledJob, Task, User
 from app.services import legislation, reports
 
-# J-9: kunlik joblar uchun standart soat (sozlamadagi `scheduler_time`
-# o'rnini bosganda ishlatiladi).
 DEFAULT_DAILY_HOUR = 21
 DEFAULT_DAILY_MINUTE = 0
 
-# J-9: jarayon to'xtab qolsa, "running" holatidagi ish yozimi 10 daqiqadan
-# eski bo'lsa "failed" deb yopiladi (abadiy "running" qolmasligi uchun).
 STALE_RUN_MINUTES = 10
 
-
 def _scheduler_time_of_day(db: Session) -> tuple[int, int]:
-    """Sozlamalardagi `scheduler_time` ("HH:MM") -> (soat, daqiqa)."""
     from app.models import AppSetting
 
     try:
@@ -40,14 +34,11 @@ def _scheduler_time_of_day(db: Session) -> tuple[int, int]:
         pass
     return DEFAULT_DAILY_HOUR, DEFAULT_DAILY_MINUTE
 
-
 def _add_month(value: datetime) -> datetime:
-    """Bir oy qo'shish (oy oxiridagi sanalarni moslashtiradi)."""
     year = value.year + (1 if value.month == 12 else 0)
     month = 1 if value.month == 12 else value.month + 1
     day = min(value.day, calendar.monthrange(year, month)[1])
     return value.replace(year=year, month=month, day=day)
-
 
 def next_run_at(
     schedule: str,
@@ -56,12 +47,6 @@ def next_run_at(
     hour: int | None = None,
     minute: int | None = None,
 ) -> datetime:
-    """Keyingi bajarilish vaqti (UTC).
-
-    J-9: vaqt **rejalashtirilgan** vaqtdan (`from_time`) hisoblanadi — shunda
-    kechikish keyingi kunlarga siljimaydi. Kunlik/haftalik/oylik joblar
-    `scheduler_timezone` (Asia/Tashkent) bo'yicha belgilangan soatga tekislanadi.
-    """
     base = from_time or datetime.now(timezone.utc)
     if base.tzinfo is None:
         base = base.replace(tzinfo=timezone.utc)
@@ -84,17 +69,12 @@ def next_run_at(
         target += timedelta(days=1)
     return target.astimezone(timezone.utc)
 
-
-# D-14: bir xil vazifa uchun takroriy bildirishnoma yuborilmasligi uchun
-# oxirgi skanerdagi kechikkan vazifa id'lari job payload'ida saqlanadi.
 OVERDUE_IDS_KEY = "overdue_notified_ids"
 OVERDUE_IDS_LIMIT = 200
-
 
 def _notify(db: Session, title: str, body: str, kind: str = "info") -> None:
     user = db.execute(select(User).where(User.role == "admin").limit(1)).scalar_one_or_none()
     db.add(Notification(user_id=user.id if user else None, title=title, body=body, kind=kind))
-
 
 def _daily_report(db: Session, job: ScheduledJob, actor: str) -> dict[str, Any]:
     from app.schemas import ReportGenerateRequest
@@ -109,19 +89,7 @@ def _daily_report(db: Session, job: ScheduledJob, actor: str) -> dict[str, Any]:
     _notify(db, "Kunlik hisobot tayyor", f"{report.title} draft holatida tasdiqlashni kutmoqda.", "report")
     return {"report_id": report.id, "title": report.title, "status": report.status}
 
-
 def _overdue_scan(db: Session, job: ScheduledJob, actor: str) -> dict[str, Any]:
-    """Muddati o'tgan vazifalarni tekshiradi (D-14).
-
-    Eski kod har ishga tushishda **barcha** kechikkan vazifalar uchun
-    qayta bildirishnoma yuborardi va ustuvorlikni qayta-qayta "high"
-    qilardi — foydalanuvchi pasaytirsa ham keyingi skan yana ko'tarardi.
-
-    Endi:
-    - faqat **yangi** kechikkan vazifalar haqida xabar yuboriladi;
-    - ustuvorlik faqat yangi kechikkanlar uchun ko'tariladi;
-    - oxirgi skaner id'lari job payload'ida saqlanadi.
-    """
     today = today_local()
     rows = db.execute(
         select(Task).where(
@@ -142,14 +110,12 @@ def _overdue_scan(db: Session, job: ScheduledJob, actor: str) -> dict[str, Any]:
             "Yangilari yuqori ustuvorlikka o'tkazildi.",
             "warning",
         )
-    # D-14: holat payload'da saqlanadi — keyingi skan bilan solishtiriladi.
     job.payload = {**(job.payload or {}), OVERDUE_IDS_KEY: current_ids[-OVERDUE_IDS_LIMIT:]}
     return {
         "overdue": len(rows),
         "newly": len(newly),
         "ids": [task.id for task in newly[:50]],
     }
-
 
 def _legislation_refresh(db: Session, job: ScheduledJob, actor: str) -> dict[str, Any]:
     from app.models import LegislationDocument
@@ -167,14 +133,9 @@ def _legislation_refresh(db: Session, job: ScheduledJob, actor: str) -> dict[str
             errors.append(f"{document.id}: {error}"[:300])
     return {"refreshed": refreshed, "errors": errors}
 
-
-# J-10: tekshiruv belgisi (manba izohida saqlanadi) — birinchi tekshiruvda
-# "kontent o'zgargan" xatoni chiqmasligi uchun.
 CHECK_MARKER = "Tekshirildi:"
 
-
 def _check_source(url: str) -> tuple[int, str]:
-    """Rasmiy manbani haqiqatan tekshiradi: (HTTP kod, kontent sha256)."""
     import hashlib
 
     import httpx
@@ -187,14 +148,7 @@ def _check_source(url: str) -> tuple[int, str]:
     data = response.content[:500_000]
     return response.status_code, hashlib.sha256(data).hexdigest()
 
-
 def _programs_refresh(db: Session, job: ScheduledJob, actor: str) -> dict[str, Any]:
-    """Dasturlar manbalarini **haqiqatan** tekshiradi (J-10).
-
-    Eski versiya faqat `retrieved_at` ni yangilab, "yangilandi" deydi —
-    kontent o'zgargan bo'lsa ham foydalanuvchiga eskirgan shartlar
-    "yangilangan" deb ko'rinardi.
-    """
     sources = db.execute(select(ProgramSource)).scalars().all()
     now = datetime.now(timezone.utc)
     checked = 0
@@ -214,7 +168,6 @@ def _programs_refresh(db: Session, job: ScheduledJob, actor: str) -> dict[str, A
             program = db.get(Program, source.program_id)
             if program is not None:
                 program.status = "needs_review"
-                # `last_verified_at` muvaffaqiyatsiz tekshiruvda yangilanMAYdi.
             continue
         if status_code != 200:
             source.status = "error"
@@ -227,7 +180,6 @@ def _programs_refresh(db: Session, job: ScheduledJob, actor: str) -> dict[str, A
         program = db.get(Program, source.program_id)
         previously_checked = (source.notes or "").startswith(CHECK_MARKER)
         if previously_checked and source.content_hash and content_hash != source.content_hash:
-            # Kontent o'zgargan — shartlar qayta ko'rib chiqilishi kerak.
             source.status = "changed"
             source.notes = (
                 f"{CHECK_MARKER} {now.isoformat()} — kontent o'zgargan, "
@@ -259,7 +211,6 @@ def _programs_refresh(db: Session, job: ScheduledJob, actor: str) -> dict[str, A
         ),
     }
 
-
 JOB_HANDLERS = {
     "daily_report": _daily_report,
     "overdue_scan": _overdue_scan,
@@ -267,14 +218,7 @@ JOB_HANDLERS = {
     "programs_refresh": _programs_refresh,
 }
 
-
 def close_stale_runs(db: Session, *, minutes: int = STALE_RUN_MINUTES) -> int:
-    """J-9: "running" holatida qolib ketgan ish yozimlarini yopadi.
-
-    Jarayon o'ldirilgan (timeout/kill) bo'lsa, `JobRun.status` abadiy
-    "running" qolardi. 10 daqiqadan eski bo'lganlar "failed" deb yopiladi
-    va "running" holatida qolib ketgan joblar qayta faollashtiriladi.
-    """
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
     runs = db.execute(
         select(JobRun).where(JobRun.status == "running", JobRun.started_at < cutoff)
@@ -298,7 +242,6 @@ def close_stale_runs(db: Session, *, minutes: int = STALE_RUN_MINUTES) -> int:
         db.commit()
     return len(runs)
 
-
 def _fail_job(
     db: Session,
     job: ScheduledJob,
@@ -308,13 +251,11 @@ def _fail_job(
     hour: int,
     minute: int,
 ) -> dict[str, Any]:
-    """Job muvaffaqiyatsiz bo'ldi — urinishlar hisoblagichi oshadi."""
     db.rollback()
     job = db.get(ScheduledJob, job.id)
     run = db.get(JobRun, run.id)
     if job is None or run is None:
         raise not_found("Rejalashtirilgan job topilmadi.")
-    # J-9: `attempts` har urinishda oshadi (muvaffaqiyatda 0 ga qaytadi).
     job.attempts = (job.attempts or 0) + 1
     job.error = error[:1000]
     job.next_run_at = next_run_at(
@@ -332,7 +273,6 @@ def _fail_job(
         "attempts": job.attempts,
     }
 
-
 def run_job(
     db: Session,
     job: ScheduledJob,
@@ -340,16 +280,9 @@ def run_job(
     *,
     scheduled_for: datetime | None = None,
 ) -> dict[str, Any]:
-    """Jobni bajaradi.
-
-    J-9: `attempts` faqat muvaffaqiyatda 0 ga qaytadi; xatoda oshadi va
-    `max_attempts` ga yetganda job "failed" holatiga o'tadi.
-    """
     handler = JOB_HANDLERS.get(job.job_type)
     now = datetime.now(timezone.utc)
     scheduled = scheduled_for or job.next_run_at or now
-    # Qo'lda ishga tushirilganda jadval siljib ketmasligi uchun kelajakdagi
-    # reja o'rniga "hozir" dan hisoblanadi.
     if scheduled.tzinfo is None:
         scheduled = scheduled.replace(tzinfo=timezone.utc)
     if scheduled > now:
@@ -358,8 +291,6 @@ def run_job(
     db.add(run)
     db.flush()
     job.last_run_at = now
-    # J-9: claim — jobni "running" belgilab, parallel ishga tushishning oldini
-    # olamiz (qo'sh bosish ikki marta bajarishga olib kelmasligi kerak).
     job.status = "running"
     db.commit()
     hour, minute = _scheduler_time_of_day(db)
@@ -381,7 +312,6 @@ def run_job(
     run.status = "completed"
     run.result = result
     run.finished_at = datetime.now(timezone.utc)
-    # J-9: muvaffaqiyat — urinishlar hisoblagichi noldan boshlanadi.
     job.attempts = 0
     job.error = ""
     job.status = "active"
@@ -399,13 +329,7 @@ def run_job(
     db.commit()
     return {"job_id": job.id, "status": "completed", "result": result}
 
-
 def run_due_jobs(db: Session, limit: int = 5) -> list[dict[str, Any]]:
-    """Mudaqati kelgan joblarni bajaradi.
-
-    J-9: `FOR UPDATE SKIP LOCKED` — cron va qo'lda ishga tushirish bir vaqtda
-    ishlasa ham, har job faqat bitta ishchi tomonidan bajariladi.
-    """
     close_stale_runs(db)
     results: list[dict[str, Any]] = []
     for _ in range(max(0, limit)):
@@ -426,7 +350,6 @@ def run_due_jobs(db: Session, limit: int = 5) -> list[dict[str, Any]]:
         scheduled_for = job.next_run_at
         results.append(run_job(db, job, scheduled_for=scheduled_for))
     return results
-
 
 def list_jobs(db: Session) -> list[dict[str, Any]]:
     jobs = db.execute(select(ScheduledJob).order_by(ScheduledJob.name)).scalars().all()
@@ -461,7 +384,6 @@ def list_jobs(db: Session) -> list[dict[str, Any]]:
             }
         )
     return result
-
 
 def get_job(db: Session, job_id: str) -> ScheduledJob:
     job = db.get(ScheduledJob, job_id)
