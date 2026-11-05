@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
+import re
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.errors import not_found, validation_error
@@ -11,6 +13,9 @@ from app.core.search import like_pattern
 from app.core.time import age_from_birth
 from app.models import Citizen, MemoryItem, Program
 from app.services.serializers import program_out
+
+# N-10: bir fuqaro uchun tekshiriladigan dasturlar chegarasi.
+MAX_MATCH_PROGRAMS = 50
 
 
 def list_programs(
@@ -88,11 +93,15 @@ def _match_one(citizen: Citizen, program: Program) -> dict[str, Any]:
         if citizen.employment_status == "Tadbirkor":
             reasons.append("Tadbirkorlik holati tasdiqlangan.")
         else:
-            missing.append("tadbirkorlik ro'yxatdan o'tkazilganligi")
+            # N-10: tadbirkorlik talabi bajarilmaganligi — "ma'lumot
+            # yetarli emas" emas, "mos kelmaydi" (yolg'on umid tug'dirmasin).
+            fails += 1
             reasons.append("Tadbirkorlik faoliyati tasdiqlanmagan.")
-    if not citizen.birth_date:
+    # N-10: tug'ilgan sana/telefon faqat dastur talab qilganda "yetishmaydi"
+    # — aks holda har javob shovqinli "ma'lumot yetarli emas" bo'lardi.
+    if (eligibility.get("min_age") is not None or eligibility.get("max_age") is not None) and not citizen.birth_date:
         missing.append("tug'ilgan sana")
-    if not citizen.phone:
+    if eligibility.get("requires_phone") and not citizen.phone:
         missing.append("telefon raqami")
     if fails:
         result = "mos kelmaydi"
@@ -122,7 +131,11 @@ def match_citizen(
         if program is None:
             raise not_found("Dastur topilmadi.")
         return [_match_one(citizen, program)]
-    rows = db.execute(select(Program).order_by(Program.organization)).scalars().all()
+    # N-10: himoyaviy chegarasiz ro'yxat o'rniga kap ostida (joriy bazada
+    # dasturlar soni kichik, lekin kattarishi mumkin).
+    rows = db.execute(
+        select(Program).order_by(Program.organization).limit(MAX_MATCH_PROGRAMS)
+    ).scalars().all()
     return [_match_one(citizen, program) for program in rows]
 
 
@@ -183,6 +196,26 @@ def save_preference(
             confidence="confirmed",
         )
         db.add(row)
+        try:
+            db.flush()
+        except IntegrityError:
+            # N-10: parallel so'rov — unique (key, conversation_id) ustiga
+            # tushdi. Mavjud yozuvni yangilaymiz (poyga himoyasi).
+            db.rollback()
+            row = db.execute(
+                select(MemoryItem).where(
+                    MemoryItem.key == "credit.bank_preference",
+                    MemoryItem.conversation_id == conversation_id
+                    if conversation_id
+                    else MemoryItem.conversation_id.is_(None),
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                raise
+            row.value = value
+            row.confidence = "confirmed"
+            row.created_at = datetime.now(timezone.utc)
+            db.flush()
     else:
         row.value = value
         row.confidence = "confirmed"
@@ -211,7 +244,9 @@ def detect_organization(db: Session, text: str) -> dict[str, Any] | None:
         "brb": "Biznesni rivojlantirish banki",
     }
     for alias, name in aliases.items():
-        if alias in lowered:
+        # N-10: qisqa aliaslar ("brb", "nbu") tasodifiy so'zlarning ichida
+        # mos kelmasligi kerak — so'z chegarasi bilan tekshiriladi.
+        if re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", lowered):
             programs = organizations_seen.get(name) or [
                 p for p in rows if name.lower() in p.organization.lower()
             ]
