@@ -25,7 +25,7 @@ mahalla-assistant/
 │       │   └── seed.py      # demo ma'lumotlar yuklovchi
 │       ├── tests/           # pytest
 │       └── api/index.py     # Vercel Python runtime kirish nuqtasi
-├── data/demo_fuqarolar_bazasi.xlsx   # manba dataset
+├── apps/api/data/demo_fuqarolar_bazasi.xlsx   # manba dataset
 └── .env.example
 ```
 

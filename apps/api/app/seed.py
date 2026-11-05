@@ -56,7 +56,7 @@ def load_source_rows():
     path = DATA_FILE if DATA_FILE.exists() else PREFERRED_FILE
     if not path.exists():
         raise RuntimeError(
-            "Demo XLSX topilmadi. Uni data/demo_fuqarolar_bazasi.xlsx ga joylang."
+            "Demo XLSX topilmadi. Uni apps/api/data/demo_fuqarolar_bazasi.xlsx ga joylang."
         )
     workbook = load_workbook(path, read_only=True, data_only=True)
     houses = list(workbook["Ko'chalar_Uylar"].iter_rows(values_only=True))[1:]
