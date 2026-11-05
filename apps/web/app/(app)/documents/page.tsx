@@ -238,9 +238,9 @@ export default function DocumentsPage() {
         </div>
         <div className="card card-pad">
           <h3 className="mb">Eksport</h3>
-          <div className="grid grid-2">
+          <div style={{ display: "grid", gap: 8, gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
             {MODULES.map((module) => (
-              <div key={module} style={{ display: "flex", gap: 6 }}>
+              <div key={module} style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 <button className="btn sm" onClick={() => void exportModule(module, "xlsx")}><FileSpreadsheet size={14} /> {module} .xlsx</button>
                 <button className="btn sm" onClick={() => void exportModule(module, "csv")}>.csv</button>
               </div>

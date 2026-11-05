@@ -182,7 +182,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               <Menu size={15} />
               <span>Boshqa</span>
             </button>
-            <span className="text-faint nowrap" style={{ fontSize: 12.5 }}>
+            <span className="text-faint nowrap hide-sm" style={{ fontSize: 12.5 }}>
               {user?.user.display_name ?? ""}
             </span>
             <button

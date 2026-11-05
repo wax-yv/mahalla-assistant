@@ -50,6 +50,7 @@ export default function ChatPage() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
+  const [busySeconds, setBusySeconds] = useState(0);
   const [historyOpen, setHistoryOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<RecognitionLike | null>(null);
@@ -67,6 +68,12 @@ export default function ChatPage() {
 
   useEffect(() => { void loadConversations(); }, [loadConversations]);
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" }); }, [messages, busy]);
+
+  useEffect(() => {
+    if (!busy) { setBusySeconds(0); return; }
+    const timer = setInterval(() => setBusySeconds((s) => s + 1), 1000);
+    return () => clearInterval(timer);
+  }, [busy]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -240,6 +247,11 @@ export default function ChatPage() {
                 <div className="msg bot">
                   <div className="tag"><span>Orkestrator</span></div>
                   Kerakli agentlar ishga tushirilmoqda…
+                  {busySeconds >= 10 && (
+                    <div className="text-faint" style={{ marginTop: 6, fontSize: 12.5 }}>
+                      Ma'lumotlar bazasi va tashqi manbalar tekshirilmoqda — bu 1-2 daqiqa olishi mumkin.
+                    </div>
+                  )}
                 </div>
               )}
             </div>

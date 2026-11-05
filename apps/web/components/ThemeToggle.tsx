@@ -32,7 +32,7 @@ export function ThemeToggle() {
   return (
     <button className="btn sm" onClick={next} title={`Mavzu: ${META[theme].label}`} aria-label={`Mavzu: ${META[theme].label}. Almashtirish uchun bosing`}>
       <Icon size={14} />
-      <span className="nowrap">{META[theme].label}</span>
+      <span className="nowrap hide-sm">{META[theme].label}</span>
     </button>
   );
 }
