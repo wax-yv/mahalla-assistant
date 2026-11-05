@@ -8,7 +8,7 @@ from urllib.parse import quote, urljoin
 
 import httpx
 from bs4 import BeautifulSoup
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import write_audit
@@ -319,40 +319,151 @@ def sync_query(db: Session, query: str, limit: int = 3, actor: str | None = None
     return documents
 
 
+# J-11: tokenlar — lotin, kirill (rus/o'zbek) va raqamlarni qamrab oladi.
+TOKEN_RE = re.compile(r"[0-9]+|[a-zа-яёўқғҳʻʼ\u2019']{2,}", re.IGNORECASE)
+# Oddiy qo'shimcha kesish (stemming'siz) — J-11.
+# Uzunroq qo'shimchalar avval tekshiriladi: "ning" -> "lar" ketma-ketligi.
+SUFFIXES = ("ning", "lari", "lar", "dan", "ga", "da", "ni")
+# Kesilgandan keyin qoladigan minimal uzunlik (qisqa so'zlar buzilmasin).
+MIN_STEM_LEN = 4
+# "moddada", "moddasi", "moddadagi" kabi shakllar bitta asosiy shaklga.
+MODDA_FORMS_RE = re.compile(r"^modda.*$")
+# Modda raqamini to'g'ridan-to'g'ri topish — J-11.
+ARTICLE_QUERY_RE = re.compile(r"(\d{1,4}(?:-\d{1,3})?)\s*-?\s*modda", re.IGNORECASE)
+# SQL'da oldindan filtr — barcha chunk'lar RAM'ga yuklanmasligi kerak (J-11).
+SEARCH_CANDIDATE_LIMIT = 200
+
+
+def _stem(token: str) -> str:
+    """Oddiy qo'shimcha kesish (`fuqarolaring` -> `fuqaro`).
+
+    O'zbek tilidagi egalik + ko'plik qo'shimchalari ketma-ket keladi
+    (`fuqarolarning` = `fuqaro` + `lar` + `ning`), shuning uchun kesish
+    bir necha marta takrorlanadi. So'zning oxirgi 5 harfi saqlanadi —
+    aks holda `modda` -> `modd` kabi buzilishlar bo'lardi.
+    """
+    result = token
+    for _ in range(3):  # cheksiz siklga tushmaslik uchun
+        if len(result) <= 5:
+            break
+        changed = False
+        for suffix in SUFFIXES:
+            if result.endswith(suffix):
+                candidate = result[: -len(suffix)]
+                if len(candidate) >= MIN_STEM_LEN:
+                    result = candidate
+                    changed = True
+                    break
+        if not changed:
+            break
+    return result
+
+
 def _tokens(text: str) -> list[str]:
-    return [
-        token
-        for token in re.findall(r"[a-zʻʼ\u2019']{3,}", (text or "").lower())
-        if token not in STOP
-    ]
+    """Savol kalitlari — lotin/kirill so'zlar va raqamlar."""
+    tokens: list[str] = []
+    for raw in TOKEN_RE.findall((text or "").lower()):
+        if raw.isdigit():
+            if len(raw) < 2 or raw in STOP:
+                continue
+            tokens.append(raw)
+            continue
+        if raw in STOP:
+            continue
+        if MODDA_FORMS_RE.match(raw):
+            # "moddada", "moddasi", "moddadagi" -> "modda"
+            tokens.append("modda")
+            continue
+        stemmed = _stem(raw)
+        if stemmed in STOP or len(stemmed) < 3:
+            continue
+        tokens.append(stemmed)
+    return tokens
+
+
+def _article_from_query(query: str) -> str | None:
+    """Savoldagi modda raqamini ajratadi ("19-modda" -> "19-modda")."""
+    match = ARTICLE_QUERY_RE.search(query or "")
+    if not match:
+        return None
+    return f"{match.group(1)}-modda"
 
 
 def search_chunks(db: Session, query: str, limit: int = 6) -> list[dict[str, Any]]:
+    """Manbalar ichidan qidiruv.
+
+    J-11: barcha chunk'lar RAM'ga yuklanmasdi — SQL'da oldindan filtr
+    (ilike + LIMIT) qilinadi, keyin Python'da ball qo'yiladi. Modda raqami
+    ("19-modda") to'g'ridan-to'g'ri `article` bo'yicha qidiriladi.
+
+    Moddaga mos qatorlar alohida so'rov bilan olinadi — aks holda umumiy
+    `LIMIT` ularni siqib tashlash mumkin edi.
+    """
     tokens = _tokens(query)
-    if not tokens:
+    article = _article_from_query(query)
+    if not tokens and not article:
         return []
-    rows = db.execute(
+    unique_tokens = list(dict.fromkeys(tokens))
+    base = (
         select(LegislationChunk, LegislationDocument)
         .join(LegislationDocument, LegislationDocument.id == LegislationChunk.document_id)
         .where(LegislationDocument.legal_status.notin_(["arxivlangan"]))
-    ).all()
+    )
+    rows: list[tuple[Any, Any]] = []
+    seen: set[str] = set()
+
+    if article:
+        article_rows = db.execute(
+            base.where(LegislationChunk.article == article)
+            .limit(SEARCH_CANDIDATE_LIMIT)
+        ).all()
+        for row in article_rows:
+            seen.add(row[0].id)
+            rows.append(row)
+
+    if unique_tokens:
+        # `search_text` bo'sh bo'lishi mumkin — heading va content ham
+        # tekshiriladi (dialektga bog'liq `concat` ishlatilmaydi).
+        token_conditions = []
+        for token in unique_tokens[:8]:
+            pattern = f"%{token}%"
+            token_conditions.append(
+                or_(
+                    LegislationChunk.search_text.ilike(pattern),
+                    LegislationChunk.heading.ilike(pattern),
+                    LegislationChunk.content.ilike(pattern),
+                )
+            )
+        token_rows = db.execute(
+            base.where(or_(*token_conditions)).limit(SEARCH_CANDIDATE_LIMIT)
+        ).all()
+        for row in token_rows:
+            if row[0].id in seen:
+                continue
+            seen.add(row[0].id)
+            rows.append(row)
+
     scored: list[dict[str, Any]] = []
-    phrase = " ".join(tokens)
+    phrase = " ".join(unique_tokens)
     for chunk, document in rows:
         haystack = (chunk.search_text or f"{chunk.heading} {chunk.content}").lower()
         score = 0.0
         matched = 0
-        for token in set(tokens):
+        for token in set(unique_tokens):
             count = haystack.count(token)
             if count:
                 matched += 1
                 score += 1.0 + min(count, 6) * 0.25
-        if not matched:
+        article_hit = bool(article) and chunk.article == article
+        if not matched and not article_hit:
             continue
+        if article_hit:
+            # So'roqda aniq modda ko'rsatilgan bo'lsa — u oldinga chiqadi.
+            score += 12.0
         if phrase and phrase in haystack:
             score += 6.0
-        if len(tokens) > 1:
-            coverage = matched / len(set(tokens))
+        if len(unique_tokens) > 1 and matched:
+            coverage = matched / len(set(unique_tokens))
             score *= 1.0 + coverage
         scored.append(
             {
