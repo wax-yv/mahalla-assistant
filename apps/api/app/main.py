@@ -57,14 +57,27 @@ async def lifespan(app: FastAPI):
     yield
 
 
+def docs_paths() -> dict[str, str | None]:
+    """API hujjatlarining manzillari (D-2).
+
+    Productionda `/api/docs`, `/api/redoc` va `/api/openapi.json` yopiladi —
+    ochiq API ta'rifi xavfsizlik chegarasini kengaytiradi.
+    """
+    if settings.is_production:
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {
+        "docs_url": "/api/docs",
+        "redoc_url": "/api/redoc",
+        "openapi_url": "/api/openapi.json",
+    }
+
+
 app = FastAPI(
     title="Mahalla Assistant API",
     version=settings.app_version,
     description="Xorazm viloyati, Urganch shahri, Navbahor mahallasi uchun demo boshqaruv tizimi.",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
     lifespan=lifespan,
+    **docs_paths(),
 )
 
 app.add_middleware(
