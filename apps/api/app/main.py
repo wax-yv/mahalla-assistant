@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import uuid
 from contextlib import asynccontextmanager
 
@@ -72,6 +73,73 @@ def docs_paths() -> dict[str, str | None]:
     }
 
 
+REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
+
+
+def request_id_for(request: Request) -> str:
+    """Mijoz bergan `X-Request-ID` faqat xavfsiz formatda qabul qilinadi (D-3).
+
+    Noto'g'ri format (uzun, log inyeksiyasi, belgilar) — so'rov ID'si
+    server tomonda yangi qilinadi.
+    """
+    raw = request.headers.get("x-request-id")
+    if raw and REQUEST_ID_PATTERN.match(raw):
+        return raw
+    return uuid.uuid4().hex
+
+
+def server_error_response(request: Request, exc: Exception) -> JSONResponse:
+    """Kutilmagan xatolik uchun yagona javob (D-3).
+
+    `request_context` middleware ichida chaqiriladi — shu sabab javob CORS
+    middleware'sidan o'tadi va `Access-Control-Allow-Origin` sarlavhasi
+    qo'shiladi.
+    """
+    print(f"[error] {type(exc).__name__}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "Serverda kutilmagan xatolik yuz berdi. Keyinroq qayta urinib ko'ring.",
+                "details": [],
+                "request_id": getattr(request.state, "request_id", None),
+            }
+        },
+    )
+
+
+def install_middleware(application: FastAPI) -> None:
+    """So'rov konteksti va CORS (D-3).
+
+    CORS **eng tashqarida** o'rnatiladi: unhandled xatoliklar
+    `request_context` ichida ushlanadi va CORS sarlavhalari bilan
+    qaytariladi (avvalgi holatda 500 javobda CORS sarlavhalari yo'q edi).
+    """
+
+    @application.middleware("http")
+    async def request_context(request: Request, call_next):
+        request_id = request_id_for(request)
+        request.state.request_id = request_id
+        try:
+            response = await call_next(request)
+        except Exception as exc:  # noqa: BLE001 — 500 javob CORS bilan
+            response = server_error_response(request, exc)
+        response.headers["X-Request-ID"] = request_id
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "X-CSRF-Token", "X-Request-ID", "Authorization"],
+        expose_headers=["X-Request-ID"],
+    )
+
+
 app = FastAPI(
     title="Mahalla Assistant API",
     version=settings.app_version,
@@ -80,25 +148,7 @@ app = FastAPI(
     **docs_paths(),
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-CSRF-Token", "X-Request-ID", "Authorization"],
-    expose_headers=["X-Request-ID"],
-)
-
-
-@app.middleware("http")
-async def request_context(request: Request, call_next):
-    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
-    request.state.request_id = request_id
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    return response
+install_middleware(app)
 
 
 @app.exception_handler(APIError)
@@ -149,18 +199,8 @@ async def http_error_handler(request: Request, exc: StarletteHTTPException):
 
 @app.exception_handler(Exception)
 async def unhandled_handler(request: Request, exc: Exception):
-    print(f"[error] {type(exc).__name__}: {exc}")
-    return JSONResponse(
-        status_code=500,
-        content={
-            "error": {
-                "code": "INTERNAL_ERROR",
-                "message": "Serverda kutilmagan xatolik yuz berdi. Keyinroq qayta urinib ko'ring.",
-                "details": [],
-                "request_id": getattr(request.state, "request_id", None),
-            }
-        },
-    )
+    """Zaxira handler — asosiy ushlash `request_context` middleware'ida."""
+    return server_error_response(request, exc)
 
 
 for router in (
