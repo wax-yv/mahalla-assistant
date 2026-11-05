@@ -88,7 +88,10 @@ curl https://<api-url>/api/v1/setup/status
 ## 4. Yakuniy sozlash
 
 - API loyihasida `FRONTEND_URL` va `APP_BASE_URL` ni 3-qadamdagi haqiqiy URL bilan yangilab, **Redeploy** qiling (CORS uchun).
-- (Ixtiyoriy) Vercel Cron: API loyihasida **Cron Jobs** → `https://<api-url>/api/v1/admin/jobs/run-due` ni kuniga 1 marta chaqiradigan job qo'shing (sarlavha `Authorization: Bearer <CRON_SECRET>`).
+- **Cron:** `apps/api/vercel.json` da Vercel Cron sozlamasi bor — `GET /api/v1/cron/run-due` har kuni 04:00 UTC (09:00 Toshkent) chaqiriladi. Endpoint `Authorization: Bearer <CRON_SECRET>` sarlavhasini talab qiladi; `CRON_SECRET` env o'zgaruvchisi bo'lmasa yoki `change-me` bo'lsa endpoint **503** qaytaradi (o'chirilgan holat). Qo'lda sinash:
+  ```bash
+  curl -H "Authorization: Bearer $CRON_SECRET" https://<api-url>/api/v1/cron/run-due
+  ```
 
 ## Muhim eslatmalar
 

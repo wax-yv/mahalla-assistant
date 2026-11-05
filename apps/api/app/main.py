@@ -18,6 +18,7 @@ from app.routers import (
     auth,
     cases,
     citizens,
+    cron,
     dashboard,
     documents,
     health,
@@ -147,5 +148,6 @@ for router in (
     agents.router,
     admin.router,
     setup.router,
+    cron.router,
 ):
     app.include_router(router, prefix="/api/v1")
