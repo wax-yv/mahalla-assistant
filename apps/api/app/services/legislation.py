@@ -174,6 +174,67 @@ def _parse_date(text: str) -> date | None:
         return None
 
 
+# O'zbek oy nomlari (kuchga kirish sanasini o'qish uchun).
+UZ_MONTHS = {
+    "yanvar": 1,
+    "fevral": 2,
+    "mart": 3,
+    "aprel": 4,
+    "may": 5,
+    "iyun": 6,
+    "iyul": 7,
+    "avgust": 8,
+    "sentabr": 9,
+    "oktabr": 10,
+    "noyabr": 11,
+    "dekabr": 12,
+}
+
+EFFECTIVE_RE = re.compile(
+    r"(\d{4})-yil\s+(\d{1,2})-([a-z]+)dan\s+e[ʼ']tiboran\s+kuchga\s+kiradi",
+    re.IGNORECASE,
+)
+EFFECTIVE_DATE_RE = re.compile(r"(\d{4})-yil\s+(\d{1,2})-([a-z]+)dan", re.IGNORECASE)
+
+
+def _parse_effective_date(text: str) -> date | None:
+    """Kuchga kirish sanasini o'qiydi (D-7).
+
+    Matn ko'rinishi: `2024-yil 1-yanvardan e'tiboran kuchga kiradi`.
+    Eski kod matn topilganda ham `effective = None` qo'yardi — sana
+    hech qachon saqlanmasdi.
+    """
+    for pattern in (EFFECTIVE_RE, EFFECTIVE_DATE_RE):
+        match = pattern.search(text or "")
+        if not match:
+            continue
+        year, day, month_name = int(match.group(1)), int(match.group(2)), match.group(3).lower()
+        month = UZ_MONTHS.get(month_name)
+        if not month:
+            continue
+        try:
+            return date(year, month, day)
+        except ValueError:
+            continue
+    return None
+
+
+def _legal_status_from_html(soup: BeautifulSoup) -> str:
+    """Hujjat holatini **aniq DOM elementidan** o'qiydi (D-6).
+
+    Eski kod butun HTML matnida `status_code_y` satrini izlardi — CSS/JS
+    ham o'sha satrni o'z ichiga olsa, hujjat noto'g'ri "amaldagi" deb
+    belgilanardi.
+    """
+    state = soup.select_one(".lx_act_state i")
+    if state is None:
+        return "tekshirilgan"
+    classes = state.get("class") or []
+    if "status_code_y" in classes:
+        return "amaldagi"
+    return "tekshirilgan"
+
+
 def fetch_document(url: str, timeout: float = LEX_REQUEST_TIMEOUT) -> dict[str, Any]:
     final_url, html = _fetch_checked(url, document=True, timeout=timeout)
     soup = BeautifulSoup(html, "lxml")
@@ -196,10 +257,7 @@ def fetch_document(url: str, timeout: float = LEX_REQUEST_TIMEOUT) -> dict[str, 
         if candidate.lower() in (title + " " + header).lower():
             doc_type = candidate
             break
-    effective = None
-    eff_match = re.search(r"(\d{4}-yil\s+\d{1,2}-[a-z]+dan)\s+e[ʼ']tiboran kuchga kiradi", text)
-    if eff_match:
-        effective = None
+    effective = _parse_effective_date(text)
     return {
         "url": final_url,
         "title": title[:480] or "Lex.uz hujjati",
@@ -209,8 +267,9 @@ def fetch_document(url: str, timeout: float = LEX_REQUEST_TIMEOUT) -> dict[str, 
         "adoption_date": _parse_date(header),
         "effective_date": effective,
         "content_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-        # J-12: HTML bazaga saqlanmaydi (400 KB) — faqat toza matn saqlanadi.
-        "legal_status": "amaldagi" if "status_code_y" in html[:20000] else "tekshirilgan",
+        # D-6: holat aniq DOM elementidan o'qiladi — butun HTML'da satr
+        # izlash CSS/JS tasodifiy mosligiga olib kelardi.
+        "legal_status": _legal_status_from_html(soup),
     }
 
 
