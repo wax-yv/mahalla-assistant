@@ -42,6 +42,8 @@ STOP = {
 
 MAX_DOC_BYTES = 3 * 1024 * 1024
 MAX_REDIRECTS = 3
+# J-12: saqlanadigan qonunchilik versiyalari soni (faqat oxirgi N).
+MAX_VERSIONS = 3
 
 
 def _client() -> httpx.Client:
@@ -197,7 +199,7 @@ def fetch_document(url: str) -> dict[str, Any]:
         "adoption_date": _parse_date(header),
         "effective_date": effective,
         "content_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-        "raw_html": html[:400000],
+        # J-12: HTML bazaga saqlanmaydi (400 KB) — faqat toza matn saqlanadi.
         "legal_status": "amaldagi" if "status_code_y" in html[:20000] else "tekshirilgan",
     }
 
@@ -242,7 +244,16 @@ def split_chunks(text: str, max_len: int = 1100) -> list[dict[str, str]]:
 
 
 def ingest_document(db: Session, url: str, *, actor: str | None = None) -> LegislationDocument:
+    """Hujjatni sinxronlaydi.
+
+    J-12:
+    - kontent o'zgarmagan bo'lsa — faqat `retrieved_at` yangilanadi, yangi
+      versiya yaratilmaydi va chunk'lar qayta yozilmaydi;
+    - saqlanadigan versiyalar soni cheklangan (`MAX_VERSIONS` = 3);
+    - 400 KB `raw_html` bazada saqlanmaydi.
+    """
     payload = fetch_document(url)
+    now = datetime.now(timezone.utc)
     document = db.execute(
         select(LegislationDocument).where(LegislationDocument.source_url == payload["url"])
     ).scalar_one_or_none()
@@ -250,19 +261,42 @@ def ingest_document(db: Session, url: str, *, actor: str | None = None) -> Legis
         document = LegislationDocument(source_url=payload["url"], title=payload["title"])
         db.add(document)
         db.flush()
+    unchanged = bool(document.content_hash) and document.content_hash == payload["content_hash"]
     document.title = payload["title"]
     document.number = payload["number"] or document.number
     document.doc_type = payload["doc_type"] or document.doc_type
     document.adoption_date = payload["adoption_date"] or document.adoption_date
     document.effective_date = payload["effective_date"] or document.effective_date
     document.legal_status = payload["legal_status"]
-    document.retrieved_at = datetime.now(timezone.utc)
-    document.content_hash = payload["content_hash"]
+    document.retrieved_at = now
     document.version_identifier = payload["content_hash"][:16]
-    document.raw_html = payload["raw_html"]
+    # J-12: 400 KB HTML bazada saqlanmaydi (faqat toza matn saqlanadi).
+    document.raw_html = ""
+    if unchanged:
+        # Kontent o'zgarmagan — versiya va chunk'lar qayta yozilmaydi.
+        document.content_hash = payload["content_hash"]
+        db.flush()
+        write_audit(
+            db,
+            action="legislation.checked",
+            entity_type="legislation_document",
+            entity_id=document.id,
+            actor_id=actor,
+            new_value={
+                "title": document.title,
+                "url": document.source_url,
+                "changed": False,
+            },
+        )
+        db.commit()
+        db.refresh(document)
+        return document
+    document.content_hash = payload["content_hash"]
     db.flush()
     versions = db.execute(
-        select(LegislationVersion).where(LegislationVersion.document_id == document.id)
+        select(LegislationVersion)
+        .where(LegislationVersion.document_id == document.id)
+        .order_by(LegislationVersion.retrieved_at.desc())
     ).scalars().all()
     for version in versions:
         version.is_current = False
@@ -291,13 +325,33 @@ def ingest_document(db: Session, url: str, *, actor: str | None = None) -> Legis
                 search_text=f"{document.title} {chunk['article']} {chunk['heading']} {chunk['content']}".lower(),
             )
         )
+    # J-12: faqat oxirgi N versiyani saqlaymiz (eski versiyalar va ularning
+    # chunk'lari o'chiriladi — baza bepul tarifda tez to'lmasligi uchun).
+    all_versions = db.execute(
+        select(LegislationVersion)
+        .where(LegislationVersion.document_id == document.id)
+        .order_by(LegislationVersion.retrieved_at.desc())
+    ).scalars().all()
+    stale = all_versions[MAX_VERSIONS:]
+    for old in stale:
+        db.execute(
+            LegislationChunk.__table__.delete().where(LegislationChunk.version_id == old.id)
+        )
+        db.delete(old)
+    db.flush()
     write_audit(
         db,
         action="legislation.synced",
         entity_type="legislation_document",
         entity_id=document.id,
         actor_id=actor,
-        new_value={"title": document.title, "url": document.source_url, "chunks": index + 1},
+        new_value={
+            "title": document.title,
+            "url": document.source_url,
+            "chunks": index + 1,
+            "changed": True,
+            "versions": len(all_versions) - len(stale),
+        },
     )
     db.commit()
     db.refresh(document)
