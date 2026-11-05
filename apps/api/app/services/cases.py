@@ -332,7 +332,7 @@ def _apply_status(db: Session, task: Task, new_status: str) -> None:
             f"Vazifa holatini '{task.status}' dan '{new_status}' ga o'zgartirish mumkin emas."
         )
     task.status = new_status
-    # E-1: `elif new_status != "completed"` — oldingi `if` ning aniq inkori.
+    # E-1: bu blok oddiy `else` bilan yakunlanadi — ortiqcha shart yo'q.
     if new_status == "completed":
         task.completed_at = datetime.now(timezone.utc)
     else:
