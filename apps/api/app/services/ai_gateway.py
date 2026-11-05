@@ -4,11 +4,11 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -256,8 +256,82 @@ def provider_status(live: bool = True) -> list[dict[str, Any]]:
     return result
 
 
+# J-16: budjet zaxirasi (reservation) — parallel so'rovlar budjetdan
+# oshib ketmasligi uchun tokenlar chaqiruvdan OLDIN zaxira qilinadi.
+BUDGET_LOCK_KEY = 918273645
+RESERVATION_TTL_MINUTES = 10
+RESERVATION_MODEL = "budget-reservation"
+
+
+def _day_start() -> datetime:
+    return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _reserve_budget(*, agent: str, estimate_tokens: int) -> int | None:
+    """Kunlik token budjetidan zaxira oladi (J-16).
+
+    Parallel so'rovlar bir xil `usage_today` ni o'qib, budjetdan birga
+    oshib ketolmasdi. Endi zaxira **atomik** qilinadi:
+    - PostgreSQL'da `pg_advisory_xact_lock` bilan ketma-ket tekshiruv;
+    - zaxira `AIUsage` qatori sifatida commit qilinadi (boshqa so'rovlar
+      uni darhol ko'radi);
+    - jarayon o'lgan taqdirda eski zaxiralar TTL bilan yopiladi.
+    """
+    from app.core.db import SessionLocal
+
+    with SessionLocal() as session:
+        if session.get_bind().dialect.name == "postgresql":
+            session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": BUDGET_LOCK_KEY})
+        # Eski (tashlab ketilgan) zaxiralarni yopish.
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=RESERVATION_TTL_MINUTES)
+        session.execute(
+            update(AIUsage)
+            .where(AIUsage.status == "reserved", AIUsage.created_at < cutoff)
+            .values(status="expired", total_tokens=0)
+        )
+        used = int(
+            session.execute(
+                select(func.coalesce(func.sum(AIUsage.total_tokens), 0)).where(
+                    AIUsage.created_at >= _day_start()
+                )
+            ).scalar_one()
+        )
+        if used + estimate_tokens > settings.ai_daily_token_budget:
+            return None
+        reservation = AIUsage(
+            provider="-",
+            model=RESERVATION_MODEL,
+            agent=agent,
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=int(estimate_tokens),
+            latency_ms=0,
+            status="reserved",
+        )
+        session.add(reservation)
+        session.commit()
+        return reservation.id
+
+
+def _settle_reservation(reservation_id: int | None) -> None:
+    """Zaxirani yopadi — haqiqiy sarf alohida yozilgan (0 ga qaytariladi)."""
+    from app.core.db import SessionLocal
+
+    if not reservation_id:
+        return
+    try:
+        with SessionLocal() as session:
+            row = session.get(AIUsage, reservation_id)
+            if row is not None and row.status == "reserved":
+                row.status = "settled"
+                row.total_tokens = 0
+                session.commit()
+    except Exception:  # pragma: no cover — javob buzilmasin
+        pass
+
+
 def usage_today(db: Session) -> dict[str, int]:
-    start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    start = _day_start()
     row = db.execute(
         select(
             func.coalesce(func.sum(AIUsage.prompt_tokens), 0),
@@ -377,9 +451,6 @@ def chat_completion(
     preferred_provider: str | None = None,
     preferred_model: str | None = None,
 ) -> AIResult:
-    budget = usage_today(db)
-    if budget["remaining"] <= 0:
-        raise service_unavailable("Kunlik AI token budjeti tugagan. Sozlamalarda limitni oshiring.")
     candidates = available_models()
     # O-9: faqat ro'yxatda mavjud bo'lgan model tanlanadi — mavjud bo'lmagan
     # ID har chaqiruvda bekor tarmoq so'rovi va kechikish keltirardi.
@@ -393,6 +464,13 @@ def chat_completion(
     if not candidates:
         raise service_unavailable("AI provayderlari sozlanmagan.")
 
+    # J-16: budjet tekshiruvi atomik zaxira bilan — parallel so'rovlar
+    # budjetdan oshib ketolmaydi.
+    estimate = max(250, min(int(max_tokens or settings.ai_max_output_tokens), 8000))
+    reservation_id = _reserve_budget(agent=agent, estimate_tokens=estimate)
+    if reservation_id is None:
+        raise service_unavailable("Kunlik AI token budjeti tugagan. Sozlamalarda limitni oshiring.")
+
     # J-1: umumiy vaqt chegarasi — 12 model × 55 s = 660 s bo'lishi mumkin emas.
     max_attempts = max(1, settings.ai_max_attempts)
     candidates = candidates[:max_attempts]
@@ -400,161 +478,165 @@ def chat_completion(
     attempts: list[dict[str, Any]] = []
     last_error = "Model javob bermadi."
     started_all = time.perf_counter()
-    for index, candidate in enumerate(candidates):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            last_error = "AI so'rov vaqti chegarasi tugadi."
-            break
-        url, headers = _endpoint(candidate["provider"])
-        body: dict[str, Any] = {
-            "model": candidate["id"],
-            "messages": messages,
-            "temperature": settings.ai_temperature if temperature is None else max(0.0, min(1.0, temperature)),
-            "max_tokens": max_tokens or settings.ai_max_output_tokens,
-            "stream": False,
-        }
-        if json_mode:
-            body["response_format"] = {"type": "json_object"}
-        attempt_timeout = max(3.0, min(float(settings.ai_attempt_timeout_seconds), remaining))
-        started = time.perf_counter()
-        try:
-            with httpx.Client(timeout=attempt_timeout) as client:
-                response = client.post(url, headers=headers, json=body)
-            elapsed = int((time.perf_counter() - started) * 1000)
-            if response.status_code >= 400:
-                detail = ""
-                try:
-                    payload = response.json()
-                    error = payload.get("error")
-                    detail = error.get("message") if isinstance(error, dict) else str(error or payload.get("detail") or "")
-                except Exception:
-                    detail = response.text[:200]
+    try:
+        for index, candidate in enumerate(candidates):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                last_error = "AI so'rov vaqti chegarasi tugadi."
+                break
+            url, headers = _endpoint(candidate["provider"])
+            body: dict[str, Any] = {
+                "model": candidate["id"],
+                "messages": messages,
+                "temperature": settings.ai_temperature if temperature is None else max(0.0, min(1.0, temperature)),
+                "max_tokens": max_tokens or settings.ai_max_output_tokens,
+                "stream": False,
+            }
+            if json_mode:
+                body["response_format"] = {"type": "json_object"}
+            attempt_timeout = max(3.0, min(float(settings.ai_attempt_timeout_seconds), remaining))
+            started = time.perf_counter()
+            try:
+                with httpx.Client(timeout=attempt_timeout) as client:
+                    response = client.post(url, headers=headers, json=body)
+                elapsed = int((time.perf_counter() - started) * 1000)
+                if response.status_code >= 400:
+                    detail = ""
+                    try:
+                        payload = response.json()
+                        error = payload.get("error")
+                        detail = error.get("message") if isinstance(error, dict) else str(error or payload.get("detail") or "")
+                    except Exception:
+                        detail = response.text[:200]
+                    attempts.append(
+                        {
+                            "provider": candidate["provider"],
+                            "model": candidate["id"],
+                            "status": response.status_code,
+                            "error": str(detail)[:300],
+                        }
+                    )
+                    last_error = f"{candidate['id']}: {response.status_code} {detail}"[:300]
+                    # J-3: muvaffaqiyatsiz urinish ham hisoblanadi
+                    _record_usage(
+                        provider=candidate["provider"],
+                        model=candidate["id"],
+                        agent=agent,
+                        workflow_id=workflow_id,
+                        latency_ms=elapsed,
+                        status="error",
+                    )
+                    continue
+                payload = response.json()
+                message = (payload.get("choices") or [{}])[0].get("message") or {}
+                content = message.get("content")
+                if isinstance(content, list):
+                    content = " ".join(
+                        part.get("text", "") if isinstance(part, dict) else str(part) for part in content
+                    )
+                # J-2: `reasoning_content` javob sifatida qaytarilmaydi — bu modelning
+                # ichki mulohazasi, foydalanuvchiga javob bo'lib chiqmasligi kerak.
+                content = (content or "").strip()
+                if not content:
+                    attempts.append({"provider": candidate["provider"], "model": candidate["id"], "status": "empty"})
+                    last_error = f"{candidate['id']}: bo'sh javob"
+                    _record_usage(
+                        provider=candidate["provider"],
+                        model=candidate["id"],
+                        agent=agent,
+                        workflow_id=workflow_id,
+                        latency_ms=elapsed,
+                        status="empty",
+                    )
+                    continue
+                if json_mode and extract_json(content) is None:
+                    # J-2: JSONMode'da JSON bo'lmagan javob keyingi modelga uzatiladi.
+                    attempts.append(
+                        {
+                            "provider": candidate["provider"],
+                            "model": candidate["id"],
+                            "status": "invalid_json",
+                        }
+                    )
+                    last_error = f"{candidate['id']}: JSON formatida javob kelmadi"
+                    _record_usage(
+                        provider=candidate["provider"],
+                        model=candidate["id"],
+                        agent=agent,
+                        workflow_id=workflow_id,
+                        latency_ms=elapsed,
+                        status="invalid_json",
+                    )
+                    continue
+                usage = payload.get("usage") or {}
+                prompt = int(usage.get("prompt_tokens") or 0)
+                completion = int(usage.get("completion_tokens") or 0)
+                total = int(usage.get("total_tokens") or prompt + completion)
+                result = AIResult(
+                    content=content,
+                    provider=candidate["provider"],
+                    model=str(payload.get("model") or candidate["id"]),
+                    latency_ms=int((time.perf_counter() - started_all) * 1000),
+                    prompt_tokens=prompt,
+                    completion_tokens=completion,
+                    total_tokens=total,
+                    attempts=attempts
+                    + [{"provider": candidate["provider"], "model": candidate["id"], "status": 200, "latency_ms": elapsed}],
+                    fallback_used=index > 0,
+                )
+                # J-3: sarf alohida sessiyada yoziladi (rollback'dan qat'i nazar).
+                _record_usage(
+                    provider=result.provider,
+                    model=result.model,
+                    agent=agent,
+                    workflow_id=workflow_id,
+                    prompt_tokens=prompt,
+                    completion_tokens=completion,
+                    total_tokens=total,
+                    latency_ms=result.latency_ms,
+                    status="success",
+                )
+                return result
+            except httpx.TimeoutException:
                 attempts.append(
                     {
                         "provider": candidate["provider"],
                         "model": candidate["id"],
-                        "status": response.status_code,
-                        "error": str(detail)[:300],
+                        "status": "timeout",
+                        "error": f"{attempt_timeout:.0f}s ichida javob yo'q",
                     }
                 )
-                last_error = f"{candidate['id']}: {response.status_code} {detail}"[:300]
-                # J-3: muvaffaqiyatsiz urinish ham hisoblanadi
+                last_error = f"{candidate['id']}: timeout"
                 _record_usage(
                     provider=candidate["provider"],
                     model=candidate["id"],
                     agent=agent,
                     workflow_id=workflow_id,
-                    latency_ms=elapsed,
+                    latency_ms=int((time.perf_counter() - started) * 1000),
+                    status="timeout",
+                )
+            except Exception as error:
+                attempts.append(
+                    {
+                        "provider": candidate["provider"],
+                        "model": candidate["id"],
+                        "status": "error",
+                        "error": str(error)[:300],
+                    }
+                )
+                last_error = f"{candidate['id']}: {error}"[:300]
+                _record_usage(
+                    provider=candidate["provider"],
+                    model=candidate["id"],
+                    agent=agent,
+                    workflow_id=workflow_id,
+                    latency_ms=int((time.perf_counter() - started) * 1000),
                     status="error",
                 )
-                continue
-            payload = response.json()
-            message = (payload.get("choices") or [{}])[0].get("message") or {}
-            content = message.get("content")
-            if isinstance(content, list):
-                content = " ".join(
-                    part.get("text", "") if isinstance(part, dict) else str(part) for part in content
-                )
-            # J-2: `reasoning_content` javob sifatida qaytarilmaydi — bu modelning
-            # ichki mulohazasi, foydalanuvchiga javob bo'lib chiqmasligi kerak.
-            content = (content or "").strip()
-            if not content:
-                attempts.append({"provider": candidate["provider"], "model": candidate["id"], "status": "empty"})
-                last_error = f"{candidate['id']}: bo'sh javob"
-                _record_usage(
-                    provider=candidate["provider"],
-                    model=candidate["id"],
-                    agent=agent,
-                    workflow_id=workflow_id,
-                    latency_ms=elapsed,
-                    status="empty",
-                )
-                continue
-            if json_mode and extract_json(content) is None:
-                # J-2: JSONMode'da JSON bo'lmagan javob keyingi modelga uzatiladi.
-                attempts.append(
-                    {
-                        "provider": candidate["provider"],
-                        "model": candidate["id"],
-                        "status": "invalid_json",
-                    }
-                )
-                last_error = f"{candidate['id']}: JSON formatida javob kelmadi"
-                _record_usage(
-                    provider=candidate["provider"],
-                    model=candidate["id"],
-                    agent=agent,
-                    workflow_id=workflow_id,
-                    latency_ms=elapsed,
-                    status="invalid_json",
-                )
-                continue
-            usage = payload.get("usage") or {}
-            prompt = int(usage.get("prompt_tokens") or 0)
-            completion = int(usage.get("completion_tokens") or 0)
-            total = int(usage.get("total_tokens") or prompt + completion)
-            result = AIResult(
-                content=content,
-                provider=candidate["provider"],
-                model=str(payload.get("model") or candidate["id"]),
-                latency_ms=int((time.perf_counter() - started_all) * 1000),
-                prompt_tokens=prompt,
-                completion_tokens=completion,
-                total_tokens=total,
-                attempts=attempts
-                + [{"provider": candidate["provider"], "model": candidate["id"], "status": 200, "latency_ms": elapsed}],
-                fallback_used=index > 0,
-            )
-            # J-3: sarf alohida sessiyada yoziladi (rollback'dan qat'i nazar).
-            _record_usage(
-                provider=result.provider,
-                model=result.model,
-                agent=agent,
-                workflow_id=workflow_id,
-                prompt_tokens=prompt,
-                completion_tokens=completion,
-                total_tokens=total,
-                latency_ms=result.latency_ms,
-                status="success",
-            )
-            return result
-        except httpx.TimeoutException:
-            attempts.append(
-                {
-                    "provider": candidate["provider"],
-                    "model": candidate["id"],
-                    "status": "timeout",
-                    "error": f"{attempt_timeout:.0f}s ichida javob yo'q",
-                }
-            )
-            last_error = f"{candidate['id']}: timeout"
-            _record_usage(
-                provider=candidate["provider"],
-                model=candidate["id"],
-                agent=agent,
-                workflow_id=workflow_id,
-                latency_ms=int((time.perf_counter() - started) * 1000),
-                status="timeout",
-            )
-        except Exception as error:
-            attempts.append(
-                {
-                    "provider": candidate["provider"],
-                    "model": candidate["id"],
-                    "status": "error",
-                    "error": str(error)[:300],
-                }
-            )
-            last_error = f"{candidate['id']}: {error}"[:300]
-            _record_usage(
-                provider=candidate["provider"],
-                model=candidate["id"],
-                agent=agent,
-                workflow_id=workflow_id,
-                latency_ms=int((time.perf_counter() - started) * 1000),
-                status="error",
-            )
-    raise service_unavailable(f"Barcha AI modellari javob bermadi. Oxirgi xato: {last_error}")
+        raise service_unavailable(f"Barcha AI modellari javob bermadi. Oxirgi xato: {last_error}")
+    finally:
+        # J-16: zaxira yopiladi — haqiqiy sarf har urinish uchun yozilgan.
+        _settle_reservation(reservation_id)
 
 
 def extract_json(text: str) -> dict | None:
