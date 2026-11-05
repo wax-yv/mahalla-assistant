@@ -202,7 +202,47 @@ def _org_list(db: Session) -> list[str]:
     return [item["name"] for item in programs.organizations(db)]
 
 
+# O-7: nom izlash uchun so'z chegarasi. Bitta so'z (ism) bilan qidirish
+# "Alisher" -> "Aliyev" kabi noto'g'ri odamni tanlab qo'yishi mumkin.
+# Kamida 2 token (familiya + ism) talab qilinadi.
+NAME_TOKEN_MIN = 2
+# Ismdagi so'zlar (nom izlashda ishlatilmaydi — umumiy so'zlar).
+NAME_STOPWORDS = {
+    "fuqaro", "fuqarolar", "fuqaroning", "kishi", "shaxs", "inson", "ma'lumot",
+    "malumot", "telefon", "raqam", "manzil", "oilasi", "oila", "yili", "yoshida",
+    "haqida", "uchun", "bo'lgan", "bormi", "qanday", "qayerda", "necha",
+    "aytib", "bering", "ko'rsating", "topib", "izohlash", "holati", "pasport",
+    "jami", "jamiy", "ro'yxat", "ro'yxati",
+}
+# Nom tokenini topish uchun regex (kirill ham qamrab olinadi).
+NAME_TOKEN_RE = re.compile(r"[A-Za-zА-Яа-яЁёʻʼ'’][A-Za-zА-Яа-яЁёʻʼ'’-]+")
+
+
+def _name_tokens(text: str) -> list[str]:
+    """Matndan nom tokenlarini ajratadi (kirill ham, apostrofli ham)."""
+    normalized = re.sub(r"[ʻʼ‘’']", "'", text or "")
+    tokens: list[str] = []
+    for raw in NAME_TOKEN_RE.findall(normalized):
+        token = raw.strip("'-")
+        if len(token) < NAME_TOKEN_MIN:
+            continue
+        if token.lower() in STOPWORDS or token.lower() in NAME_STOPWORDS:
+            continue
+        if token not in tokens:
+            tokens.append(token)
+    return tokens
+
+
 def _citizen_search(db: Session, message: str) -> list[Citizen]:
+    """Fuqaroni ism yoki telefon bo'yicha qidiradi.
+
+    O-7:
+    - telefon (9+ raqam) — aniq qidiriladi;
+    - ism — kamida **2 token** (familiya + ism) talab qilinadi va ikkala token
+      ham `full_name` ichida bo'lishi shart; bitta token bilan tasodifiy moslik
+      ("Ali" -> "Alisher", "Aliyev") chiqmaydi;
+    - kirill ismlar ham qo'llab-quvvatlanadi.
+    """
     text = message.strip()
     digits = re.sub(r"\D", "", text)
     if len(digits) >= 9:
@@ -215,21 +255,30 @@ def _citizen_search(db: Session, message: str) -> list[Citizen]:
         ).scalars().all()
         if rows:
             return list(rows)
-    candidates = re.findall(r"[A-ZOʻʼ'][a-zA-Zʻʼ'‘’\-]{2,}", text)
-    tokens = [token for token in candidates if token.lower() not in STOPWORDS][:4]
+    tokens = _name_tokens(text)
+    if len(tokens) < 2:
+        # Bitta token bilan qidirish — tasodifiy moslik xavfi yuqori.
+        return []
     base = (
         select(Citizen)
         .options(joinedload(Citizen.family).joinedload(Family.house).joinedload(House.street).joinedload(Street.mahalla))
         .where(Citizen.archived_at.is_(None))
     )
-    if tokens:
-        conditions = [Citizen.full_name.ilike(f"%{token}%") for token in tokens]
-        rows = db.execute(base.where(or_(*conditions)).limit(8)).scalars().all()
-        if rows:
-            return list(rows)
+    conditions = [Citizen.full_name.ilike(f"%{token}%") for token in tokens[:6]]
+    rows = db.execute(base.where(or_(*conditions)).limit(60)).scalars().all()
+    # Kamida 2 token mos kelishi kerak (familiya + ism) — bitta token bilan
+    # tasodifiy moslik ("Ali" -> "Alisher") chiqmaydi.
+    matched = []
+    for citizen in rows:
+        haystack = (citizen.full_name or "").lower()
+        hits = sum(1 for token in tokens if token.lower() in haystack)
+        if hits >= 2:
+            matched.append(citizen)
+    if matched:
+        return list(matched[:20])
     cleaned = _clean_query(text)
     if cleaned:
-        rows = db.execute(base.where(Citizen.full_name.ilike(f"%{cleaned}%")).limit(8)).scalars().all()
+        rows = db.execute(base.where(Citizen.full_name.ilike(f"%{cleaned}%")).limit(20)).scalars().all()
         if rows:
             return list(rows)
     return []
@@ -435,7 +484,13 @@ def _citizen_lookup(db: Session, message: str, context: dict[str, Any]) -> dict[
             "warnings": ["Fuqaro bazasidan aniq mos yozuv topilmadi."],
         }
     if len(matches) > 1:
-        lines = [f"Bir nechta mos fuqaro topildi ({len(matches)} ta). Qaysi biri kerakligini aniqlashtiring:", ""]
+        # O-7: jami son to'g'ri ko'rsatiladi (limit kesganini "jami" deb
+        # aytmaymiz) va nomzodlar ro'yxati beriladi.
+        lines = [
+            f"Bir nechta mos fuqaro topildi ({len(matches)} ta). "
+            "Qaysi biri kerakligini aniqlashtiring:",
+            "",
+        ]
         options = []
         for citizen in matches[:8]:
             options.append(
@@ -447,21 +502,26 @@ def _citizen_lookup(db: Session, message: str, context: dict[str, Any]) -> dict[
                 }
             )
             lines.append(f"• {citizen.full_name} — {_address_text(citizen)}")
+        if len(matches) > 8:
+            lines.append("")
+            lines.append(f"… va yana {len(matches) - 8} ta mos yozuv bor.")
         return {
             "text": "\n".join(lines),
             "sources": [{"type": "database", "label": "Fuqarolar bazasi"}],
             "drafts": [],
-            "data": {"matches": options},
+            "data": {"matches": options, "total": len(matches)},
             "confidence": "medium",
             "warnings": [],
         }
     citizen = matches[0]
     profile = _citizen_profile(db, citizen)
     address = profile["address"]
+    # O-7: bitta nomzodda ham topilgan shaxsni aniq tasdiqlaymiz.
+    born = citizen.birth_date.strftime("%d.%m.%Y") if citizen.birth_date else "ko'rsatilmagan"
     lines = [
-        f"{citizen.full_name} ({citizen.id})",
+        f"Topildi: {citizen.full_name} ({citizen.id})",
+        f"Tug'ilgan sana: {born}",
         f"Manzil: {address}",
-        f"Tug'ilgan sana: {citizen.birth_date.strftime('%d.%m.%Y') if citizen.birth_date else 'ko‘rsatilmagan'}",
         f"Telefon: {citizen.phone or 'ko‘rsatilmagan'}",
         f"Oiladagi o'rni: {citizen.family_role}; oila a'zolari: {profile['family_members']} nafar",
         f"Bandlik: {citizen.employment_status}; kasbi: {citizen.profession or 'ko‘rsatilmagan'}",
@@ -632,6 +692,13 @@ def _credit_subsidy(db: Session, message: str, context: dict[str, Any]) -> dict[
         matched = programs.match_citizen(db, citizen.id)
         matches = [item for item in matched if item["program_name"] in {row["name"] for row in rows}]
     lines = [f"{organization} bo'yicha ma'lumot:"]
+    if citizen:
+        # O-7: topilgan shaxsni aniq tasdiqlaymiz (noto'g'ri odamga
+        # muvofiqlik chiqmasligi uchun).
+        born = (
+            citizen.birth_date.strftime("%d.%m.%Y") if citizen.birth_date else "ko'rsatilmagan"
+        )
+        lines.append(f"Topildi: {citizen.full_name}, tug'ilgan sana {born}.")
     for index, row in enumerate(rows[:4], start=1):
         lines.append("")
         lines.append(f"{index}. {row['name']} ({row['type']})")
