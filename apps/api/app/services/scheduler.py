@@ -141,16 +141,95 @@ def _legislation_refresh(db: Session, job: ScheduledJob, actor: str) -> dict[str
     return {"refreshed": refreshed, "errors": errors}
 
 
+# J-10: tekshiruv belgisi (manba izohida saqlanadi) — birinchi tekshiruvda
+# "kontent o'zgargan" xatoni chiqmasligi uchun.
+CHECK_MARKER = "Tekshirildi:"
+
+
+def _check_source(url: str) -> tuple[int, str]:
+    """Rasmiy manbani haqiqatan tekshiradi: (HTTP kod, kontent sha256)."""
+    import hashlib
+
+    import httpx
+
+    from app.core.urls import validate_public_https_url
+
+    safe_url = validate_public_https_url(url)
+    with httpx.Client(timeout=10, follow_redirects=True) as client:
+        response = client.get(safe_url)
+    data = response.content[:500_000]
+    return response.status_code, hashlib.sha256(data).hexdigest()
+
+
 def _programs_refresh(db: Session, job: ScheduledJob, actor: str) -> dict[str, Any]:
+    """Dasturlar manbalarini **haqiqatan** tekshiradi (J-10).
+
+    Eski versiya faqat `retrieved_at` ni yangilab, "yangilandi" deydi —
+    kontent o'zgargan bo'lsa ham foydalanuvchiga eskirgan shartlar
+    "yangilangan" deb ko'rinardi.
+    """
     sources = db.execute(select(ProgramSource)).scalars().all()
     now = datetime.now(timezone.utc)
+    checked = 0
+    changed: list[str] = []
+    errors: list[str] = []
     for source in sources:
+        url = (source.url or "").strip()
+        if not url:
+            continue
+        label = source.title or url
+        try:
+            status_code, content_hash = _check_source(url)
+        except Exception as error:
+            source.status = "error"
+            source.notes = f"Tekshiruv xatosi: {error}"[:300]
+            errors.append(f"{label}: {error}"[:200])
+            program = db.get(Program, source.program_id)
+            if program is not None:
+                program.status = "needs_review"
+                # `last_verified_at` muvaffaqiyatsiz tekshiruvda yangilanMAYdi.
+            continue
+        if status_code != 200:
+            source.status = "error"
+            source.notes = f"HTTP {status_code}"[:300]
+            errors.append(f"{label}: HTTP {status_code}")
+            program = db.get(Program, source.program_id)
+            if program is not None:
+                program.status = "needs_review"
+            continue
+        program = db.get(Program, source.program_id)
+        previously_checked = (source.notes or "").startswith(CHECK_MARKER)
+        if previously_checked and source.content_hash and content_hash != source.content_hash:
+            # Kontent o'zgargan — shartlar qayta ko'rib chiqilishi kerak.
+            source.status = "changed"
+            source.notes = (
+                f"{CHECK_MARKER} {now.isoformat()} — kontent o'zgargan, "
+                "qayta ko'rib chiqish kerak."
+            )
+            changed.append(label)
+            if program is not None:
+                program.status = "needs_review"
+        else:
+            source.status = "verified"
+            source.notes = f"{CHECK_MARKER} {now.isoformat()} — sha256:{content_hash[:16]}"
+            if program is not None:
+                program.status = "verified"
+                program.last_verified_at = now
+        source.content_hash = content_hash
         source.retrieved_at = now
+        checked += 1
     programs = db.execute(select(Program)).scalars().all()
     return {
         "programs": len(programs),
         "sources": len(sources),
-        "note": "Manba havolalari yangilandi. Rasmiy shartlar bank filialida tasdiqlanishi shart.",
+        "checked": checked,
+        "changed": changed,
+        "errors": errors,
+        "note": (
+            "Manbalar rasmiy saytlardan tekshirildi. O'zgargan shartlar "
+            "'needs_review' holatiga o'tkazildi; rasmiy shartlar bank "
+            "filialida tasdiqlanishi shart."
+        ),
     }
 
 
