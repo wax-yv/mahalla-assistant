@@ -23,6 +23,8 @@ router = APIRouter(tags=["cases"])
 
 class TaskCancelBody(BaseModel):
     reason: str = Field(min_length=3, max_length=1000)
+    # O-6: versiya berilsa, o'skirgan vazifa rad etiladi (optimistik qulf).
+    version: int | None = None
 
 
 @router.get("/cases")
@@ -161,7 +163,14 @@ def cancel_task(
     db: Session = Depends(get_db),
     user: User = Depends(require_csrf_and_permission("tasks.complete")),
 ):
-    service.cancel_task(db, task_id, payload.reason, user.id, getattr(request.state, "request_id", None))
+    service.cancel_task(
+        db,
+        task_id,
+        payload.reason,
+        user.id,
+        getattr(request.state, "request_id", None),
+        version=payload.version,
+    )
     return service.get_task(db, task_id)
 
 

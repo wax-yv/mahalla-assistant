@@ -320,6 +320,8 @@ class TaskUpdate(BaseModel):
 class TaskCompleteRequest(BaseModel):
     evidence_note: str = Field(min_length=3, max_length=4000)
     evidence_document_id: str | None = None
+    # O-6: versiya berilsa, o'skirgan vazifa rad etiladi (optimistik qulf).
+    version: int | None = None
 
 
 class WorkLogOut(ORMModel):
