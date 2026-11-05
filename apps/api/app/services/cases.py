@@ -137,6 +137,9 @@ def update_case(
     data = payload.model_dump(exclude_unset=True)
     data.pop("version", None)
     new_status = data.get("status")
+    # O-5: `before` o'zgarishlardan **OLDIN** olinadi — aks holda audit yozuvida
+    # "eski holat = yangi holat" ko'rinardi.
+    before = model_snapshot(case)
     if new_status and new_status != case.status:
         if new_status not in CASE_TRANSITIONS.get(case.status, set()):
             raise bad_request(
@@ -147,7 +150,6 @@ def update_case(
             datetime.now(timezone.utc) if new_status in {"closed", "resolved", "cancelled"} else None
         )
         data.pop("status")
-    before = model_snapshot(case)
     for key, value in data.items():
         setattr(case, key, value)
     case.version += 1
@@ -251,12 +253,45 @@ def create_task(
     *,
     commit: bool = True,
 ) -> Task:
-    if payload.citizen_id and db.get(Citizen, payload.citizen_id) is None:
-        raise validation_error("Fuqaro topilmadi.")
-    if payload.family_id and db.get(Family, payload.family_id) is None:
-        raise validation_error("Oila topilmadi.")
-    if payload.case_id and db.get(Case, payload.case_id) is None:
-        raise validation_error("Case topilmadi.")
+    citizen = None
+    if payload.citizen_id:
+        citizen = db.get(Citizen, payload.citizen_id)
+        if citizen is None:
+            raise validation_error("Fuqaro topilmadi.")
+    family = None
+    if payload.family_id:
+        family = db.get(Family, payload.family_id)
+        if family is None:
+            raise validation_error("Oila topilmadi.")
+    case = None
+    if payload.case_id:
+        case = db.get(Case, payload.case_id)
+        if case is None:
+            raise validation_error("Case topilmadi.")
+    # O-6: vazifa, case va fuqaro bir-biriga tegishli bo'lishi kerak —
+    # aks holda case X fuqarosi va task Y fuqarosi bo'lib qolardi.
+    if case is not None:
+        if (
+            payload.citizen_id
+            and case.citizen_id
+            and payload.citizen_id != case.citizen_id
+        ):
+            raise validation_error(
+                "Vazifa fuqarosi case'ga biriktirilgan fuqaro bilan mos kelishi kerak."
+            )
+        if payload.family_id and case.family_id and payload.family_id != case.family_id:
+            raise validation_error(
+                "Vazifa oilasi case'ga biriktirilgan oila bilan mos kelishi kerak."
+            )
+        if not payload.citizen_id and case.citizen_id:
+            payload.citizen_id = case.citizen_id
+        if not payload.family_id and case.family_id:
+            payload.family_id = case.family_id
+    if citizen is not None and family is not None and citizen.family_id:
+        if citizen.family_id != family.id:
+            raise validation_error(
+                "Fuqaro tanlangan oilaga tegishli emas."
+            )
     task = Task(**payload.model_dump(), created_by=actor)
     db.add(task)
     db.flush()
@@ -299,9 +334,10 @@ def update_task(
     data = payload.model_dump(exclude_unset=True)
     data.pop("version", None)
     new_status = data.pop("status", None)
+    # O-5: `before` o'zgarishlardan **OLDIN** olinadi.
+    before = model_snapshot(task)
     if new_status and new_status != task.status:
         _apply_status(db, task, new_status)
-    before = model_snapshot(task)
     for key, value in data.items():
         setattr(task, key, value)
     task.version += 1
@@ -328,14 +364,22 @@ def complete_task(
     actor: str,
     request_id: str | None,
 ) -> Task:
-    task = db.get(Task, task_id)
+    """Vazifani bajarilgan deb belgilaydi.
+
+    O-6: holatlar mashinasi (`TASK_TRANSITIONS`) va versiya tekshiruvi
+    qo'llanadi, qator `with_for_update()` bilan bloklanadi — qo'sh bosishda
+    ikki marta ish logi yozilmaydi.
+    """
+    task = db.execute(
+        select(Task).where(Task.id == task_id).with_for_update()
+    ).scalar_one_or_none()
     if task is None:
         raise not_found("Vazifa topilmadi.")
-    if task.status in {"completed", "cancelled"}:
-        raise bad_request("Bu vazifa allaqachon yakunlangan.")
+    if payload.version is not None and payload.version != task.version:
+        raise conflict("Vazifa ma'lumoti o'zgargan. Sahifani yangilang.")
+    # O-5: `before` o'zgarishlardan OLDIN olinadi.
     before = model_snapshot(task)
-    task.status = "completed"
-    task.completed_at = datetime.now(timezone.utc)
+    _apply_status(db, task, "completed")
     task.evidence_note = payload.evidence_note
     task.evidence_document_id = payload.evidence_document_id
     task.version += 1
@@ -371,15 +415,24 @@ def complete_task(
 
 
 def cancel_task(
-    db: Session, task_id: str, reason: str, actor: str, request_id: str | None
+    db: Session,
+    task_id: str,
+    reason: str,
+    actor: str,
+    request_id: str | None,
+    version: int | None = None,
 ) -> Task:
-    task = db.get(Task, task_id)
+    """Vazifani bekor qilingan deb belgilaydi (O-6: holatlar mashinasi)."""
+    task = db.execute(
+        select(Task).where(Task.id == task_id).with_for_update()
+    ).scalar_one_or_none()
     if task is None:
         raise not_found("Vazifa topilmadi.")
-    if task.status in {"completed", "cancelled"}:
-        raise bad_request("Bu vazifa allaqachon yakunlangan.")
+    if version is not None and version != task.version:
+        raise conflict("Vazifa ma'lumoti o'zgargan. Sahifani yangilang.")
+    # O-5: `before` o'zgarishlardan OLDIN olinadi.
     before = model_snapshot(task)
-    task.status = "cancelled"
+    _apply_status(db, task, "cancelled")
     task.evidence_note = reason
     task.version += 1
     db.flush()
@@ -396,8 +449,6 @@ def cancel_task(
     db.commit()
     db.refresh(task)
     return task
-
-
 def list_work_logs(
     db: Session,
     *,
