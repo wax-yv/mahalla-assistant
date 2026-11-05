@@ -5,7 +5,7 @@ import re
 from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.audit import model_snapshot, write_audit
@@ -37,11 +37,15 @@ TYPE_LABELS = {
 REPORT_EXPORT_FORMATS: frozenset[str] = frozenset({"xlsx", "docx", "pdf"})
 
 
-def _distribution(db: Session, column, limit: int = 20) -> list[dict]:
+def _distribution(
+    db: Session, column, limit: int = 20, base: list | None = None
+) -> list[dict]:
+    """Taqsimot (N-3): agregatsiya SQL da, filtrlar qo'llaniladi."""
+    conditions = list(base) if base else [Citizen.archived_at.is_(None)]
     rows = db.execute(
         select(column, func.count())
         .select_from(Citizen)
-        .where(Citizen.archived_at.is_(None))
+        .where(*conditions)
         .group_by(column)
         .order_by(func.count().desc())
         .limit(limit)
@@ -49,9 +53,11 @@ def _distribution(db: Session, column, limit: int = 20) -> list[dict]:
     return [{"label": row[0] or "Ko'rsatilmagan", "value": int(row[1])} for row in rows]
 
 
-def _needs(db: Session) -> list[dict]:
+def _needs(db: Session, base: list | None = None) -> list[dict]:
+    """Ehtiyojlar taqsimoti (N-3): filtrlar qo'llaniladi."""
+    conditions = list(base) if base else [Citizen.archived_at.is_(None)]
     texts = db.execute(
-        select(Citizen.needs_text).where(Citizen.archived_at.is_(None), Citizen.needs_text != "")
+        select(Citizen.needs_text).where(*conditions, Citizen.needs_text != "")
     ).scalars().all()
     counts: dict[str, int] = {}
     for text in texts:
@@ -65,6 +71,78 @@ def _needs(db: Session) -> list[dict]:
     ]
 
 
+def _status_counts(db: Session, model, *conditions) -> dict[str, int]:
+    """Holatlar soni — SQL `GROUP BY` agregatsiyasi (N-3).
+
+    Eski kod butun obyektlarni Python'ga yuklab hisoblardi (`scalars().all()`)
+    — katta davrda sekin va xotira yeydi. Endi agregatsiya bazada bajariladi.
+    """
+    rows = db.execute(
+        select(model.status, func.count()).where(*conditions).group_by(model.status)
+    ).all()
+    return {str(row[0]): int(row[1]) for row in rows}
+
+
+def _incomplete_condition():
+    """To'liq emas deb hisoblanadigan fuqarolar sharti (N-3).
+
+    `phone == ""` faqat bo'sh satrni aniqlaydi — `NULL` telefon ham bo'sh
+    hisoblanadi.
+    """
+    return or_(
+        Citizen.phone == "",
+        Citizen.phone.is_(None),
+        Citizen.birth_date.is_(None),
+        Citizen.family_id.is_(None),
+    )
+
+
+def _minus_years(value: date, years: int) -> date:
+    """Yilni kamaytiradi — 29-fevral xatosini oldini oladi (N-3).
+
+    `date(2024, 2, 29).replace(year=1994)` -> `ValueError`. Bunday holatda
+    28-fevral ishlatiladi.
+    """
+    try:
+        return value.replace(year=value.year - years)
+    except ValueError:
+        return value.replace(year=value.year - years, day=28)
+
+
+def _scoped_totals(db: Session, base: list) -> dict[str, int]:
+    """Filtrga mos oilalar / uylar / ko'chalar soni (N-3).
+
+    Oila — kamida bitta mos fuqarosi bor oila; uy — o'sha oilalardan kamida
+    bittasi bor uy; ko'cha — o'sha uylardan kamida bittasi bor ko'cha.
+    """
+    family_ids = (
+        select(Family.id)
+        .join(Citizen, Citizen.family_id == Family.id)
+        .where(*base)
+        .group_by(Family.id)
+    )
+    families = int(
+        db.execute(select(func.count()).select_from(family_ids.subquery())).scalar_one()
+    )
+    house_ids = (
+        select(House.id)
+        .join(Family, Family.house_id == House.id)
+        .where(Family.id.in_(family_ids.scalar_subquery()))
+    )
+    houses = int(
+        db.execute(select(func.count()).select_from(house_ids.subquery())).scalar_one()
+    )
+    street_ids = (
+        select(Street.id)
+        .join(House, House.street_id == Street.id)
+        .where(House.id.in_(house_ids.scalar_subquery()))
+    )
+    streets = int(
+        db.execute(select(func.count()).select_from(street_ids.subquery())).scalar_one()
+    )
+    return {"families": families, "houses": houses, "streets": streets}
+
+
 def compute_metrics(
     db: Session, report_type: str, period_start: date, period_end: date, filters: dict[str, Any]
 ) -> dict[str, Any]:
@@ -76,14 +154,28 @@ def compute_metrics(
         base.append(Citizen.employment_status == filters["employment_status"])
     if filters.get("social_status"):
         base.append(Citizen.social_status == filters["social_status"])
+    # N-3: filtr qo'llangan bo'lsa — oilalar/uylar/ko'chalar ham filtrga
+    # moslashtiriladi. Filtrsiz hisobotda global hisob saqlanadi.
+    filtered = len(base) > 1
+
     total_citizens = int(db.execute(select(func.count()).select_from(Citizen).where(*base)).scalar_one())
-    total_families = int(
-        db.execute(
-            select(func.count()).select_from(Family).where(Family.members.any(Citizen.archived_at.is_(None)))
-        ).scalar_one()
-    )
-    total_houses = int(db.execute(select(func.count()).select_from(House)).scalar_one())
-    total_streets = int(db.execute(select(func.count()).select_from(Street)).scalar_one())
+    if filtered:
+        scoped = _scoped_totals(db, base)
+    else:
+        scoped = {
+            "families": int(
+                db.execute(
+                    select(func.count())
+                    .select_from(Family)
+                    .where(Family.members.any(Citizen.archived_at.is_(None)))
+                ).scalar_one()
+            ),
+            "houses": int(db.execute(select(func.count()).select_from(House)).scalar_one()),
+            "streets": int(db.execute(select(func.count()).select_from(Street)).scalar_one()),
+        }
+    total_families = scoped["families"]
+    total_houses = scoped["houses"]
+    total_streets = scoped["streets"]
 
     def count_citizens(*conditions) -> int:
         return int(db.execute(select(func.count()).select_from(Citizen).where(*base, *conditions)).scalar_one())
@@ -91,21 +183,33 @@ def compute_metrics(
     employed = count_citizens(Citizen.employment_status.in_(["Ishlaydi", "Tadbirkor", "Pensioner"]))
     unemployed = count_citizens(Citizen.employment_status == "Ishsiz")
     youth = count_citizens(
-        Citizen.birth_date.is_not(None), Citizen.birth_date > today.replace(year=today.year - 30)
+        Citizen.birth_date.is_not(None), Citizen.birth_date > _minus_years(today, 30)
     )
     social = count_citizens(Citizen.social_status != "Yo'q")
     start_dt = datetime.combine(period_start, datetime.min.time(), tzinfo=timezone.utc)
     end_dt = datetime.combine(period_end, datetime.max.time(), tzinfo=timezone.utc)
-    cases = db.execute(select(Case).where(Case.opened_at >= start_dt, Case.opened_at <= end_dt)).scalars().all()
-    case_by_status: dict[str, int] = {}
-    for case in cases:
-        case_by_status[case.status] = case_by_status.get(case.status, 0) + 1
-    tasks = db.execute(select(Task).where(Task.created_at >= start_dt, Task.created_at <= end_dt)).scalars().all()
-    completed = len([item for item in tasks if item.status == "completed"])
+    # N-3: holatlar soni SQL `GROUP BY` agregatsiyasi bilan (Python'da
+    # butun obyektlarni yuklash o'rniga).
+    case_by_status = _status_counts(
+        db, Case, Case.opened_at >= start_dt, Case.opened_at <= end_dt
+    )
+    cases_total = sum(case_by_status.values())
+    cases_open = sum(
+        value for status, value in case_by_status.items() if status not in {"closed", "cancelled"}
+    )
+    task_by_status = _status_counts(
+        db, Task, Task.created_at >= start_dt, Task.created_at <= end_dt
+    )
+    tasks_total = sum(task_by_status.values())
+    completed = task_by_status.get("completed", 0)
+    # N-3: kechikkan vazifalar faqat **hisobot davri** ichida sanaladi.
     overdue = int(
         db.execute(
             select(func.count()).select_from(Task).where(
-                Task.due_date < today, Task.status.notin_(["completed", "cancelled"])
+                Task.due_date >= period_start,
+                Task.due_date <= period_end,
+                Task.due_date < today,
+                Task.status.notin_(["completed", "cancelled"]),
             )
         ).scalar_one()
     )
@@ -116,16 +220,26 @@ def compute_metrics(
             )
         ).scalar_one()
     )
-    incomplete = count_citizens(or_(Citizen.phone == "", Citizen.birth_date.is_(None), Citizen.family_id.is_(None)))
-    street_rows = db.execute(
-        select(Street.name, func.count(func.distinct(Citizen.id)))
+    incomplete = count_citizens(_incomplete_condition())
+    # N-3: hudud kesimi `Street.id` bo'yicha guruhlanadi (bir nomli ikki
+    # ko'cha birlashtirilmaydi) va filtrlarga mos bo'ladi.
+    citizen_conditions = [Citizen.archived_at.is_(None)]
+    if filters.get("employment_status"):
+        citizen_conditions.append(Citizen.employment_status == filters["employment_status"])
+    if filters.get("social_status"):
+        citizen_conditions.append(Citizen.social_status == filters["social_status"])
+    street_stmt = (
+        select(Street.id, Street.name, func.count(func.distinct(Citizen.id)))
         .select_from(Street)
         .outerjoin(House, House.street_id == Street.id)
         .outerjoin(Family, Family.house_id == House.id)
-        .outerjoin(Citizen, (Citizen.family_id == Family.id) & (Citizen.archived_at.is_(None)))
-        .group_by(Street.name)
+        .outerjoin(Citizen, and_(Citizen.family_id == Family.id, *citizen_conditions))
+        .group_by(Street.id, Street.name)
         .order_by(Street.name)
-    ).all()
+    )
+    if filters.get("street_id"):
+        street_stmt = street_stmt.where(Street.id == filters["street_id"])
+    street_rows = db.execute(street_stmt).all()
     return {
         "period": {"start": period_start.isoformat(), "end": period_end.isoformat()},
         "filters": filters,
@@ -134,32 +248,36 @@ def compute_metrics(
             "employed": employed,
             "unemployed": unemployed,
             "employment_rate": round(employed / total_citizens * 100, 1) if total_citizens else 0,
-            "distribution": _distribution(db, Citizen.employment_status),
+            "distribution": _distribution(db, Citizen.employment_status, base=base),
         },
         "demographics": {
             "youth_under_30": youth,
             "social_categories": social,
-            "education": _distribution(db, Citizen.education),
+            "education": _distribution(db, Citizen.education, base=base),
         },
-        "social": _distribution(db, Citizen.social_status),
-        "needs": _needs(db),
+        "social": _distribution(db, Citizen.social_status, base=base),
+        "needs": _needs(db, base=base),
         "cases": {
-            "total": len(cases),
+            "total": cases_total,
             "by_status": case_by_status,
-            "open": len([item for item in cases if item.status not in {"closed", "cancelled"}]),
+            "open": cases_open,
         },
         "tasks": {
-            "total": len(tasks),
+            "total": tasks_total,
+            "by_status": task_by_status,
             "completed": completed,
             "overdue": overdue,
-            "completion_rate": round(completed / len(tasks) * 100, 1) if tasks else 0,
+            "completion_rate": round(completed / tasks_total * 100, 1) if tasks_total else 0,
         },
         "work_logs": logs,
         "data_quality": {
             "incomplete": incomplete,
             "score": round((total_citizens - incomplete) / total_citizens * 100, 1) if total_citizens else 0,
         },
-        "territory": [{"street": row[0], "citizens": int(row[1])} for row in street_rows],
+        "territory": [
+            {"street_id": row[0], "street": row[1], "citizens": int(row[2])}
+            for row in street_rows
+        ],
         "calculated_at": datetime.now(timezone.utc).isoformat(),
         "calculation_note": "Barcha ko'rsatkichlar SQL so'rovlari orqali database'dan hisoblandi.",
     }
