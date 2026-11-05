@@ -24,6 +24,22 @@ def _me(user: User, session: SessionModel) -> MeResponse:
     )
 
 
+def _cookie_secure(request: Request) -> bool:
+    """Session cookie uchun `Secure` belgisi (O-2).
+
+    `APP_ENV` xato yozilsa yoki production'da bo'lmasa cookie HTTP orqali
+    ketib qolishi mumkin edi. Endi: production, `https` so'rovi yoki Vercel
+    muhitida har doim `Secure` qo'yiladi.
+    """
+    import os
+
+    if settings.is_production:
+        return True
+    if request.url.scheme == "https":
+        return True
+    return bool(os.getenv("VERCEL"))
+
+
 @router.post("/login", response_model=MeResponse)
 def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     user = auth_service.authenticate(db, payload.username, payload.password, request)
@@ -33,7 +49,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
         SESSION_COOKIE,
         token,
         httponly=True,
-        secure=settings.is_production,
+        secure=_cookie_secure(request),
         samesite="lax",
         max_age=settings.session_ttl_hours * 3600,
         path="/",
