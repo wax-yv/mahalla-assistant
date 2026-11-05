@@ -7,6 +7,7 @@ from typing import Generator
 from sqlalchemy import JSON, create_engine, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 
@@ -37,6 +38,26 @@ class Base(DeclarativeBase):
     pass
 
 
+def pool_options(url: str) -> dict:
+    """Ulanish to'plami parametrlari (O-12).
+
+    Serverless (Vercel) muhitida har instansiya o'z to'plamini yaratadi —
+    Neon bepul tarifida ulanishlar tez tugab qoladi. Shu sababli ulanish
+    soni chegaralangan va `DB_POOL_NULL=true` bilan NullPool ishlatilishi
+    mumkin.
+
+    SQLite (testlar) uchun pool parametrlari qo'yilmaydi.
+    """
+    if not url.startswith("postgresql"):
+        return {}
+    if settings.db_pool_null:
+        return {"poolclass": NullPool}
+    return {
+        "pool_size": max(1, int(settings.db_pool_size)),
+        "max_overflow": max(0, int(settings.db_max_overflow)),
+    }
+
+
 engine_kwargs: dict = {
     "pool_pre_ping": True,
     "pool_recycle": 280,
@@ -46,8 +67,7 @@ engine_kwargs: dict = {
     ),
 }
 
-if settings.sqlalchemy_database_url.startswith("postgresql"):
-    engine_kwargs.update({"pool_size": 5, "max_overflow": 5})
+engine_kwargs.update(pool_options(settings.sqlalchemy_database_url))
 
 engine = create_engine(settings.sqlalchemy_database_url, **engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
@@ -84,16 +104,60 @@ def ensure_schema() -> None:
         Base.metadata.create_all(bind=engine)
 
 
+# O-12: `scripts/migrate.sql` da bajariladigan o'zgarishlar — runtime'da
+# tekshiriladi. `create_all()` mavjud jadvalga ustun qo'shmaydi, shuning
+# uchun bajarilmagan migratsiya jimgina qolmasligi kerak.
+KNOWN_MIGRATION_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("conversations", "user_id", "K-8: suhbat egasi (IDOR himoyasi)"),
+    ("citizens", "data_source", "J-6: import manba nomi (255 belgi)"),
+    ("backup_runs", "data", "J-8: zaxira nusxa baytlari"),
+)
+
+
+def missing_migrations() -> list[str]:
+    """Bajarilmagan migratsiyalar ro'yxati (bo'sh = hammasi joyida)."""
+    if not settings.sqlalchemy_database_url.startswith("postgresql"):
+        return []
+    missing: list[str] = []
+    try:
+        with engine.connect() as conn:
+            for table, column, label in KNOWN_MIGRATION_COLUMNS:
+                found = conn.execute(
+                    text(
+                        "SELECT count(*) FROM information_schema.columns "
+                        "WHERE table_schema = 'public' AND table_name = :table "
+                        "AND column_name = :column"
+                    ),
+                    {"table": table, "column": column},
+                ).scalar_one()
+                if not found:
+                    missing.append(f"{label} — {table}.{column}")
+    except Exception:
+        return []
+    return missing
+
+
 @contextmanager
 def advisory_lock(name: str) -> Generator[None, None, None]:
-    """Cross-process lock used by bootstrap/seed. Postgres-only, no-op elsewhere."""
+    """Cross-process lock used by bootstrap/seed. Postgres-only, no-op elsewhere.
+
+    O-12: **tranzaksiya** darajasidagi lock (`pg_advisory_xact_lock`) —
+    sessiya darajasidagi `pg_advisory_lock` pooled (PgBouncer, transaction
+    mode) ulanishda yopiq qolib ketishi mumkin edi. Tranzaksiya darajasidagi
+    lock commit/rollback'da avtomatik ozod bo'ladi.
+    """
     if not settings.sqlalchemy_database_url.startswith("postgresql"):
         yield
         return
     with engine.connect() as conn:
-        conn.execute(text("SELECT pg_advisory_lock(hashtext(:name))"), {"name": name})
+        transaction = conn.begin()
         try:
+            conn.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:name)::bigint)"),
+                {"name": name},
+            )
             yield
-        finally:
-            conn.execute(text("SELECT pg_advisory_unlock(hashtext(:name))"), {"name": name})
-            conn.commit()
+            transaction.commit()
+        except Exception:
+            transaction.rollback()
+            raise

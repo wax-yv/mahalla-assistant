@@ -54,6 +54,19 @@ Bitta GitHub repo → **ikki Vercel loyihasi**. Jarayon ~10 daqiqa.
    | `FRONTEND_URL` | keyin 3-qadamda olingan web URL (masalan `https://mahalla-assistant.vercel.app`) |
    | `APP_BASE_URL` | API o'z URLsi (masalan `https://mahalla-assistant-api.vercel.app`) |
 
+   **Ulanish to'plami (O-12).** Neon bepul tarifida ulanishlar soni
+   chegaralangan; har Vercel instansiyasi o'z to'plamini yaratadi. Shu sababli
+   ulanish soni o'zi ham chegaralangan:
+
+   | Key | Default | Tavsiya |
+   |---|---|---|
+   | `DB_POOL_SIZE` | `2` | Neon **pooled** URL bilan 2–3 yetarli |
+   | `DB_MAX_OVERFLOW` | `3` | Ko'p instansiyada `0` qiling |
+   | `DB_POOL_NULL` | `false` | `true` bo'lsa NullPool (har so'rov yangi ulanish) |
+
+   > `DATABASE_URL` **pooled** bo'lishi shart (`-pooler` bilan tugaydi).
+   > To'g'ridan-to'g'ri URL ishlatilsa, `DB_POOL_NULL=true` qo'ying.
+
 5. **Deploy** bosing. Birinchi build ~2 daqiqa.
 
 ### Birinchi sozlash (seed)

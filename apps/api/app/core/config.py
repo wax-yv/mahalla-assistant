@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     database_url: str = ""
     postgres_url: str = ""
 
+    # O-12: serverless (Vercel) + Neon — ulanish soni chegarasi.
+    # `DB_POOL_NULL=true` bo'lsa NullPool ishlatiladi (har so'rov uchun
+    # yangi ulanish, ulanish to'plami yo'q).
+    db_pool_size: int = 2
+    db_max_overflow: int = 3
+    db_pool_null: bool = False
+
     auth_secret: str = "change-me"
     admin_username: str = "wax"
     admin_password: str = "waxs"

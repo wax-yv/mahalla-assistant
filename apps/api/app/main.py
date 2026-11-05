@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.config import settings
-from app.core.db import Base, advisory_lock, engine, schema_ready
+from app.core.db import Base, advisory_lock, engine, missing_migrations, schema_ready
 from app.core.errors import APIError
 from app.routers import (
     admin,
@@ -36,8 +36,24 @@ async def lifespan(app: FastAPI):
         with advisory_lock("mahalla_schema"):
             if not schema_ready():
                 Base.metadata.create_all(bind=engine)
+                print(
+                    "[startup] Bo'sh bazada sxema yaratildi. Keyingi sxema "
+                    "o'zgarishlari uchun scripts/migrate.sql ni bajarish shart."
+                )
     except Exception as error:  # the database may not be attached yet
         print(f"[startup] create_all skipped: {error}")
+    # O-12: `create_all()` mavjud jadvalga ustun qo'shmaydi — bajarilmagan
+    # migratsiyalar jimgina qolmasligi uchun ular aniq ko'rsatiladi.
+    try:
+        pending = missing_migrations()
+        if pending:
+            print(
+                "[startup] Migratsiya bajarilmagan: "
+                + "; ".join(pending)
+                + ". scripts/migrate.sql faylini bazada bajarish shart."
+            )
+    except Exception:
+        pass
     yield
 
 
