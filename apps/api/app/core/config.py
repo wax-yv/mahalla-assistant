@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     db_max_overflow: int = 3
     db_pool_null: bool = False
 
+    # E-2: `AUTH_SECRET` hozircha ishlatilmaydi — sessiyalar DB'dagi
+    # tasodifiy token xeshi bilan himoyalangan (soxta sessiya xavfi yo'q).
+    # Mavjudligi saqlanadi (muhit mosligi uchun); kelajakdagi JWT/signing
+    # uchun zaxira sozlama.
     auth_secret: str = "change-me"
     admin_username: str = "wax"
     admin_password: str = "waxs"

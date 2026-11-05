@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mahalla
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/mahalla
+      APP_ENV: development
+      DEMO_MODE: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Kutubxonalarni o'rnatish
+        run: pip install -r apps/api/requirements.txt
+
+      - name: Ruff (lint)
+        run: ruff check apps/api
+
+      - name: Demo bazani yaratish (seed)
+        run: |
+          cd apps/api
+          PYTHONPATH=. python -m app.seed
+
+      - name: Testlar
+        run: PYTHONPATH=apps/api python -m pytest apps/api/tests -q
+
+      - name: Mypy (kuzatuv — blok qilmaydi)
+        run: mypy apps/api/app
+        continue-on-error: true

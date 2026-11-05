@@ -44,7 +44,7 @@ Bitta GitHub repo → **ikki Vercel loyihasi**. Jarayon ~10 daqiqa.
    |---|---|
    | `DATABASE_URL` | 1-qadamdan olingan pooled URL |
    | `APP_ENV` | `production` |
-   | `AUTH_SECRET` | uzun tasodifiy satr (masalan `openssl rand -hex 32`) |
+   | `AUTH_SECRET` | uzun tasodifiy satr (hozircha ishlatilmaydi — sessiyalar DB'dagi token xeshi bilan; kelajakdagi imzo uchun zaxira) |
    | `SETUP_TOKEN` | uzun tasodifiy satr (birinchi sozlash uchun) |
    | `CRON_SECRET` | uzun tasodifiy satr |
    | `ADMIN_USERNAME` | o'zingiz belgilagan admin logini |

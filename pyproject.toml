@@ -1,0 +1,15 @@
+[project]
+name = "mahalla-assistant"
+version = "1.0.0"
+description = "Mahalla Assistant — mahalla boshqaruvi uchun demo tizim (FastAPI + Next.js)"
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+# E-7: pytest sozlamalari repoda markazlashtirilgan — `python -m pytest`
+# repa ildizidan ishga tushirilsa ham `apps/api` import yo'li qo'shiladi.
+pythonpath = ["apps/api"]
+testpaths = ["apps/api/tests"]
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "ignore::DeprecationWarning:anyio.*",
+]
