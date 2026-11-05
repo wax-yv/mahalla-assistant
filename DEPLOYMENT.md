@@ -69,8 +69,11 @@ Bu 37 jadvalni yaratadi va 1 mahalla, 12 ko'cha, 202 uy, 285 oila, 1258 fuqaro, 
 
 ```bash
 curl https://<api-url>/api/v1/setup/status
-# {"database":"ok","users":1,"citizens":1258,"setup_required":false}
+# {"setup_required":false}
 ```
+
+> `/setup/status` ochiq endpoint — u faqat `setup_required` holatini qaytaradi
+> (baza haqolati, foydalanuvchi/fuqaro sonlari va xato matnlari sizib chiqmaydi).
 
 ## 3. Web loyihasi (3-qadam)
 

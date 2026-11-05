@@ -18,12 +18,12 @@ def health() -> dict:
             db.execute(text("SELECT 1"))
     except Exception as error:
         database = f"error: {type(error).__name__}"
+    # J-14: `environment` va `demo_mode` ochiq berilmasdi — ichki holat
+    # ma'lumotlari tashqariga sizmasligi kerak.
     return {
         "status": "ok" if database == "ok" else "degraded",
         "version": settings.app_version,
-        "environment": settings.app_env,
         "database": database,
-        "demo_mode": settings.demo_mode,
     }
 
 
