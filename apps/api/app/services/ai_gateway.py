@@ -15,7 +15,8 @@ from app.core.config import settings
 from app.core.errors import service_unavailable
 from app.models import AIUsage
 
-MODEL_REGISTRY: list[dict[str, Any]] = [
+# O-9: registratsiya — (model_id, provider, label, context, rank) tuple'lari.
+MODEL_REGISTRY: list[tuple[str, str, str, int, int]] = [
     ("nvidia/nemotron-3-ultra-550b-a55b", "nvidia", "Nemotron 3 Ultra 550B", 1_000_000, 1),
     ("deepseek-ai/deepseek-v4.1-flash", "nvidia", "DeepSeek V4.1 Flash", 128_000, 2),
     ("nvidia/nemotron-3-super-120b-a12b", "nvidia", "Nemotron 3 Super 120B", 1_000_000, 3),
@@ -29,6 +30,13 @@ MODEL_REGISTRY: list[dict[str, Any]] = [
     ("google/gemma-4-31b-it:free", "openrouter", "Gemma 4 31B (OpenRouter)", 256_000, 11),
     ("recursive/flint-v1.0:free", "openrouter", "Flint 1.0 (OpenRouter)", 262_144, 12),
 ]
+
+# O-9: provayderning jonli model ro'yxati keshi (1 soat).
+LIVE_MODELS_TTL_SECONDS = 3600
+# Texlik bilan tugagan tekshiruvning keshi qisqa (1 daqiqa).
+LIVE_MODELS_ERROR_TTL_SECONDS = 60
+# (vaqt, ulanganmi, tushuntirish, model_id'lar)
+_provider_models_cache: dict[str, tuple[float, bool, str, frozenset[str]]] = {}
 
 
 @dataclass
@@ -44,29 +52,136 @@ class AIResult:
     fallback_used: bool = False
 
 
+def _provider_models(provider: str) -> tuple[bool, str, set[str]]:
+    """Provayderning `/models` ro'yxatini oladi (O-9: 1 soat kesh).
+
+    Qaytaradi: (ulanganmi, tushuntirish, model ID'lar). Texlik bo'lsa
+    qisqa vaqtli keshga yoziladi — xato bir soat davom etmaydi.
+    """
+    now = time.monotonic()
+    cached = _provider_models_cache.get(provider)
+    if cached is not None:
+        age = now - cached[0]
+        ttl = LIVE_MODELS_TTL_SECONDS if cached[1] else LIVE_MODELS_ERROR_TTL_SECONDS
+        if age < ttl:
+            return cached[1], cached[2], set(cached[3])
+    ok = False
+    detail = ""
+    ids: set[str] = set()
+    try:
+        url, headers = _endpoint(provider)
+        models_url = url.rsplit("/chat/completions", 1)[0] + "/models"
+        with httpx.Client(timeout=8) as client:
+            response = client.get(models_url, headers=headers)
+        if response.status_code == 200:
+            payload = response.json()
+            items = payload.get("data") or payload.get("models") or []
+            ids = {
+                str(item.get("id")).strip()
+                for item in items
+                if isinstance(item, dict) and item.get("id")
+            }
+            ok = True
+            detail = f"Ulangan — {len(ids)} model mavjud"
+        elif response.status_code in (401, 403):
+            detail = "API kaliti rad etildi (401/403)"
+        else:
+            detail = f"Server javobi: HTTP {response.status_code}"
+    except httpx.HTTPError as error:
+        detail = f"Ulanmadi: {type(error).__name__}"
+    except Exception as error:  # pragma: no cover - himoya
+        detail = f"Ulanmadi: {type(error).__name__}"
+    _provider_models_cache[provider] = (now, ok, detail, frozenset(ids))
+    return ok, detail, ids
+
+
+def _provider_model_ids(provider: str) -> set[str] | None:
+    """Provayderning jonli model ID'lari (1 soat kesh).
+
+    `None` — tekshiruv imkonsiz (API kaliti yo'q yoki tarmoq xatosi).
+    """
+    api_key = (
+        settings.nvidia_nim_api_key if provider == "nvidia" else settings.openrouter_api_key
+    )
+    if not api_key:
+        return None
+    ok, _detail, ids = _provider_models(provider)
+    if not ok or not ids:
+        return None
+    return ids
+
+
+def _override_models() -> list[dict[str, Any]]:
+    """`AI_MODEL_CONFIG_JSON` override'ini tekshirilgan model ro'yxatiga aylantiradi.
+
+    O-9: har bir element turi va kaliti bo'yicha tekshiriladi — noto'g'ri
+    element butun ro'yxatni buzmasligi uchun jimgina o'tkazib yuboriladi.
+    """
+    override = settings.ai_models_override or {}
+    models: list[dict[str, Any]] = []
+    for provider, items in override.items():
+        if not isinstance(provider, str) or not isinstance(items, list):
+            continue
+        for index, item in enumerate(items):
+            model_id = ""
+            label = ""
+            context = 0
+            if isinstance(item, str):
+                model_id = item.strip()
+            elif isinstance(item, dict):
+                raw_id = item.get("id")
+                if not isinstance(raw_id, str):
+                    continue
+                model_id = raw_id.strip()
+                raw_label = item.get("label")
+                label = raw_label.strip() if isinstance(raw_label, str) else ""
+                raw_context = item.get("context", 0)
+                if isinstance(raw_context, bool) or not isinstance(
+                    raw_context, (int, float, str)
+                ):
+                    continue
+                try:
+                    context = int(raw_context)
+                except (TypeError, ValueError):
+                    continue
+                if context < 0:
+                    continue
+            else:
+                # Ro'yxat, satr yoki dict bo'lmagan element — e'tiborsiz.
+                continue
+            if not model_id:
+                continue
+            models.append(
+                {
+                    "id": model_id,
+                    "provider": provider,
+                    "label": label or model_id,
+                    "context": context,
+                    "free": True,
+                    "capabilities": ["chat"],
+                    "rank": index,
+                }
+            )
+    return models
+
+
+def resolve_model(models: list[dict[str, Any]], model_id: str) -> str:
+    """Model ID faqat ro'yxatda mavjud bo'lsa qabul qilinadi (O-9).
+
+    Mavjud bo'lmagan ID bo'sh qaytariladi — shunda tarmoq so'rovi
+    bekor qolmaydi va kechikish paydo bo'lmaydi.
+    """
+    if not model_id:
+        return ""
+    known = {str(item.get("id") or "") for item in models}
+    return model_id if model_id in known else ""
+
+
 def available_models() -> list[dict[str, Any]]:
+    """Sozlangan model ro'yxati (tarmoq so'rovisiz — so'rov yo'lida tez)."""
     override = settings.ai_models_override or {}
     if override:
-        models = []
-        for provider, items in override.items():
-            if not isinstance(items, list):
-                continue
-            for index, item in enumerate(items):
-                model_id = item if isinstance(item, str) else item.get("id")
-                if not model_id:
-                    continue
-                models.append(
-                    {
-                        "id": model_id,
-                        "provider": provider,
-                        "label": model_id if isinstance(item, str) else item.get("label", model_id),
-                        "context": 0 if isinstance(item, str) else int(item.get("context", 0)),
-                        "free": True,
-                        "capabilities": ["chat"],
-                        "rank": index,
-                    }
-                )
-        return models
+        return _override_models()
     models = []
     for model_id, provider, label, context, rank in MODEL_REGISTRY:
         if provider == "nvidia" and not settings.nvidia_nim_api_key:
@@ -87,26 +202,34 @@ def available_models() -> list[dict[str, Any]]:
     return sorted(models, key=lambda item: item["rank"])
 
 
+def refresh_models() -> list[dict[str, Any]]:
+    """Faqat provayderda **mavjud** modellarni qaytaradi (O-9, 1 soat kesh).
+
+    Admin model ro'yxati shundan olinadi — mavjud bo'lmagan model
+    tanlanmasligi uchun.
+    """
+    models = available_models()
+    result: list[dict[str, Any]] = []
+    for model in models:
+        ids = _provider_model_ids(model["provider"])
+        if ids is None or model["id"] in ids:
+            result.append(model)
+    return result
+
+
 def _live_provider_check(provider: str) -> tuple[bool, str]:
-    """Provayder /models endpointini qisqa so'rov bilan tekshirish."""
-    try:
-        url, headers = _endpoint(provider)
-        models_url = url.rsplit("/chat/completions", 1)[0] + "/models"
-        with httpx.Client(timeout=8) as client:
-            response = client.get(models_url, headers=headers)
-        if response.status_code == 200:
-            payload = response.json()
-            count = len(payload.get("data") or payload.get("models") or [])
-            return True, f"Ulangan — {count} model mavjud"
-        if response.status_code in (401, 403):
-            return False, "API kaliti rad etildi (401/403)"
-        return False, f"Server javobi: HTTP {response.status_code}"
-    except httpx.HTTPError as error:
-        return False, f"Ulanmadi: {type(error).__name__}"
+    """Provayder /models endpointini qisqa so'rov bilan tekshirish.
+
+    O-9: so'rov natijasi 1 soat keshlanadi — har chaqiruvda tarmoqga
+    chiqilmaydi.
+    """
+    ok, detail, _ids = _provider_models(provider)
+    return ok, detail
 
 
 def provider_status(live: bool = True) -> list[dict[str, Any]]:
-    models = available_models()
+    # O-9: admin ro'yxatida faqat provayderda mavjud modellar ko'rsatiladi.
+    models = refresh_models() if live else available_models()
     result = []
     for key, label in (("nvidia", "NVIDIA NIM"), ("openrouter", "OpenRouter")):
         configured = bool(
@@ -258,7 +381,9 @@ def chat_completion(
     if budget["remaining"] <= 0:
         raise service_unavailable("Kunlik AI token budjeti tugagan. Sozlamalarda limitni oshiring.")
     candidates = available_models()
-    active_model = preferred_model or stored_model(db)
+    # O-9: faqat ro'yxatda mavjud bo'lgan model tanlanadi — mavjud bo'lmagan
+    # ID har chaqiruvda bekor tarmoq so'rovi va kechikish keltirardi.
+    active_model = resolve_model(candidates, preferred_model or stored_model(db))
     if active_model:
         candidates = order_models(candidates, active_model)
     if preferred_provider in {"nvidia", "openrouter"}:
