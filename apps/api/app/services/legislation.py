@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
 from datetime import date, datetime, timezone
 from typing import Any
 from urllib.parse import quote, urljoin
@@ -44,12 +45,16 @@ MAX_DOC_BYTES = 3 * 1024 * 1024
 MAX_REDIRECTS = 3
 # J-12: saqlanadigan qonunchilik versiyalari soni (faqat oxirgi N).
 MAX_VERSIONS = 3
+# J-13: so'rov ichidagi sinxron uchun umumiy vaqt chegarasi (s).
+SYNC_BUDGET_SECONDS = 20
+# Bitta Lex.uz so'rovi uchun maksimal kutish (s) — qoldiq vaqt bilan cheklangan.
+LEX_REQUEST_TIMEOUT = 12
 
 
-def _client() -> httpx.Client:
+def _client(timeout: float = LEX_REQUEST_TIMEOUT) -> httpx.Client:
     # Redirect'lar qo'lda kuzatiladi — har safar manzil qayta tekshiriladi.
     return httpx.Client(
-        timeout=25,
+        timeout=max(1.0, float(timeout)),
         follow_redirects=False,
         headers={"User-Agent": USER_AGENT, "Accept-Language": "uz,ru;q=0.8,en;q=0.5"},
     )
@@ -68,11 +73,13 @@ def _read_capped(response: httpx.Response, limit: int = MAX_DOC_BYTES) -> bytes:
     return bytes(buffer)
 
 
-def _fetch_checked(url: str, *, document: bool) -> tuple[str, str]:
+def _fetch_checked(
+    url: str, *, document: bool, timeout: float = LEX_REQUEST_TIMEOUT
+) -> tuple[str, str]:
     """Ruxsat etilgan manzildan HTML yuklaydi (redirect nazorati bilan)."""
     validate = validate_lex_url if document else validate_lex_host
     current = validate(url)
-    with _client() as client:
+    with _client(timeout) as client:
         for _ in range(MAX_REDIRECTS + 1):
             try:
                 with client.stream("GET", current) as response:
@@ -139,12 +146,14 @@ def _parse_search(html: str) -> list[dict[str, Any]]:
     return results
 
 
-def search_lex(query: str, limit: int = 5) -> list[dict[str, Any]]:
+def search_lex(
+    query: str, limit: int = 5, timeout: float = LEX_REQUEST_TIMEOUT
+) -> list[dict[str, Any]]:
     query = (query or "").strip()
     if len(query) < 2:
         raise bad_request("Qidiruv so'zi kamida 2 belgidan iborat bo'lishi kerak.")
     url = f"{LEX_BASE}/uz/search/all?query={quote(query)}"
-    _, html = _fetch_checked(url, document=False)
+    _, html = _fetch_checked(url, document=False, timeout=timeout)
     data = _parse_search(html)
     if not data:
         raise service_unavailable(
@@ -164,8 +173,8 @@ def _parse_date(text: str) -> date | None:
         return None
 
 
-def fetch_document(url: str) -> dict[str, Any]:
-    final_url, html = _fetch_checked(url, document=True)
+def fetch_document(url: str, timeout: float = LEX_REQUEST_TIMEOUT) -> dict[str, Any]:
+    final_url, html = _fetch_checked(url, document=True, timeout=timeout)
     soup = BeautifulSoup(html, "lxml")
     body = soup.select_one(".document") or soup.select_one("#doc_body")
     title = ""
@@ -243,7 +252,13 @@ def split_chunks(text: str, max_len: int = 1100) -> list[dict[str, str]]:
     return chunks or [{"article": "", "heading": text[:120], "content": text[:max_len]}]
 
 
-def ingest_document(db: Session, url: str, *, actor: str | None = None) -> LegislationDocument:
+def ingest_document(
+    db: Session,
+    url: str,
+    *,
+    actor: str | None = None,
+    timeout: float = LEX_REQUEST_TIMEOUT,
+) -> LegislationDocument:
     """Hujjatni sinxronlaydi.
 
     J-12:
@@ -252,7 +267,7 @@ def ingest_document(db: Session, url: str, *, actor: str | None = None) -> Legis
     - saqlanadigan versiyalar soni cheklangan (`MAX_VERSIONS` = 3);
     - 400 KB `raw_html` bazada saqlanmaydi.
     """
-    payload = fetch_document(url)
+    payload = fetch_document(url, timeout=timeout)
     now = datetime.now(timezone.utc)
     document = db.execute(
         select(LegislationDocument).where(LegislationDocument.source_url == payload["url"])
@@ -358,13 +373,41 @@ def ingest_document(db: Session, url: str, *, actor: str | None = None) -> Legis
     return document
 
 
-def sync_query(db: Session, query: str, limit: int = 3, actor: str | None = None) -> list[LegislationDocument]:
-    results = search_lex(query, limit=limit)
+def sync_query(
+    db: Session,
+    query: str,
+    limit: int = 3,
+    actor: str | None = None,
+    budget_seconds: float = SYNC_BUDGET_SECONDS,
+) -> list[LegislationDocument]:
+    """Lex.uz'da qidirib, topilgan hujjatlarni bazaga kiritadi.
+
+    J-13: umumiy vaqt chegarasi (`budget_seconds`, default 20 s) — so'rov
+    ichida uzoq turib qolmaslik uchun. Qoldiq vaqt har so'rovga timeout
+    sifatida beriladi va chegaraga yaqinlashganda sinxron to'xtatiladi.
+    """
+    deadline = time.monotonic() + max(1.0, float(budget_seconds))
+    results = search_lex(
+        query,
+        limit=limit,
+        timeout=max(1.0, min(LEX_REQUEST_TIMEOUT, deadline - time.monotonic())),
+    )
     documents: list[LegislationDocument] = []
     errors: list[str] = []
     for item in results:
+        remaining = deadline - time.monotonic()
+        if remaining <= 1.0:
+            errors.append("Vaqt chegarasi tugadi — qolgan hujjatlar yuklanmadi.")
+            break
         try:
-            documents.append(ingest_document(db, item["url"], actor=actor))
+            documents.append(
+                ingest_document(
+                    db,
+                    item["url"],
+                    actor=actor,
+                    timeout=max(1.0, min(LEX_REQUEST_TIMEOUT, remaining)),
+                )
+            )
         except Exception as error:  # one broken page must not stop the batch
             db.rollback()
             errors.append(f"{item['title'][:80]}: {error}")
@@ -626,7 +669,24 @@ QAT'IY QOIDALAR:
 - Umumiy hajm: 6-10 gap."""
 
 
-def ask(db: Session, question: str, *, use_ai: bool = True, sync_if_empty: bool = True) -> dict[str, Any]:
+def ask(
+    db: Session,
+    question: str,
+    *,
+    use_ai: bool = True,
+    sync_if_empty: bool = False,
+    budget_seconds: float = SYNC_BUDGET_SECONDS,
+) -> dict[str, Any]:
+    """Savolga qonunchilik manbalari asosida javob beradi.
+
+    J-13:
+    - **Avtomatik sinxron o'chirilgan** (`sync_if_empty=False`): so'rov ichida
+      Lex.uz'ga so'rov yuborilmaydi — bu so'rovni kechiktirardi, bazani
+      ifloslantirardi va foydalanuvchi savoli matnini (fuqaro ismi bo'lishi
+      mumkin) tashqi saytga olib chiqardi.
+    - Sinxron faqat foydalanuvchi **aniq so'raganda** (`sync_if_empty=True`)
+      va umumiy vaqt chegarasi (`budget_seconds`) bilan bajariladi.
+    """
     question = (question or "").strip()
     if len(question) < 3:
         raise bad_request("Savol matni juda qisqa.")
@@ -635,7 +695,9 @@ def ask(db: Session, question: str, *, use_ai: bool = True, sync_if_empty: bool 
     warnings: list[str] = []
     if not hits and sync_if_empty:
         try:
-            documents = sync_query(db, question, limit=3)
+            documents = sync_query(
+                db, question, limit=3, budget_seconds=budget_seconds
+            )
             synced = [document.title for document in documents]
             hits = search_chunks(db, question, limit=8)
         except Exception as error:
@@ -648,9 +710,8 @@ def ask(db: Session, question: str, *, use_ai: bool = True, sync_if_empty: bool 
             documents.append(hit["document"])
     if not hits:
         answer = (
-            "Taqdim etilgan manbalarda bu savolga to'liq javob topilmadi. "
-            "Lex.uz bo'yicha qidiruvni aniqroq so'z bilan qayta yuboring yoki "
-            "Qonunchilik bo'limida hujjatni sinxronlashtiring."
+            "Manbalarda topilmadi. Qonunchilik bo'limida hujjatni "
+            "sinxronlab, savolni aniqroq so'z bilan qayta yuboring."
         )
         return {
             "answer": answer,

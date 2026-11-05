@@ -16,7 +16,9 @@ router = APIRouter(prefix="/legislation", tags=["legislation"])
 class LegislationQuestion(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
     use_ai: bool = True
-    sync_if_empty: bool = True
+    # J-13: so'rov yo'lida avtomatik sinxron o'chirilgan. Sinxron faqat
+    # foydalanuvchi aniq so'raganda (`/legislation/sync`) bajariladi.
+    sync_if_empty: bool = False
 
 
 @router.get("/documents")

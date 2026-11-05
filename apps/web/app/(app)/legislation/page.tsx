@@ -79,7 +79,9 @@ export default function LegislationPage() {
     setError("");
     setAnswer(null);
     try {
-      setAnswer(await api.post("/legislation/ask", { question, use_ai: true, sync_if_empty: true }));
+      // J-13: so'rov ichida avtomatik sinxron yo'q — hujjat "Lex.uz dan
+      // yuklash" tugmasi orqali aniq yuklanadi.
+      setAnswer(await api.post("/legislation/ask", { question, use_ai: true, sync_if_empty: false }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Savolga javob olinmadi.");
     } finally {

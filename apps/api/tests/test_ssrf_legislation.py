@@ -125,7 +125,7 @@ def test_https_redirect_to_internal_is_blocked(auth, monkeypatch):
         def __exit__(self, *args):
             return False
 
-    monkeypatch.setattr(service, "_client", lambda: _FakeClient())
+    monkeypatch.setattr(service, "_client", lambda *args, **kwargs: _FakeClient())
     with pytest.raises(APIError):
         service.fetch_document("https://lex.uz/uz/docs/123")
     assert httpx is not None
