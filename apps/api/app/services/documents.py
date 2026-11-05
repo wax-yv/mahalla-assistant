@@ -1097,32 +1097,37 @@ def rollback_batch(db: Session, batch_id: str, actor: str, request_id: str | Non
     ).scalars().all()
     deleted = 0
     restored = 0
+    # N-11: xatolik faqat **shu qator**ni bekor qilishi kerak. Eski kodda
+    # `db.rollback()` butun tranzaksiyani qaytarardi — oldingi delete/restore
+    # yo'qolardi va `batch` detach bo'lib, keyingi holat yozuvi buzilardi.
     for change in reversed(changes):
-        if change.entity_type == "citizen" and change.action == "update" and change.before:
-            citizen = db.get(Citizen, change.entity_id)
-            if citizen:
-                for key, value in change.before.items():
-                    if hasattr(citizen, key):
-                        setattr(citizen, key, value)
-                restored += 1
-        elif change.action == "create":
-            model_map = {
-                "citizens": Citizen,
-                "families": Family,
-                "houses": House,
-                "streets": Street,
-                "mahallas": Mahalla,
-            }
-            model = model_map.get(change.entity_type)
-            if model is not None:
-                instance = db.get(model, change.entity_id)
-                if instance is not None:
-                    try:
+        savepoint = db.begin_nested()
+        try:
+            if change.entity_type == "citizen" and change.action == "update" and change.before:
+                citizen = db.get(Citizen, change.entity_id)
+                if citizen:
+                    for key, value in change.before.items():
+                        if hasattr(citizen, key):
+                            setattr(citizen, key, value)
+                    restored += 1
+            elif change.action == "create":
+                model_map = {
+                    "citizens": Citizen,
+                    "families": Family,
+                    "houses": House,
+                    "streets": Street,
+                    "mahallas": Mahalla,
+                }
+                model = model_map.get(change.entity_type)
+                if model is not None:
+                    instance = db.get(model, change.entity_id)
+                    if instance is not None:
                         db.delete(instance)
                         db.flush()
                         deleted += 1
-                    except Exception:
-                        db.rollback()
+            savepoint.commit()
+        except Exception:
+            savepoint.rollback()
     batch.status = "rolled_back"
     batch.rolled_back_at = datetime.now(timezone.utc)
     document = db.get(Document, batch.document_id)
