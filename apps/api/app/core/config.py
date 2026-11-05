@@ -68,7 +68,9 @@ class Settings(BaseSettings):
     ai_model_config_json: str = ""
 
     blob_read_write_token: str = ""
-    max_upload_mb: int = 4
+    # E-5: Vercel so'rov chegarasi ~4.5 MB (multipart overhead bilan) —
+    # 4 MB fayl platforma darajasida rad etilishi mumkin edi.
+    max_upload_mb: float = 3.5
 
     scheduler_timezone: str = "Asia/Tashkent"
     demo_mode: bool = True
@@ -135,7 +137,7 @@ class Settings(BaseSettings):
 
     @property
     def max_upload_bytes(self) -> int:
-        return max(1, self.max_upload_mb) * 1024 * 1024
+        return int(max(1, self.max_upload_mb) * 1024 * 1024)
 
 
 @lru_cache

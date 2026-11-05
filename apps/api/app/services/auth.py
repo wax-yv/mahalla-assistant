@@ -18,6 +18,7 @@ from app.core.security import (
     dummy_password_hash,
     hash_password,
     hash_token,
+    needs_rehash,
     new_csrf_token,
     new_session_token,
     session_expiry,
@@ -240,6 +241,9 @@ def authenticate(db: Session, username: str, password: str, request: Request) ->
         raise unauthenticated("Login yoki parol noto'g'ri.")
 
     reset_failures(keys)
+    # E-3: xesh parametrlari eskirgan bo'lsa — kirish paytida yangilanadi.
+    if needs_rehash(user.password_hash):
+        user.password_hash = hash_password(password)
     user.last_login_at = datetime.now(timezone.utc)
     db.flush()
     return user

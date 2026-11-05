@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Callable
 
 from fastapi import Depends, Request
@@ -14,6 +14,20 @@ from app.core.security import CSRF_HEADER, SESSION_COOKIE, hash_token, secure_co
 from app.core.config import settings
 from app.models import Session as SessionModel
 from app.models import User
+
+
+def _commit_last_seen(session_id: str, seen_at: datetime) -> None:
+    """`last_seen_at` ni alohida sessiyada commit qiladi (E-4)."""
+    from app.core.db import SessionLocal
+
+    try:
+        with SessionLocal() as session:
+            row = session.get(SessionModel, session_id)
+            if row is not None:
+                row.last_seen_at = seen_at
+                session.commit()
+    except Exception:  # pragma: no cover — monitoring maydoni, so'rov buzilmasin
+        pass
 
 
 def client_ip(request: Request) -> str:
@@ -65,8 +79,12 @@ def get_current_session(
         expires = expires.replace(tzinfo=timezone.utc)
     if session.revoked_at is not None or expires <= now:
         raise unauthenticated("Sessiya muddati tugagan. Qaytadan kiring.")
-    session.last_seen_at = now
-    db.flush()
+    # E-4: `last_seen_at` GET so'rovlarida commit bo'lmaydi — maydon deyarli
+    # yangilanmasdi. Endi 5 daqiqada bir marta yangilanadi va commit qilinadi
+    # (alohida sessiyada — so'rov tranzaksiyasiga bog'lanmasin).
+    if session.last_seen_at is None or (now - session.last_seen_at) > timedelta(minutes=5):
+        session.last_seen_at = now
+        _commit_last_seen(session.id, now)
     return session
 
 
