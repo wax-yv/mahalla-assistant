@@ -1248,8 +1248,12 @@ def list_documents(
 
 
 def get_document(db: Session, document_id: str) -> Document:
+    """Hujjatni oladi (O-11: arxivlangan hujjat topilmaydi)."""
     document = db.get(Document, document_id)
     if document is None:
+        raise not_found("Hujjat topilmadi.")
+    if document.status == "archived":
+        # O-11: o'chirilgan hujjat ID bo'yicha hamon ochilmasligi kerak.
         raise not_found("Hujjat topilmadi.")
     return document
 
@@ -1263,7 +1267,18 @@ def get_document_blob(db: Session, document_id: str) -> tuple[Document, bytes]:
 
 
 def delete_document(db: Session, document_id: str, actor: str) -> Document:
-    document = get_document(db, document_id)
+    """Hujjatni arxivlaydi va fayl mazmunini **o'chiredi** (O-11).
+
+    O-11: avvalgi holatda faqat `status="archived"` qilinardi — fayl
+    mazmuni (fuqarolar ro'yxati Excel'i) bazada to'liq qolardi va ID
+    bo'yicha yuklab olinardi.
+    """
+    document = db.get(Document, document_id)
+    if document is None:
+        raise not_found("Hujjat topilmadi.")
+    blob = db.get(DocumentBlob, document_id)
+    if blob is not None:
+        db.delete(blob)
     document.status = "archived"
     db.flush()
     write_audit(
@@ -1272,6 +1287,7 @@ def delete_document(db: Session, document_id: str, actor: str) -> Document:
         entity_type="document",
         entity_id=document.id,
         actor_id=actor,
+        new_value={"filename": document.original_name, "blob_deleted": True},
     )
     db.commit()
     return document
