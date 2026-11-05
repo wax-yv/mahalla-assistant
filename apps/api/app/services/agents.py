@@ -167,11 +167,16 @@ def detect_intent(message: str) -> tuple[str, list[str]]:
     if any(word in text for word in ("kredit", "subsidiya", "ipoteka", "foizsiz yordam")):
         return "credit_subsidy", ["credit_subsidy"]
 
-    # 4. Son/ro'yxat savollari — majburan deterministik statistika agentiga.
+    # 4. Son/ro'yxat/yosh-oralig'i savollari — majburan deterministik statistika agentiga.
     wants_count = any(word in text for word in DATA_COUNT_WORDS)
     wants_list = any(word in text for word in DATA_LIST_WORDS)
+    # Yosh oralig'i: "0 yoshdan 10 yoshgacha?", "6 yoshdan katta" va h.k.
+    # (avval bunday savollar smalltalk'ga ketardi — javobsiz qolardi).
+    age_range_query = bool(
+        re.search(r"\d{1,2}\s*(?:yoshgacha|yoshdan)|\d{1,2}\s*[-–]\s*\d{1,2}\s*yosh", text)
+    )
     has_foreign = any(word in text for word in FOREIGN_SUBJECT_WORDS)
-    if (wants_count or wants_list) and not has_foreign:
+    if (wants_count or wants_list or age_range_query) and not has_foreign:
         return "data_stats", ["data_stats"]
 
     # 5. Umumiy kalit so'zlash.

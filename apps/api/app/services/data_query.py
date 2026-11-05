@@ -24,6 +24,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.time import minus_years
 from app.models import Case, Citizen, Family, House, Street, Task
 
 # --------------------------------------------------------------------------
@@ -341,30 +342,65 @@ def _match_street(text: str, values: list[str]) -> str | None:
 
 
 def _match_age(text: str) -> tuple[int | None, int | None]:
-    age_min: int | None = None
-    age_max: int | None = None
+    """Yosh oralig'ini matndan to'liq o'qiydi.
 
+    Qo'llanadigan shakllar:
+      * "6 yoshdan 10 yoshgacha" / "0 yoshdan 10 gacha"  -> (6, 10)
+      * "6-10 yosh" / "6–10 yoshdagi"                    -> (6, 10)
+      * "10 yoshgacha" / "10 gacha" (yosh konteksti)     -> (None, 10)
+      * "6 yoshdan katta/yuqori/ortiq"                   -> (6, None)
+      * "6 yoshdan kichik/past"                          -> (None, 5)
+      * "10 yoshli" / "yoshi 10"                         -> (10, 10)
+    """
+    # "M yoshdan N yoshgacha" / "M yoshdan N gacha" — diapazon (pastki
+    # chegara avvalgi versiyada YO'QOLARDI).
+    match = re.search(r"(\d{1,2})\s*yoshdan\s+(\d{1,2})\s*(?:yosh)?gacha", text)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+
+    # "M-N yosh" / "M–N yoshdagi"
     match = re.search(r"(\d{1,2})\s*[-–]\s*(\d{1,2})\s*yosh", text)
     if match:
         return int(match.group(1)), int(match.group(2))
 
+    # "M dan N gacha yosh..." (matnda «yosh» so'zi bor bo'lsagina)
+    if "yosh" in text:
+        match = re.search(r"(\d{1,2})\s*dan\s+(\d{1,2})\s*gacha", text)
+        if match:
+            return int(match.group(1)), int(match.group(2))
+
+    # "N yoshgacha" — yuqori chegara
     match = re.search(r"(\d{1,2})\s*yoshgacha", text)
     if match:
-        age_max = int(match.group(1))
+        return None, int(match.group(1))
 
+    # "N gacha" — faqat matnda «yosh» so'zi bo'lsa ("0 yoshdan 10 gacha")
+    if "yosh" in text:
+        match = re.search(r"(\d{1,2})\s*gacha\b", text)
+        if match:
+            return None, int(match.group(1))
+
+    # "M yoshdan katta/yuqori/ortiq" — pastki chegara
     match = re.search(r"(\d{1,2})\s*yoshdan\s*(?:katta|yuqori|ortiq|kattaroq)", text)
     if match:
-        age_min = int(match.group(1))
+        return int(match.group(1)), None
 
+    # "M yoshdan kichik/past" — yosh < M  =>  max = M-1
+    match = re.search(r"(\d{1,2})\s*yoshdan\s*(?:kichik|past|quyi|kichikroq)", text)
+    if match:
+        value = int(match.group(1))
+        return (None, value - 1) if value > 0 else (None, 0)
+
+    # "N yoshli" — aniq yosh
     match = re.search(r"(\d{1,2})\s*yoshli", text)
     if match:
-        age_min = age_max = int(match.group(1))
+        return int(match.group(1)), int(match.group(1))
 
-    if age_min is None and age_max is None:
-        match = re.search(r"yosh(?:i)?\s*(\d{1,2})\b", text)
-        if match:
-            age_min = age_max = int(match.group(1))
-    return age_min, age_max
+    # "yoshi 10" ko'rinishi — aniq yosh
+    match = re.search(r"yosh(?:i)?\s*(\d{1,2})\b", text)
+    if match:
+        return int(match.group(1)), int(match.group(1))
+    return None, None
 
 
 def _match_needs(text: str) -> list[str]:
@@ -490,11 +526,17 @@ def _citizen_conditions(db: Session, facets: Facets) -> list[Any]:
     if facets.age_min is not None or facets.age_max is not None:
         conditions.append(Citizen.birth_date.is_not(None))
         if facets.age_max is not None:
-            border = today.replace(year=today.year - facets.age_max)
-            conditions.append(Citizen.birth_date > border)
+            # yosh ≤ N  ⇔  tug'ilgan sana > bugun − (N+1) yil.
+            # Avvalgi kod `bugun − N yil` ishlatardi — aynan N yoshli
+            # bolalar tushib qolardi (off-by-one).
+            conditions.append(
+                Citizen.birth_date > minus_years(today, facets.age_max + 1)
+            )
         if facets.age_min is not None:
-            border = today.replace(year=today.year - facets.age_min)
-            conditions.append(Citizen.birth_date <= border)
+            # yosh ≥ M  ⇔  tug'ilgan sana ≤ bugun − M yil.
+            conditions.append(
+                Citizen.birth_date <= minus_years(today, facets.age_min)
+            )
     return conditions
 
 
