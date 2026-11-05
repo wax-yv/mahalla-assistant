@@ -632,7 +632,13 @@ def _legislation_agent(db: Session, message: str, context: dict[str, Any]) -> di
         message.strip(),
         flags=re.I,
     )
-    result = legislation.ask(db, question or message, use_ai=True)
+    result = legislation.ask(
+        db,
+        question or message,
+        use_ai=True,
+        preferred_provider=context.get("preferred_provider"),
+        preferred_model=context.get("preferred_model"),
+    )
     text = result["answer"]
     if result.get("synced"):
         text += "\n\nLex.uz dan yangi manbalar yuklandi: " + ", ".join(result["synced"][:3])
@@ -1119,7 +1125,11 @@ MUHIM CHEKLOVLAR:
 
 
 def _smalltalk(
-    db: Session, message: str, context: dict[str, Any], preferred_model: str | None = None
+    db: Session,
+    message: str,
+    context: dict[str, Any],
+    preferred_model: str | None = None,
+    preferred_provider: str | None = None,
 ) -> dict[str, Any]:
     result = ai_gateway.chat_completion(
         db,
@@ -1130,7 +1140,9 @@ def _smalltalk(
         agent="orchestrator",
         max_tokens=350,
         temperature=0.3,
-        preferred_model=preferred_model,
+        # D-8: UI'dagi provayder/model tanlovi hurmat qilinadi.
+        preferred_provider=preferred_provider or context.get("preferred_provider"),
+        preferred_model=preferred_model or context.get("preferred_model"),
     )
     return {
         "text": result.content.strip(),
@@ -1270,12 +1282,20 @@ def chat(
                     message,
                     {"conversation_id": conversation.id, "actor": actor},
                     preferred_model=preferred_model,
+                    preferred_provider=preferred_provider,
                 )
             else:
                 result = handler(
                     db,
                     message,
-                    {"conversation_id": conversation.id, "actor": actor},
+                    {
+                        "conversation_id": conversation.id,
+                        "actor": actor,
+                        # D-8: UI'da tanlangan provayder/model agentlarga
+                        # uzatiladi — aks holda tanlov e'tiborsiz qoladi.
+                        "preferred_provider": preferred_provider,
+                        "preferred_model": preferred_model,
+                    },
                 )
         except Exception as error:
             failed = True

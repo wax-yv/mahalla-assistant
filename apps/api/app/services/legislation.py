@@ -736,6 +736,9 @@ def ask(
     use_ai: bool = True,
     sync_if_empty: bool = False,
     budget_seconds: float = SYNC_BUDGET_SECONDS,
+    # D-8: suhbatda tanlangan provayder/model hujjat javobiga ham qo'llanadi.
+    preferred_provider: str | None = None,
+    preferred_model: str | None = None,
 ) -> dict[str, Any]:
     """Savolga qonunchilik manbalari asosida javob beradi.
 
@@ -825,6 +828,8 @@ def ask(
                 agent="legislation",
                 max_tokens=1600,
                 temperature=0.1,
+                preferred_provider=preferred_provider,
+                preferred_model=preferred_model,
             )
             answer = result.content.strip()
             verified, verification_warnings = verify_answer(answer, context, len(sources))
