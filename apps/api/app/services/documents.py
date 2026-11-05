@@ -6,13 +6,14 @@ import io
 import re
 import zipfile
 from datetime import date, datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.audit import model_snapshot, write_audit
@@ -60,6 +61,58 @@ MODULE_ALIASES: dict[str, list[str]] = {
 REQUIRED_COLUMNS = ["full_name"]
 
 UNKNOWN = {"", "yo'q", "yoq", "-", "—", "noma'lum"}
+
+# J-6: `citizens.data_source` ustuni 255 belgiga kengaytirilgan
+# (scripts/migrate.sql). Migratsiya bajarilmagan bazalarda ham 500 chiqmasligi
+# uchun qiymat jadvalning haqiqiy uzunligiga moslab kesiladi.
+DATA_SOURCE_MAX = 255
+
+
+@lru_cache(maxsize=8)
+def _column_max_length(table: str, column: str) -> int | None:
+    """Jadval ustunining haqiqiy belgi chegarasi (None — chegizalanmagan)."""
+    bind = None
+    try:
+        from app.core.db import engine
+
+        bind = engine
+        with engine.connect() as conn:
+            dialect = conn.dialect.name
+            if dialect == "postgresql":
+                value = conn.execute(
+                    text(
+                        "SELECT character_maximum_length FROM information_schema.columns "
+                        "WHERE table_name = :table AND column_name = :column"
+                    ),
+                    {"table": table, "column": column},
+                ).scalar()
+            elif dialect == "sqlite":
+                rows = conn.execute(text(f'PRAGMA table_info("{table}")')).all()
+                value = None
+                for row in rows:
+                    if str(row[1]) == column:
+                        value = row[2]
+                        break
+            else:  # pragma: no cover - boshqa dialektlar
+                value = None
+    except Exception:
+        value = None
+    finally:
+        del bind
+    if value is None:
+        return None
+    try:
+        limit = int(value)
+    except (TypeError, ValueError):
+        return None
+    return limit if limit > 0 else None
+
+
+def _data_source_value(name: str | None) -> str:
+    """`data_source` uchun xavfsiz qiymat (bazadagi uzunlikka mos)."""
+    raw = (name or "").strip()
+    limit = _column_max_length("citizens", "data_source") or DATA_SOURCE_MAX
+    return raw[:limit]
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -922,7 +975,7 @@ def commit_batch(
                 needs=row["needs"],
                 needs_text=", ".join(row["needs"]),
                 notes=row["notes"],
-                data_source=document.original_name,
+                data_source=_data_source_value(document.original_name),
                 last_verified_at=datetime.now(timezone.utc),
             )
             db.add(citizen)
@@ -954,7 +1007,7 @@ def commit_batch(
             existing.needs = row["needs"]
             existing.needs_text = ", ".join(row["needs"])
             existing.notes = row["notes"]
-            existing.data_source = document.original_name
+            existing.data_source = _data_source_value(document.original_name)
             existing.last_verified_at = datetime.now(timezone.utc)
             existing.version += 1
             db.flush()

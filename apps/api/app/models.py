@@ -157,7 +157,7 @@ class Citizen(Base):
     needs: Mapped[list] = mapped_column(JSONType, default=list)
     needs_text: Mapped[str] = mapped_column(Text, default="")
     notes: Mapped[str] = mapped_column(Text, default="")
-    data_source: Mapped[str] = mapped_column(String(64), default="demo_seed")
+    data_source: Mapped[str] = mapped_column(String(255), default="demo_seed")
     last_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
