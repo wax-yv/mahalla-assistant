@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import write_audit
 from app.core.errors import bad_request, not_found, service_unavailable
+from app.core.search import like_pattern
 from app.core.urls import REDIRECT_CODES, validate_lex_host, validate_lex_url
 from app.models import (
     LegislationChunk,
@@ -523,12 +524,12 @@ def search_chunks(db: Session, query: str, limit: int = 6) -> list[dict[str, Any
         # tekshiriladi (dialektga bog'liq `concat` ishlatilmaydi).
         token_conditions = []
         for token in unique_tokens[:8]:
-            pattern = f"%{token}%"
+            pattern = like_pattern(token)
             token_conditions.append(
                 or_(
-                    LegislationChunk.search_text.ilike(pattern),
-                    LegislationChunk.heading.ilike(pattern),
-                    LegislationChunk.content.ilike(pattern),
+                    LegislationChunk.search_text.ilike(pattern, escape="\\"),
+                    LegislationChunk.heading.ilike(pattern, escape="\\"),
+                    LegislationChunk.content.ilike(pattern, escape="\\"),
                 )
             )
         token_rows = db.execute(
@@ -793,7 +794,7 @@ def ask(
 def list_documents(db: Session, q: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
     stmt = select(LegislationDocument).order_by(LegislationDocument.retrieved_at.desc()).limit(limit)
     if q:
-        stmt = stmt.where(LegislationDocument.title.ilike(f"%{q.strip()}%"))
+        stmt = stmt.where(LegislationDocument.title.ilike(like_pattern(q.strip()), escape="\\"))
     rows = db.execute(stmt).scalars().all()
     counts = dict(
         db.execute(

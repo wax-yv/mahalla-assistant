@@ -7,6 +7,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import not_found, validation_error
+from app.core.search import like_pattern
 from app.core.time import age_from_birth
 from app.models import Citizen, MemoryItem, Program
 from app.services.serializers import program_out
@@ -19,15 +20,17 @@ def list_programs(
     if type:
         stmt = stmt.where(Program.type == type)
     if organization:
-        stmt = stmt.where(Program.organization.ilike(f"%{organization.strip()}%"))
+        stmt = stmt.where(
+            Program.organization.ilike(like_pattern(organization.strip()), escape="\\")
+        )
     if q:
-        term = f"%{q.strip()}%"
+        term = like_pattern(q.strip())
         stmt = stmt.where(
             or_(
-                Program.name.ilike(term),
-                Program.organization.ilike(term),
-                Program.target_group.ilike(term),
-                Program.notes.ilike(term),
+                Program.name.ilike(term, escape="\\"),
+                Program.organization.ilike(term, escape="\\"),
+                Program.target_group.ilike(term, escape="\\"),
+                Program.notes.ilike(term, escape="\\"),
             )
         )
     rows = db.execute(stmt).scalars().all()

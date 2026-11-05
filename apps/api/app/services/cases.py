@@ -9,6 +9,7 @@ from app.core.audit import model_snapshot, write_audit
 from app.core.constants import CASE_TRANSITIONS, TASK_TRANSITIONS
 from app.core.errors import bad_request, conflict, not_found, validation_error
 from app.core.pagination import PageMeta, paginate
+from app.core.search import like_pattern
 from app.core.time import today_local
 from app.models import Case, Citizen, Family, Task, WorkLog
 from app.schemas import (
@@ -54,9 +55,13 @@ def list_cases(
     if family_id:
         stmt = stmt.where(Case.family_id == family_id)
     if q:
-        term = f"%{q.strip()}%"
+        term = like_pattern(q.strip())
         stmt = stmt.where(
-            or_(Case.title.ilike(term), Case.description.ilike(term), Case.id.ilike(term))
+            or_(
+                Case.title.ilike(term, escape="\\"),
+                Case.description.ilike(term, escape="\\"),
+                Case.id.ilike(term, escape="\\"),
+            )
         )
     rows, meta = paginate(db, stmt, page, page_size)
     counts = _task_counts(db, [row.id for row in rows])
@@ -226,8 +231,14 @@ def list_tasks(
     elif timeframe == "completed":
         stmt = stmt.where(Task.status == "completed")
     if q:
-        term = f"%{q.strip()}%"
-        stmt = stmt.where(or_(Task.title.ilike(term), Task.description.ilike(term), Task.id.ilike(term)))
+        term = like_pattern(q.strip())
+        stmt = stmt.where(
+            or_(
+                Task.title.ilike(term, escape="\\"),
+                Task.description.ilike(term, escape="\\"),
+                Task.id.ilike(term, escape="\\"),
+            )
+        )
     rows, meta = paginate(db, stmt, page, page_size)
     return [task_out(row) for row in rows], meta
 

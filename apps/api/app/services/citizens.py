@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.core.audit import model_snapshot, write_audit
 from app.core.errors import bad_request, conflict, not_found, validation_error
 from app.core.pagination import PageMeta, paginate
+from app.core.search import like_pattern
 from app.core.time import age_from_birth, today_local
 from app.models import AuditLog, Case, Citizen, Document, Family, House, Street, Task, WorkLog
 from app.schemas import CitizenCreate, CitizenUpdate
@@ -132,13 +133,13 @@ def list_citizens(
     if not include_archived:
         conditions.append(Citizen.archived_at.is_(None))
     if q:
-        term = f"%{q.strip()}%"
+        term = like_pattern(q.strip())
         conditions.append(
             or_(
-                Citizen.full_name.ilike(term),
-                Citizen.id.ilike(term),
-                Citizen.phone.ilike(term),
-                Citizen.profession.ilike(term),
+                Citizen.full_name.ilike(term, escape="\\"),
+                Citizen.id.ilike(term, escape="\\"),
+                Citizen.phone.ilike(term, escape="\\"),
+                Citizen.profession.ilike(term, escape="\\"),
             )
         )
     if family_id:
@@ -165,11 +166,11 @@ def list_citizens(
     if education:
         conditions.append(Citizen.education == education)
     if profession:
-        conditions.append(Citizen.profession.ilike(f"%{profession}%"))
+        conditions.append(Citizen.profession.ilike(like_pattern(profession), escape="\\"))
     if social_status:
         conditions.append(Citizen.social_status == social_status)
     if needs:
-        conditions.append(Citizen.needs_text.ilike(f"%{needs}%"))
+        conditions.append(Citizen.needs_text.ilike(like_pattern(needs), escape="\\"))
     if data_quality == "complete":
         conditions.extend(
             [

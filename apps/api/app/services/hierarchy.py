@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.core.audit import model_snapshot, write_audit
 from app.core.errors import conflict, not_found, validation_error
 from app.core.pagination import PageMeta, paginate
+from app.core.search import like_pattern
 from app.models import Case, Citizen, Family, House, Mahalla, Street, Task, WorkLog
 from app.schemas import FamilyCreate, FamilyUpdate
 from app.services.serializers import (
@@ -231,12 +232,12 @@ def list_houses(
     if mahalla_id:
         stmt = stmt.where(House.street.has(Street.mahalla_id == mahalla_id))
     if q:
-        term = f"%{q.strip()}%"
+        term = like_pattern(q.strip())
         stmt = stmt.where(
             or_(
-                House.house_number.ilike(term),
-                House.address_label.ilike(term),
-                House.street.has(Street.name.ilike(term)),
+                House.house_number.ilike(term, escape="\\"),
+                House.address_label.ilike(term, escape="\\"),
+                House.street.has(Street.name.ilike(term, escape="\\")),
             )
         )
     rows, meta = paginate(db, stmt, page, page_size)
@@ -309,13 +310,13 @@ def list_families(
     if social_status:
         stmt = stmt.where(Family.social_status == social_status)
     if q:
-        term = f"%{q.strip()}%"
+        term = like_pattern(q.strip())
         stmt = stmt.where(
             or_(
-                Family.id.ilike(term),
-                Family.notes.ilike(term),
-                Family.head.has(Citizen.full_name.ilike(term)),
-                Family.house.has(House.address_label.ilike(term)),
+                Family.id.ilike(term, escape="\\"),
+                Family.notes.ilike(term, escape="\\"),
+                Family.head.has(Citizen.full_name.ilike(term, escape="\\")),
+                Family.house.has(House.address_label.ilike(term, escape="\\")),
             )
         )
     rows, meta = paginate(db, stmt, page, page_size)

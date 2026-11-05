@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.audit import write_audit
 from app.core.errors import bad_request, conflict, not_found
+from app.core.search import like_pattern
 from app.core.time import today_local
 from app.models import (
     AgentRun,
@@ -250,7 +251,10 @@ def _citizen_search(db: Session, message: str) -> list[Citizen]:
         rows = db.execute(
             select(Citizen)
             .options(joinedload(Citizen.family).joinedload(Family.house).joinedload(House.street).joinedload(Street.mahalla))
-            .where(Citizen.archived_at.is_(None), Citizen.phone.ilike(f"%{tail}%"))
+            .where(
+                Citizen.archived_at.is_(None),
+                Citizen.phone.ilike(like_pattern(tail), escape="\\"),
+            )
             .limit(5)
         ).scalars().all()
         if rows:
@@ -264,7 +268,9 @@ def _citizen_search(db: Session, message: str) -> list[Citizen]:
         .options(joinedload(Citizen.family).joinedload(Family.house).joinedload(House.street).joinedload(Street.mahalla))
         .where(Citizen.archived_at.is_(None))
     )
-    conditions = [Citizen.full_name.ilike(f"%{token}%") for token in tokens[:6]]
+    conditions = [
+        Citizen.full_name.ilike(like_pattern(token), escape="\\") for token in tokens[:6]
+    ]
     rows = db.execute(base.where(or_(*conditions)).limit(60)).scalars().all()
     # Kamida 2 token mos kelishi kerak (familiya + ism) — bitta token bilan
     # tasodifiy moslik ("Ali" -> "Alisher") chiqmaydi.
@@ -278,7 +284,9 @@ def _citizen_search(db: Session, message: str) -> list[Citizen]:
         return list(matched[:20])
     cleaned = _clean_query(text)
     if cleaned:
-        rows = db.execute(base.where(Citizen.full_name.ilike(f"%{cleaned}%")).limit(20)).scalars().all()
+        rows = db.execute(
+            base.where(Citizen.full_name.ilike(like_pattern(cleaned), escape="\\")).limit(20)
+        ).scalars().all()
         if rows:
             return list(rows)
     return []

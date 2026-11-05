@@ -12,6 +12,7 @@ from app.core.audit import write_audit
 from app.core.config import settings
 from app.core.errors import validation_error
 from app.core.pagination import PageMeta, paginate
+from app.core.search import like_pattern
 from app.models import (
     AIUsage,
     AuditLog,
@@ -135,14 +136,16 @@ def audit_page(
 ) -> tuple[list[dict[str, Any]], PageMeta]:
     stmt = select(AuditLog).order_by(AuditLog.created_at.desc())
     if action:
-        stmt = stmt.where(AuditLog.action.ilike(f"%{action}%"))
+        stmt = stmt.where(AuditLog.action.ilike(like_pattern(action), escape="\\"))
     if entity_type:
         stmt = stmt.where(AuditLog.entity_type == entity_type)
     if actor_id:
         stmt = stmt.where(AuditLog.actor_id == actor_id)
     if q:
-        term = f"%{q.strip()}%"
-        stmt = stmt.where(or_(AuditLog.action.ilike(term), AuditLog.entity_id.ilike(term)))
+        term = like_pattern(q.strip())
+        stmt = stmt.where(
+            or_(AuditLog.action.ilike(term, escape="\\"), AuditLog.entity_id.ilike(term, escape="\\"))
+        )
     rows, meta = paginate(db, stmt, page, page_size)
     return [
         {

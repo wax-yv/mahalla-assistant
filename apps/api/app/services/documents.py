@@ -26,6 +26,7 @@ from app.core.errors import (
     validation_error,
 )
 from app.core.pagination import PageMeta, paginate
+from app.core.search import like_pattern
 from app.core.time import today_local
 from app.models import (
     Case,
@@ -1244,7 +1245,10 @@ def list_documents(
         stmt = stmt.where(Document.kind == kind)
     if q:
         stmt = stmt.where(
-            or_(Document.original_name.ilike(f"%{q}%"), Document.id.ilike(f"%{q}%"))
+            or_(
+                Document.original_name.ilike(like_pattern(q), escape="\\"),
+                Document.id.ilike(like_pattern(q), escape="\\"),
+            )
         )
     rows, meta = paginate(db, stmt, page, page_size)
     return [document_out(row) for row in rows], meta
