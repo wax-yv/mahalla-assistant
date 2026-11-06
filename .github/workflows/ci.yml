@@ -28,6 +28,9 @@ jobs:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/mahalla
       APP_ENV: development
       DEMO_MODE: "true"
+      # Model ro'yxati testlari uchun — tarmoq chaqirilmaydi (fake klientlar).
+      NVIDIA_NIM_API_KEY: ci-test-key
+      OPENROUTER_API_KEY: ci-test-key
 
     steps:
       - uses: actions/checkout@v4

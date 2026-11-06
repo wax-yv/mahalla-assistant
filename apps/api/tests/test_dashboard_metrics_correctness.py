@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 from app.core.db import SessionLocal
+from app.core.time import today_local
 from app.models import AuditLog, Citizen, Task
 from sqlalchemy import delete, func, select
 
@@ -79,7 +80,8 @@ def dataset():
             )
         db.flush()
 
-        today = date.today()
+        # Bugungi sana Toshkent bo'yicha — dashboard ham shu zonada hisoblaydi.
+        today = today_local()
         for priority in ("low", "normal", "high", "urgent"):
             db.add(
                 Task(
