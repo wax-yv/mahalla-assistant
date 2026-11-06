@@ -24,12 +24,21 @@ type Usage = {
   models: { model: string; provider: string; tokens: number; requests: number }[];
 };
 type Job = { id: string; name: string; job_type: string; schedule: string; status: string; next_run_at: string | null; last_run_at: string | null; error: string };
+type BackupRow = { id: string; kind: string; status: string; started_at: string; size_bytes: number; location: string; error: string };
+
+function jobStatusTone(status: string): { tone: "ok" | "danger" | "info" | "muted"; label: string } {
+  if (status === "active") return { tone: "ok", label: "Faol" };
+  if (status === "running") return { tone: "info", label: "Bajarilmoqda" };
+  if (status === "failed") return { tone: "danger", label: "Xato" };
+  return { tone: "muted", label: status };
+}
 
 const TABS = [
   { key: "settings", label: "Sozlamalar" },
   { key: "audit", label: "Audit jurnali" },
   { key: "usage", label: "AI sarflari" },
   { key: "jobs", label: "Joblar" },
+  { key: "backup", label: "Zaxira nusxalar" },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -59,6 +68,10 @@ export default function AdminPage() {
   const [busy, setBusy] = useState(false);
   const [backupOpen, setBackupOpen] = useState(false);
   const [backing, setBacking] = useState(false);
+  const [backups, setBackups] = useState<BackupRow[] | null>(null);
+  const [restoreTarget, setRestoreTarget] = useState<BackupRow | null>(null);
+  const [restoreMode, setRestoreMode] = useState<"merge" | "replace">("merge");
+  const [restoring, setRestoring] = useState(false);
 
   const load = useCallback(() => {
     setError("");
@@ -71,6 +84,7 @@ export default function AdminPage() {
     }
     if (tab === "usage") api.get<Usage>("/admin/usage?days=14").then(setUsage).catch((err) => setError(err.message));
     if (tab === "jobs") api.get<{ items: Job[] }>("/admin/jobs").then((d) => setJobs(d.items)).catch((err) => setError(err.message));
+    if (tab === "backup") api.get<{ items: BackupRow[] }>("/admin/backups").then((d) => setBackups(d.items)).catch((err) => setError(err.message));
   }, [tab, auditPage, auditQ, auditAction]);
 
   useEffect(() => {
@@ -126,10 +140,29 @@ export default function AdminPage() {
       const result = await api.post<{ backup_id: string; sha256: string }>("/admin/backups");
       toast.show("success", `Zaxira nusxa yaratildi (${result.sha256.slice(0, 12)}…).`);
       setBackupOpen(false);
+      load();
     } catch (err) {
       toast.show("error", err instanceof Error ? err.message : "Zaxira yaratilmadi.");
     } finally {
       setBacking(false);
+    }
+  }
+
+  async function restoreBackup() {
+    if (!restoreTarget) return;
+    setRestoring(true);
+    try {
+      const result = await api.post<{ results: Record<string, { inserted: number }> }>(
+        `/admin/backups/${restoreTarget.id}/restore`,
+        { mode: restoreMode },
+      );
+      const inserted = Object.values(result.results).reduce((sum, r) => sum + r.inserted, 0);
+      toast.show("success", `Zaxira tiklandi (${inserted} ta yozuv qo'shildi).`);
+      setRestoreTarget(null);
+    } catch (err) {
+      toast.show("error", err instanceof Error ? err.message : "Zaxira tiklanmadi.");
+    } finally {
+      setRestoring(false);
     }
   }
 
@@ -358,7 +391,7 @@ export default function AdminPage() {
                         </td>
                         <td className="mono" data-label="Tur">{job.job_type}</td>
                         <td data-label="Jadval">{job.schedule}</td>
-                        <td data-label="Holat"><Badge tone={job.status === "active" ? "ok" : "danger"}>{job.status === "active" ? "Faol" : job.status}</Badge></td>
+                        <td data-label="Holat">{(() => { const st = jobStatusTone(job.status); return <Badge tone={st.tone}>{st.label}</Badge>; })()}</td>
                         <td className="nowrap" data-label="Keyingi bajarilish">{fmtDateTime(job.next_run_at)}</td>
                         <td data-label="Amallar">
                           <button className="btn sm" disabled={busy} onClick={() => void runJob(job)}>
@@ -368,6 +401,41 @@ export default function AdminPage() {
                       </tr>
                     ))}
                     {jobs.length === 0 && <tr><td colSpan={6}><Empty title="Job yo‘q" note="Hali rejalashtirilgan vazifa ishlar yo‘q." /></td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <SkeletonList rows={3} />
+          )}
+        </TabPanel>
+        <TabPanel tabKey="backup">
+          {backups ? (
+            <div className="card card-pad">
+              <div className="row-between mb">
+                <h3>Zaxira nusxalar</h3>
+                <button className="btn" disabled={backing} onClick={() => setBackupOpen(true)}>
+                  <Database size={15} /> Yangi zaxira
+                </button>
+              </div>
+              <div className="table-wrap">
+                <table className="data">
+                  <thead><tr><th>Sana</th><th>Holat</th><th>Hajm</th><th>Amallar</th></tr></thead>
+                  <tbody>
+                    {backups.map((b) => (
+                      <tr key={b.id}>
+                        <td data-label="Sana">{fmtDateTime(b.started_at)}</td>
+                        <td data-label="Holat">{b.status === "completed" ? "Tayyor" : b.status}</td>
+                        <td data-label="Hajm" className="tnum">{Math.round(b.size_bytes / 1024)} KB</td>
+                        <td data-label="Amallar">
+                          <button className="btn sm" disabled={b.status !== "completed"} onClick={() => { setRestoreTarget(b); setRestoreMode("merge"); }}>
+                            Tiklash
+                          </button>
+                          <a className="btn sm" href={`/api/v1/admin/backups/${b.id}/download`}>Yuklab olish</a>
+                        </td>
+                      </tr>
+                    ))}
+                    {backups.length === 0 && <tr><td colSpan={4}><Empty title="Zaxira yo‘q" note="«Yangi zaxira» tugmasi bilan birinchi nusxani yarating." /></td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -388,6 +456,34 @@ export default function AdminPage() {
         danger={false}
         busy={backing}
       />
+
+      <ConfirmDialog
+        open={restoreTarget !== null}
+        onClose={() => setRestoreTarget(null)}
+        onConfirm={() => void restoreBackup()}
+        title={restoreMode === "replace" ? "Zaxiradan TO'LIQ almashtirish" : "Zaxiradan tiklash (birlashtirish)"}
+        message={
+          restoreMode === "replace"
+            ? "DIQQAT: mavjud fuqarolar, oilalar, murojaatlar va vazifalar O'CHIRILIB, zaxiradagi holat qaytariladi. Foydalanuvchilar va sozlamalar saqlanadi. Davom etamizmi?"
+            : "Bazada yetishmayotgan yozuvlar zaxiradan qo'shiladi. Mavjud yozuvlar o'zgarmaydi. Davom etamizmi?"
+        }
+        confirmLabel={restoreMode === "replace" ? "To'liq almashtirish" : "Tiklash"}
+        danger={restoreMode === "replace"}
+        busy={restoring}
+      >
+        {restoreTarget && (
+          <div className="stack-sm" role="radiogroup" aria-label="Tiklash rejimi">
+            <label className="chip-inline">
+              <input type="radio" name="restore-mode" checked={restoreMode === "merge"} onChange={() => setRestoreMode("merge")} />
+              Birlashtirish — yetishmayotgan yozuvlar qo'shiladi (xavfsiz)
+            </label>
+            <label className="chip-inline">
+              <input type="radio" name="restore-mode" checked={restoreMode === "replace"} onChange={() => setRestoreMode("replace")} />
+              To'liq almashtirish — mavjud ma'lumotlar o'chirilib zaxira qaytariladi (xavfli)
+            </label>
+          </div>
+        )}
+      </ConfirmDialog>
     </>
   );
 }

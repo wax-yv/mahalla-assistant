@@ -399,7 +399,9 @@ class ReportApproveRequest(BaseModel):
     note: str = ""
 
 class ChatRequest(BaseModel):
-    message: str = Field(min_length=1, max_length=8000)
+    # E-band: suhbat xabari uzunligi cheklangan — AI suiiste'mol va
+    # prompt hajmi hujumiga qarshi.
+    message: str = Field(min_length=1, max_length=4000)
     conversation_id: str | None = None
     model: str | None = None
     provider: str | None = None

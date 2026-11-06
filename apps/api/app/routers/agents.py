@@ -26,6 +26,19 @@ def chat(
     db: Session = Depends(get_db),
     user: User = Depends(require_csrf_and_permission("agents.use")),
 ):
+    # F-band: AI chat — qimmat endpoint, foydalanuvchi bo'yicha rate limit
+    # (5 daqiqada 30 so'rov). Hisoblagich DB'da — serverless'da ham umumiy.
+    from app.core.errors import APIError
+    from app.services import auth as auth_service
+
+    chat_keys = [f"chat:user:{user.id}"]
+    try:
+        auth_service.check_rate_limit(db, key=chat_keys[0], limit=30, window_minutes=5)
+    except APIError:
+        db.rollback()
+        auth_service.record_failure(chat_keys[0])
+        raise
+
     result = service.chat(
         db,
         message=payload.message,
@@ -35,6 +48,8 @@ def chat(
         preferred_provider=payload.provider,
         preferred_model=payload.model,
     )
+    # Muvaffaqiyatli so'rov ham hisoblanadi — aks holda limit ma'nosiz bo'ladi.
+    auth_service.record_failure(chat_keys[0], window_minutes=5)
     draft_rows = result.pop("draft_actions", [])
     result["draft_actions"] = [service._draft_out(row) for row in draft_rows]
     result["message"] = {

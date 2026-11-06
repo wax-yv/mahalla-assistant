@@ -46,6 +46,11 @@ jobs:
       - name: Ruff (lint)
         run: ruff check apps/api
 
+      - name: Dependency zaifliklari (pip-audit)
+        run: |
+          pip install pip-audit
+          python -m pip_audit -r apps/api/requirements.txt --no-deps
+
       - name: Demo bazani yaratish (seed)
         run: |
           cd apps/api

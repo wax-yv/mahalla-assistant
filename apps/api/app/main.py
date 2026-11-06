@@ -33,6 +33,19 @@ from app.routers import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # D-band: monitoring — `SENTRY_DSN` berilsa xatolar Sentry'ga yuboriladi.
+    if settings.sentry_dsn:
+        try:
+            import sentry_sdk
+
+            sentry_sdk.init(
+                dsn=settings.sentry_dsn,
+                environment=settings.app_env,
+                traces_sample_rate=0.0,
+            )
+            print("[startup] Sentry yoqildi.")
+        except ImportError:
+            print("[startup] sentry-sdk o'rnatilmagan — monitoring o'chirilgan.")
     try:
         with advisory_lock("mahalla_schema"):
             if not schema_ready():

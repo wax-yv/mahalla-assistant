@@ -51,14 +51,28 @@ def search(
 def ask(
     payload: LegislationQuestion,
     db: Session = Depends(get_db),
-    _=Depends(require_csrf_and_permission("agents.use")),
+    user: User = Depends(require_csrf_and_permission("agents.use")),
 ):
-    return service.ask(
+    # F-band: Lex.uz so'rovi — tashqi tarmoq chaqiruvi, rate limit.
+    from app.core.errors import APIError
+    from app.services import auth as auth_service
+
+    ask_key = f"lex:user:{user.id}"
+    try:
+        auth_service.check_rate_limit(db, key=ask_key, limit=10, window_minutes=5)
+    except APIError:
+        db.rollback()
+        auth_service.record_failure(ask_key)
+        raise
+
+    result = service.ask(
         db,
         payload.question,
         use_ai=payload.use_ai,
         sync_if_empty=payload.sync_if_empty,
     )
+    auth_service.record_failure(ask_key, window_minutes=5)
+    return result
 
 @router.post("/sync")
 def sync(

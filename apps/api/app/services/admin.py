@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import write_audit
 from app.core.config import settings
-from app.core.errors import validation_error
+from app.core.errors import bad_request, not_found, validation_error
 from app.core.pagination import PageMeta, paginate
 from app.core.search import like_pattern
 from app.models import (
@@ -565,6 +565,142 @@ def create_backup(db: Session, actor: str) -> tuple[dict[str, Any], str]:
         "size_bytes": size_bytes,
     }
     return summary, sha256
+
+# Restore jadval tartibi — FK bog'liqliklariga teskari emas, to'g'ri tartibda.
+_RESTORE_TABLES: list[tuple[str, Any]] = [
+    ("mahallas", Mahalla),
+    ("streets", Street),
+    ("houses", House),
+    ("families", Family),
+    ("citizens", Citizen),
+    ("cases", Case),
+    ("tasks", Task),
+    ("work_logs", WorkLog),
+    ("reports", Report),
+    ("documents", Document),
+    ("memory_items", MemoryItem),
+    ("audit_logs", AuditLog),
+]
+
+
+def _coerce_row(model: Any, raw: dict[str, Any]) -> dict[str, Any]:
+    """Backup JSON qiymatlarini model ustun turlariga o'giradi."""
+    out: dict[str, Any] = {}
+    for col in model.__table__.columns:
+        if col.name not in raw or raw[col.name] is None:
+            continue
+        value = raw[col.name]
+        try:
+            py_type = col.type.python_type
+        except Exception:  # noqa: BLE001 — noma'lum tur
+            out[col.name] = value
+            continue
+        if py_type is datetime and isinstance(value, str):
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        elif py_type is date and isinstance(value, str):
+            value = date.fromisoformat(value)
+        elif py_type is int and not isinstance(value, bool) and not isinstance(value, int):
+            value = int(value)
+        out[col.name] = value
+    return out
+
+
+def restore_backup(
+    db: Session,
+    backup_id: str,
+    actor: str,
+    request_id: str | None,
+    mode: str = "merge",
+) -> dict[str, Any]:
+    """Zaxira nusxani bazaga tiklaydi (G-band: restore).
+
+    - `merge` (xavfsiz): bazada YO'Q id'larni qo'shadi, mavjudlariga tegmaydi;
+    - `replace`: jadvallarni bo'shatib (users/app_settings/operatsion
+      jadvallar bundan mustasno) zaxiradagi holatni qaytaradi;
+    - `users` har doim merge — admin paroli hech qachon ustidan yozilmaydi;
+    - sha256 yaxlitlik tekshiruvi majburiy.
+    """
+    import hashlib
+
+    backup = db.get(BackupRun, backup_id)
+    if backup is None:
+        raise not_found("Zaxira nusxa topilmadi.")
+    if backup.status != "completed" or not backup.data:
+        raise bad_request("Bu zaxira nusxa tiklash uchun yaroqsiz (saqlanmagan yoki tugallanmagan).")
+    payload = bytes(backup.data)
+    digest = hashlib.sha256(payload).hexdigest()
+    expected = (backup.location or "").rsplit("sha256:", 1)[-1]
+    if expected and expected != digest:
+        raise bad_request("Zaxira yaxlitligi buzilgan (sha256 mos kelmadi).")
+
+    try:
+        content = json.loads(payload)
+    except json.JSONDecodeError as error:
+        raise bad_request("Zaxira JSON formatida o'qilmadi.") from error
+
+    results: dict[str, dict[str, int]] = {}
+    warnings: list[str] = []
+
+    if mode == "replace":
+        for _key, model in reversed(_RESTORE_TABLES):
+            db.execute(model.__table__.delete())
+        db.flush()
+
+    for key, model in _RESTORE_TABLES:
+        rows = content.get(key) or []
+        inserted = skipped = 0
+        pk = model.__table__.primary_key.columns.keys()[0]
+        existing = set(
+            db.execute(select(getattr(model, pk))).scalars().all()
+        )
+        for raw in rows:
+            if not isinstance(raw, dict) or raw.get(pk) in existing:
+                skipped += 1
+                continue
+            values = _coerce_row(model, raw)
+            savepoint = db.begin_nested()
+            try:
+                db.add(model(**values))
+                db.flush()
+                savepoint.commit()
+                existing.add(raw[pk])
+                inserted += 1
+            except Exception:  # noqa: BLE001 — mos kelmayan qator tashlab ketiladi
+                savepoint.rollback()
+                skipped += 1
+        results[key] = {"inserted": inserted, "skipped": skipped}
+
+    # Users — faqat merge (parollar ustidan yozilmaydi)
+    users = content.get("users") or []
+    inserted_users = 0
+    for raw in users:
+        username = (raw or {}).get("username")
+        if not username:
+            continue
+        if db.execute(select(User).where(User.username == username)).scalar_one_or_none():
+            continue
+        values = _coerce_row(User, raw)
+        db.add(User(**values))
+        inserted_users += 1
+    results["users"] = {"inserted": inserted_users, "skipped": len(users) - inserted_users}
+
+    if not content.get("documents"):
+        pass
+    elif results["documents"]["inserted"]:
+        warnings.append("Hujjatlar metama'lumoti tiklandi — fayl tarkiblari zaxirada saqlanmaydi.")
+
+    write_audit(
+        db,
+        action="backup.restored",
+        entity_type="backup_run",
+        entity_id=backup_id,
+        actor_id=actor,
+        request_id=request_id,
+        new_value={"mode": mode, "results": results},
+    )
+    db.commit()
+    return {"backup_id": backup_id, "mode": mode, "results": results, "warnings": warnings}
+
 
 def list_backups(db: Session, limit: int = 20) -> list[dict[str, Any]]:
     rows = db.execute(select(BackupRun).order_by(BackupRun.started_at.desc()).limit(limit)).scalars().all()

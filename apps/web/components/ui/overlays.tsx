@@ -136,9 +136,10 @@ export function Drawer({
 
 export function ConfirmDialog({
   open, onClose, onConfirm, title, message, confirmLabel = "Tasdiqlash", danger = true, busy = false,
+  children,
 }: {
   open: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string;
-  confirmLabel?: string; danger?: boolean; busy?: boolean;
+  confirmLabel?: string; danger?: boolean; busy?: boolean; children?: React.ReactNode;
 }) {
   return (
     <Modal
@@ -160,6 +161,7 @@ export function ConfirmDialog({
         </span>
         <p className="fs-14">{message}</p>
       </div>
+      {children}
     </Modal>
   );
 }

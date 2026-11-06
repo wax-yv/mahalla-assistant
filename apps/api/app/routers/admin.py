@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
@@ -106,6 +106,33 @@ def create_backup(
         "generated_at": summary["generated_at"],
         "counts": summary["counts"],
     }
+
+class BackupRestoreRequest(BaseModel):
+    mode: Literal["merge", "replace"] = "merge"
+
+
+@router.post("/backups/{backup_id}/restore")
+def restore_backup(
+    backup_id: str,
+    payload: BackupRestoreRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_csrf_and_permission("settings.manage")),
+):
+    from app.core.errors import bad_request, not_found
+    from app.models import BackupRun
+
+    backup = db.get(BackupRun, backup_id)
+    if backup is None:
+        raise not_found("Backup topilmadi.")
+    if not backup.data:
+        raise bad_request(
+            "Bu zaxira nusxa saqlanmagan. Yangi zaxira nusxa yarating."
+        )
+    result = service.restore_backup(
+        db, backup_id, user.id, getattr(request.state, "request_id", None), mode=payload.mode
+    )
+    return result
 
 @router.get("/backups/{backup_id}/download")
 def download_backup(

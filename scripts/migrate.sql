@@ -16,3 +16,9 @@ UPDATE users
 SET permissions = COALESCE(permissions, '[]'::jsonb) || '["reports.approve"]'::jsonb
 WHERE role = 'admin'
   AND NOT (COALESCE(permissions, '[]'::jsonb) ? 'reports.approve');
+
+-- ---------------------------------------------------------------------------
+-- I-band: issiq so'rov ustunlariga indeks (fuqaro arxiv filtri)
+-- ---------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS ix_citizens_archived_at
+    ON citizens (archived_at);
